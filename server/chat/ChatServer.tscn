@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://server/chat/chat_server.gd" id="1"]
+[ext_resource type="Script" path="res://shared/chat_endpoint.gd" id="2"]
+
+[node name="ChatRoot" type="Node"]
+script = ExtResource("1")
+
+[node name="ChatNet" type="Node" parent="."]
+
+[node name="ChatEndpoint" type="Node" parent="ChatNet"]
+script = ExtResource("2")

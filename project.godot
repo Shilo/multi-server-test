@@ -13,6 +13,12 @@ config_version=5
 config/name="multi-server-test"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
+run/main_scene="res://launcher/Launcher.tscn"
+
+[display]
+
+window/size/viewport_width=800
+window/size/viewport_height=520
 
 [physics]
 

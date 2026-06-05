@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://client/world/world_scene.gd" id="1"]
+
+[node name="World3" type="Node2D"]
+script = ExtResource("1")
+world_id = 3
+world_name = "World 3"
+world_color = Color(0.95, 0.25, 0.35, 1)
+portal_targets_csv = "1"
