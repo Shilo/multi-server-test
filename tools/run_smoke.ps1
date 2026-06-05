@@ -1,7 +1,8 @@
 param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
     [switch]$UseExported,
-    [int]$TimeoutSeconds = 30
+    [int]$TimeoutSeconds = 30,
+    [int]$ClientCount = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,8 +17,10 @@ function Get-Executable($name) {
     if (-not $UseExported) {
         return $Godot
     }
+    if ($name -like "client*") {
+        return Join-Path $BuildRoot "client\client.exe"
+    }
     switch ($name) {
-        "client" { return Join-Path $BuildRoot "client\client.exe" }
         "master" { return Join-Path $BuildRoot "master\master.exe" }
         "chat" { return Join-Path $BuildRoot "chat\chat.exe" }
         "world1" { return Join-Path $BuildRoot "world1\world1.exe" }
@@ -62,6 +65,7 @@ function Wait-LogMarker($name, $marker, $timeoutSeconds = 10) {
 }
 
 $servers = @()
+$clients = @()
 try {
     $servers += Start-Role "master" @("--role", "master")
     Wait-LogMarker "master" "MASTER_READY"
@@ -81,21 +85,33 @@ try {
     Wait-LogMarker "world3" "WORLD_READY id=3"
     Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=3"
 
-    $client = Start-Role "client" @("--role", "client", "--smoke-test")
-    $client.WaitForExit($TimeoutSeconds * 1000) | Out-Null
-    if (-not $client.HasExited) {
-        Stop-Process -Id $client.Id -Force
-        throw "Smoke client timed out after $TimeoutSeconds seconds"
+    for ($i = 1; $i -le $ClientCount; $i++) {
+        $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
+        $clients += @{
+            Name = $clientName
+            Process = Start-Role $clientName @("--role", "client", "--smoke-test")
+        }
     }
 
-    $clientLog = Get-Content (Join-Path $LogRoot "client.out.log") -Raw
-    if (-not $clientLog.Contains("SMOKE_PASS")) {
-        Write-Host $clientLog
-        $clientErrPath = Join-Path $LogRoot "client.err.log"
-        if (Test-Path $clientErrPath) {
-            Write-Host (Get-Content $clientErrPath -Raw)
+    foreach ($clientEntry in $clients) {
+        $clientName = $clientEntry.Name
+        $clientProcess = $clientEntry.Process
+        $clientProcess.WaitForExit($TimeoutSeconds * 1000) | Out-Null
+        if (-not $clientProcess.HasExited) {
+            Stop-Process -Id $clientProcess.Id -Force
+            throw "Smoke client $clientName timed out after $TimeoutSeconds seconds"
         }
-        throw "Smoke test did not produce SMOKE_PASS"
+
+        $clientLogPath = Join-Path $LogRoot "$clientName.out.log"
+        $clientLog = Get-Content $clientLogPath -Raw
+        if (-not $clientLog.Contains("SMOKE_PASS")) {
+            Write-Host $clientLog
+            $clientErrPath = Join-Path $LogRoot "$clientName.err.log"
+            if (Test-Path $clientErrPath) {
+                Write-Host (Get-Content $clientErrPath -Raw)
+            }
+            throw "Smoke test did not produce SMOKE_PASS for $clientName"
+        }
     }
 
     $requiredMarkers = @(
@@ -115,9 +131,22 @@ try {
         }
     }
 
-    Write-Host "SMOKE_PASS logs=$LogRoot"
+    $expectedChatMessages = 5 * $ClientCount
+    $chatMessages = (Select-String -Path (Join-Path $LogRoot "chat.out.log") -SimpleMatch "[CHAT] received from peer").Count
+    if ($chatMessages -lt $expectedChatMessages) {
+        Write-Host (Get-Content (Join-Path $LogRoot "chat.out.log") -Raw)
+        throw "Expected at least $expectedChatMessages chat messages, found $chatMessages"
+    }
+
+    Write-Host "SMOKE_PASS clients=$ClientCount chat_messages=$chatMessages logs=$LogRoot"
 }
 finally {
+    foreach ($clientEntry in $clients) {
+        $clientProcess = $clientEntry.Process
+        if ($clientProcess -and -not $clientProcess.HasExited) {
+            Stop-Process -Id $clientProcess.Id -Force
+        }
+    }
     foreach ($server in $servers) {
         if ($server -and -not $server.HasExited) {
             Stop-Process -Id $server.Id -Force

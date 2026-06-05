@@ -75,13 +75,14 @@ func run_smoke_test() -> void:
 		return
 
 	var sequence := [2, 1, 3, 1]
-	for target_world in sequence:
+	for i in range(sequence.size()):
+		var target_world: int = sequence[i]
 		print("SMOKE_STEP transfer %d_to_%d" % [active_world_id, target_world])
 		ok = await _transfer_via_portal(target_world)
 		if not ok:
 			_smoke_fail("transfer to world %d failed" % target_world)
 			return
-		ok = await _send_chat_ping("after-world-%d" % active_world_id)
+		ok = await _send_chat_ping("after-transfer-%d-world-%d" % [i + 1, active_world_id])
 		if not ok:
 			_smoke_fail("chat ping failed after world %d" % active_world_id)
 			return

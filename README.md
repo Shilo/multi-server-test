@@ -72,10 +72,22 @@ Editor/headless smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1
 ```
 
+Two simultaneous editor/headless clients:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -ClientCount 2
+```
+
 Exported-artifact smoke:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported
+```
+
+Three simultaneous exported clients:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported -ClientCount 3
 ```
 
 Successful logs include:
@@ -125,6 +137,7 @@ Research notes:
 - `docs/spike-findings.md`
 - `docs/research-sweep.md`
 - `docs/server-orchestration-and-travel.md`
+- `docs/end-to-end-validation.md`
 
 Important Godot limitations discovered:
 
