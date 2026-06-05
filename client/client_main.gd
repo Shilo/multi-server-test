@@ -173,7 +173,12 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String) -> bool:
 
 	api.multiplayer_peer = peer
 	print("[CLIENT] connecting to %s at %s" % [label, url])
-	var ok := await _wait_until(func() -> bool: return connected or failed, 5.0, "%s connection" % label)
+	var ok := await _wait_until(
+		func() -> bool:
+			return connected or failed or peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED,
+		5.0,
+		"%s connection" % label
+	)
 	if not ok or failed:
 		push_error("[CLIENT] connection failed for %s" % label)
 		return false
