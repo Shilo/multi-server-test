@@ -12,6 +12,7 @@ func _ready() -> void:
 	)
 	master_api.peer_disconnected.connect(func(peer_id: int) -> void:
 		print("[MASTER] peer disconnected: %s" % peer_id)
+		$MasterNet/MasterEndpoint.unregister_peer(peer_id)
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()

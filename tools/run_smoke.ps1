@@ -40,14 +40,46 @@ function Start-Role($name, $roleArgs) {
     return Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
 }
 
+function Wait-LogMarker($name, $marker, $timeoutSeconds = 10) {
+    $out = Join-Path $LogRoot "$name.out.log"
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if ((Test-Path $out) -and (Select-String -Path $out -SimpleMatch $marker -Quiet)) {
+            Write-Host "SMOKE_READY $name $marker"
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    }
+
+    if (Test-Path $out) {
+        Write-Host (Get-Content $out -Raw)
+    }
+    $err = Join-Path $LogRoot "$name.err.log"
+    if (Test-Path $err) {
+        Write-Host (Get-Content $err -Raw)
+    }
+    throw "Timed out waiting for marker '$marker' in $name logs"
+}
+
 $servers = @()
 try {
     $servers += Start-Role "master" @("--role", "master")
+    Wait-LogMarker "master" "MASTER_READY"
+
     $servers += Start-Role "chat" @("--role", "chat")
+    Wait-LogMarker "chat" "CHAT_READY"
+
     $servers += Start-Role "world1" @("--role", "world", "--world", "1")
+    Wait-LogMarker "world1" "WORLD_READY id=1"
+    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=1"
+
     $servers += Start-Role "world2" @("--role", "world", "--world", "2")
+    Wait-LogMarker "world2" "WORLD_READY id=2"
+    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=2"
+
     $servers += Start-Role "world3" @("--role", "world", "--world", "3")
-    Start-Sleep -Seconds 2
+    Wait-LogMarker "world3" "WORLD_READY id=3"
+    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=3"
 
     $client = Start-Role "client" @("--role", "client", "--smoke-test")
     $client.WaitForExit($TimeoutSeconds * 1000) | Out-Null
@@ -71,7 +103,10 @@ try {
         "CHAT_READY",
         "WORLD_READY id=1",
         "WORLD_READY id=2",
-        "WORLD_READY id=3"
+        "WORLD_READY id=3",
+        "MASTER_WORLD_REGISTERED id=1",
+        "MASTER_WORLD_REGISTERED id=2",
+        "MASTER_WORLD_REGISTERED id=3"
     )
     foreach ($marker in $requiredMarkers) {
         $found = Get-ChildItem $LogRoot -Filter "*.out.log" | Select-String -SimpleMatch $marker -Quiet

@@ -96,7 +96,7 @@ func _bootstrap_connections() -> bool:
 	if not ok:
 		return false
 	master_endpoint.request_routes.rpc_id(1)
-	ok = await _wait_until(func() -> bool: return not routes.is_empty(), 5.0, "master routes")
+	ok = await _wait_until(func() -> bool: return _has_all_world_routes(), 5.0, "master routes")
 	if not ok:
 		return false
 	print("SMOKE_STEP client connected to master")
@@ -116,6 +116,14 @@ func _bootstrap_connections() -> bool:
 		return false
 	print("SMOKE_STEP client confirmed initial world %d" % active_world_id)
 	return true
+
+
+func _has_all_world_routes() -> bool:
+	if routes.is_empty() or not routes.has("worlds"):
+		return false
+
+	var worlds: Dictionary = routes["worlds"]
+	return worlds.has(1) and worlds.has(2) and worlds.has(3)
 
 
 func _connect_world(world_id: int) -> bool:

@@ -9,6 +9,7 @@ This is a one-project Godot 4.6 MVP proving a native multiplayer topology with:
 - WebSocket-based `MultiplayerAPI` peers.
 - Separate client multiplayer contexts for master, chat, and active world.
 - A persistent chat connection while the active world connection is replaced.
+- Live world registration with the master server before client route lookup.
 - A tiny top-down `CharacterBody2D` player.
 - Three visibly distinct worlds with portal transfer topology:
   - World 1 -> World 2
@@ -36,6 +37,8 @@ The client uses sibling networking branches:
 - `WorldNet/WorldEndpoint`
 
 Those names are mirrored in the server scenes so RPC paths and scripts match.
+
+World servers also use a separate `MasterNet/MasterEndpoint` branch to register with master while their `WorldNet/WorldEndpoint` branch accepts gameplay clients.
 
 ## Run Roles From The Editor Binary
 
@@ -82,6 +85,9 @@ Successful logs include:
 - `WORLD_READY id=1`
 - `WORLD_READY id=2`
 - `WORLD_READY id=3`
+- `MASTER_WORLD_REGISTERED id=1`
+- `MASTER_WORLD_REGISTERED id=2`
+- `MASTER_WORLD_REGISTERED id=3`
 - `SMOKE_STEP client connected to chat`
 - `SMOKE_STEP client confirmed initial world 1`
 - `SMOKE_STEP confirmed world 2 with chat alive`
@@ -118,6 +124,7 @@ Research notes:
 
 - `docs/spike-findings.md`
 - `docs/research-sweep.md`
+- `docs/server-orchestration-and-travel.md`
 
 Important Godot limitations discovered:
 
@@ -125,6 +132,7 @@ Important Godot limitations discovered:
 - RPC paths, node names, RPC annotations, and script signatures must match.
 - Client-to-server RPCs need `@rpc("any_peer")`.
 - Branch-local multiplayer works for separate contexts, but connection status checking was more reliable than relying only on `connected_to_server` signals in this smoke.
+- If this spike later uses `MultiplayerSpawner` and `MultiplayerSynchronizer`, server travel should fully tear down and rebuild the active replicated world branch. Do not carry live synchronized nodes from one server peer to another.
 - Godot 4 dedicated server execution uses `--headless`; no separate Godot 3-style server binary is needed.
 
 MCP and local validation used:
@@ -142,4 +150,3 @@ MCP and local validation used:
 - Keep RPC endpoint names stable or generate mirrored client/server scenes.
 - Add a tiny test harness around branch setup timing and RPC path validation.
 - Resist adding replication/prediction until the branch-context abstraction is proven.
-
