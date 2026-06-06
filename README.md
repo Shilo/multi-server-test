@@ -86,6 +86,59 @@ Manual portal reproduction test with only master, World 1, and World 2:
 
 Success logs include `MANUAL_PORTAL_TEST_PASS`.
 
+## Test From Godot Run Instances
+
+Use Godot's editor launcher when you want visible local clients and headless local servers.
+
+Open:
+
+```text
+Debug > Customize Run Instances...
+```
+
+Recommended setup for two visible clients plus the full server topology:
+
+- Leave `Main Run Args` empty. The main run becomes one visible client.
+- Enable `Enable Multiple Instances`.
+- Set the instance count to `7`.
+- Leave the first extra instance's `Launch Arguments` empty. This becomes the second visible client.
+- Add these launch arguments for the remaining extra instances:
+
+```text
+--headless -- --role master
+--headless -- --role world --world 1
+--headless -- --role world --world 2
+--headless -- --role world --world 3
+--headless -- --role chat
+```
+
+The final run-instance table should conceptually be:
+
+```text
+main editor run: visible client
+instance 1:       visible client
+instance 2:       --headless -- --role master
+instance 3:       --headless -- --role world --world 1
+instance 4:       --headless -- --role world --world 2
+instance 5:       --headless -- --role world --world 3
+instance 6:       --headless -- --role chat
+```
+
+Then press Play. Expected behavior:
+
+- Both visible clients connect to master, chat, and World 1.
+- Both clients spawn `Player_<peer_id>` nodes under `SpawnRoot`.
+- Chat messages sent with Enter show the sender peer id.
+- A local-authority player entering a portal transfers only that client.
+- Chat remains connected while the active world connection changes.
+
+Important testing notes:
+
+- Stop the previous run before starting another one. Otherwise old headless servers can keep ports `19080` through `19084` bound.
+- Start order is handled by the client retry/wait path well enough for this spike, but if a client launches before every world registers, manual mode only sees worlds that were registered when routes were fetched.
+- If you change scripts or scenes used by the headless roles, stop and restart the run instances so those server processes reload the project.
+- Run-instance testing is for manual visual verification. Use `tools/run_smoke.ps1` for repeatable pass/fail automation.
+
 ## Automated Smoke Test
 
 Editor/headless smoke:
