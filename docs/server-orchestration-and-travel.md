@@ -1,6 +1,6 @@
 # Server Orchestration And Server Travel Research
 
-Historical note: this research note captures decisions from an earlier spike checkpoint. The current implementation has since added `MultiplayerSpawner` and `MultiplayerSynchronizer` to the world/player scenes. Treat `docs/mini-mmo-architecture-guide.md` as the canonical current architecture.
+Historical note: this research note captures decisions from an earlier spike checkpoint. The current implementation has since added `MultiplayerSpawner` and `MultiplayerSynchronizer` to the world/player scenes. Treat `docs/godot-multi-server-architecture-guide.md` as the canonical current architecture.
 
 Date: 2026-06-05
 

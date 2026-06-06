@@ -1,6 +1,6 @@
-# Mini MMO Architecture Guide
+# Godot Multi-Server Architecture Guide
 
-This document explains the working multi-server Godot setup in this project and how it can be used as the seed for a small MMO-style architecture.
+This document explains the working multi-server Godot setup in this project and how it can be used as the seed for a small online world architecture.
 
 The project is intentionally small. It proves the shape:
 
@@ -166,7 +166,7 @@ World 1 -> World 3
 World 3 -> World 1
 ```
 
-For this spike, `NetConfig` is enough. A real mini MMO would eventually replace some of this with database-backed world records, health status, region, population, and shard allocation.
+For this spike, `NetConfig` is enough. A larger online world prototype would eventually replace some of this with database-backed world records, health status, region, population, and shard allocation.
 
 ## Launcher Role Selection
 
@@ -638,9 +638,9 @@ For an MVP-style fourth world:
 
 Do not duplicate `world_server.gd`. One world server script should stay parameterized by `--world`.
 
-## How To Evolve This Into A Mini MMO
+## How To Evolve This
 
-The current architecture is a seed. A small MMO can grow from it by keeping the same separation of responsibilities.
+The current architecture is a seed. A small multi-server online game can grow from it by keeping the same separation of responsibilities.
 
 Suggested next layers:
 
@@ -712,4 +712,4 @@ This structure wins for the spike because it is boring in the right places:
 - World scenes are inherited rather than copied.
 - The smoke script proves the full topology with logs.
 
-The result is small enough to throw away, but concrete enough to guide a real mini MMO prototype.
+The result is small enough to throw away, but concrete enough to guide a real multi-server online world prototype.

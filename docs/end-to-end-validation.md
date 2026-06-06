@@ -1,6 +1,6 @@
 # End-To-End Validation Findings
 
-Historical note: this document records the validation state from an earlier spike checkpoint on 2026-06-05. The current implementation has since added `MultiplayerSpawner` to `client/world/world.tscn` and `MultiplayerSynchronizer` position replication to `client/player/Player.tscn`. Treat `docs/mini-mmo-architecture-guide.md` as the canonical current architecture.
+Historical note: this document records the validation state from an earlier spike checkpoint on 2026-06-05. The current implementation has since added `MultiplayerSpawner` to `client/world/world.tscn` and `MultiplayerSynchronizer` position replication to `client/player/Player.tscn`. Treat `docs/godot-multi-server-architecture-guide.md` as the canonical current architecture.
 
 Date: 2026-06-05
 
