@@ -96,6 +96,8 @@ Open:
 Debug > Customize Run Instances...
 ```
 
+![Godot Run Instances configured for two clients and five headless servers](docs/images/godot-run-instances-full-topology.png)
+
 Recommended setup for two visible clients plus the full server topology:
 
 - Leave `Main Run Args` empty. The main run becomes one visible client.
