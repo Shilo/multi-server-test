@@ -16,7 +16,6 @@ var available_world_ids: Array[int] = []
 func _ready() -> void:
 	_build_marker_field()
 	_build_label()
-	_build_player()
 	_build_portals()
 
 
@@ -44,11 +43,25 @@ func _build_label() -> void:
 	add_child(label)
 
 
-func _build_player() -> void:
+func spawn_player(peer_id: int) -> Node:
+	var spawn_root := get_node("SpawnRoot")
+	var player_name := "Player_%d" % peer_id
+	if spawn_root.has_node(player_name):
+		return spawn_root.get_node(player_name)
+
 	var player := PLAYER_SCENE.instantiate()
-	player.name = "Player"
-	player.position = Vector2(320, 260)
-	add_child(player)
+	player.name = player_name
+	player.position = Vector2(320 + (spawn_root.get_child_count() * 42), 260)
+	player.set_multiplayer_authority(peer_id, true)
+	spawn_root.add_child(player)
+	return player
+
+
+func remove_player(peer_id: int) -> void:
+	var spawn_root := get_node("SpawnRoot")
+	var player_name := "Player_%d" % peer_id
+	if spawn_root.has_node(player_name):
+		spawn_root.get_node(player_name).queue_free()
 
 
 func _build_portals() -> void:

@@ -26,9 +26,11 @@ func _ready() -> void:
 	_load_world_scene()
 	world_api.peer_connected.connect(func(peer_id: int) -> void:
 		print("[WORLD %d] peer connected: %s" % [world_id, peer_id])
+		_spawn_player(peer_id)
 	)
 	world_api.peer_disconnected.connect(func(peer_id: int) -> void:
 		print("[WORLD %d] peer disconnected: %s" % [world_id, peer_id])
+		_remove_player(peer_id)
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
@@ -48,6 +50,17 @@ func _load_world_scene() -> void:
 	var scene := load(NET_CONFIG.world_scene_path(world_id)) as PackedScene
 	world_scene = scene.instantiate()
 	$WorldNet/WorldSceneRoot.add_child(world_scene)
+
+
+func _spawn_player(peer_id: int) -> void:
+	if world_scene and world_scene.has_method("spawn_player"):
+		world_scene.spawn_player(peer_id)
+		print("[WORLD %d] spawned player for peer %s" % [world_id, peer_id])
+
+
+func _remove_player(peer_id: int) -> void:
+	if world_scene and world_scene.has_method("remove_player"):
+		world_scene.remove_player(peer_id)
 
 
 func _connect_to_master() -> void:

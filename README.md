@@ -47,6 +47,7 @@ World scene inheritance:
 - Add shared world-level nodes, such as a `MultiplayerSpawner`, to `world.tscn` when testing high-level replication.
 - Client and world server both mount the active inherited world scene at `WorldNet/WorldSceneRoot`, so branch-local multiplayer paths match below `WorldNet`.
 - `world.tscn` includes `SpawnRoot`; point `MultiplayerSpawner.spawn_path` there for replicated world children.
+- World servers spawn `Player_<peer_id>` instances as direct children of `SpawnRoot` when peers connect. This proves spawning only; add `MultiplayerSynchronizer` to the player scene when you want movement/property replication.
 
 ## Run Roles From The Editor Binary
 
