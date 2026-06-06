@@ -6,6 +6,11 @@ func _enter_tree() -> void:
 	_apply_authority_from_name()
 
 
+func _ready() -> void:
+	_apply_authority_from_name()
+	_apply_authority_from_name.call_deferred()
+
+
 func _apply_authority_from_name() -> void:
 	if not name.begins_with("Player_"):
 		return
@@ -16,6 +21,7 @@ func _apply_authority_from_name() -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	_apply_authority_from_name()
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		velocity = Vector2.ZERO
 		return
