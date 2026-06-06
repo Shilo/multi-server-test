@@ -37,6 +37,7 @@ Main documentation:
 
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of this MVP.
+- [Godot Tiny MMO Database Research](docs/godot-tiny-mmo-database-resource-vs-sqlite-research.md): focused research on Tiny MMO's Resource-vs-SQLite persistence history, old 2D MMO file storage, and a test plan for mini-MMORPG persistence tradeoffs.
 - [JDungeon Comparison Research](docs/jdungeon-comparison.md): comparison against JDungeon's Godot MORPG source, including gateway routing, component sync, persistence, and deployment tradeoffs.
 - [Godot 4 Network Tutorial Comparison Research](docs/godot4-network-tutorial-comparison.md): comparison against Something Like Games' Godot 4 networking tutorial, including JWT handoff, ENet/DTLS caveats, and high-level scene replication patterns.
 - [Godot Multiplayer Project Comparison Matrix](docs/godot-multiplayer-project-comparison.md): table comparison across this project, Godot Tiny MMO, JDungeon, and Godot 4 Network Tutorial.
