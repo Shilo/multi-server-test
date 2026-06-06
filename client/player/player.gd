@@ -2,6 +2,19 @@ extends CharacterBody2D
 
 @export var speed := 180.0
 
+func _enter_tree() -> void:
+	_apply_authority_from_name()
+
+
+func _apply_authority_from_name() -> void:
+	if not name.begins_with("Player_"):
+		return
+
+	var peer_id := int(name.trim_prefix("Player_"))
+	if peer_id > 0:
+		set_multiplayer_authority(peer_id, true)
+
+
 func _physics_process(_delta: float) -> void:
 	if multiplayer.has_multiplayer_peer() and not is_multiplayer_authority():
 		velocity = Vector2.ZERO
