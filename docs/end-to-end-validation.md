@@ -100,6 +100,37 @@ The active world connection is replaced by setting the world branch peer offline
 
 The chat branch is not touched during world transfer.
 
+## Manual Runtime Decoupling
+
+Outside of `--smoke-test`, the client no longer requires the complete world graph or chat server.
+
+Manual mode requires:
+
+- Master server.
+- Initial world route from master.
+- The initial world server.
+
+Manual mode treats these as optional:
+
+- Chat server.
+- World 2.
+- World 3.
+
+If chat is unavailable, the client logs that optional chat is unavailable and continues.
+
+If a world is not registered with master, portals to that world are hidden when the local world scene is built. This lets a developer run only:
+
+```text
+-- --role master
+-- --role world --world 1
+-- --role client
+```
+
+and still visually debug the client in World 1.
+
+Smoke mode remains strict and continues to require chat plus all three worlds.
+
+
 ## High-Level Multiplayer Node Findings
 
 The current MVP does not use `MultiplayerSpawner` or `MultiplayerSynchronizer`; it uses explicit RPC endpoints.
@@ -167,6 +198,7 @@ powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported -Clien
 
 Results:
 
+- Partial manual topology with master + World 1 + client: pass.
 - Editor/headless two-client smoke: pass.
 - Exported two-client smoke: pass.
 - 3 repeated editor/headless two-client runs: pass.
@@ -212,4 +244,3 @@ Final exported three-client run summary:
 - Packet loss, latency, reconnect, or crash recovery behavior.
 
 These are intentionally outside the MVP.
-

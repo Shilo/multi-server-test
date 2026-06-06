@@ -11,11 +11,17 @@ const PORTAL_SCRIPT := preload("res://client/world/portal_area.gd")
 @export var world_color := Color(0.2, 0.8, 0.5, 1.0)
 @export var portal_targets_csv := "2"
 
+var available_world_ids: Array[int] = []
+
 func _ready() -> void:
 	_build_marker_field()
 	_build_label()
 	_build_player()
 	_build_portals()
+
+
+func set_available_world_ids(ids: Array[int]) -> void:
+	available_world_ids = ids
 
 
 func _build_marker_field() -> void:
@@ -49,6 +55,10 @@ func _build_portals() -> void:
 	var targets := _portal_targets()
 	for i in range(targets.size()):
 		var target: int = targets[i]
+		if not available_world_ids.is_empty() and not (target in available_world_ids):
+			print("[CLIENT] hiding portal from world %d to unavailable world %d" % [world_id, target])
+			continue
+
 		var portal = PORTAL_SCRIPT.new()
 		var color := Color(1.0, 0.85 - (0.25 * i), 0.15 + (0.35 * i), 1.0)
 		portal.setup(target, color)

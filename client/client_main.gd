@@ -14,6 +14,7 @@ var current_world_scene: Node
 var pending_transfer := {}
 var denied_transfer := -1
 var smoke_test := false
+var chat_connected := false
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $ChatNet/ChatEndpoint
@@ -63,13 +64,13 @@ func _setup_multiplayer_branches() -> void:
 
 
 func run_manual_client() -> void:
-	if await _bootstrap_connections():
+	if await _bootstrap_manual_connections():
 		print("[CLIENT] manual client ready")
 
 
 func run_smoke_test() -> void:
 	print("SMOKE_STEP client starts")
-	var ok := await _bootstrap_connections()
+	var ok := await _bootstrap_smoke_connections()
 	if not ok:
 		_smoke_fail("bootstrap failed")
 		return
@@ -92,7 +93,7 @@ func run_smoke_test() -> void:
 	get_tree().quit(0)
 
 
-func _bootstrap_connections() -> bool:
+func _bootstrap_smoke_connections() -> bool:
 	var ok := await _connect_api(master_api, NET_CONFIG.master_url(), "master")
 	if not ok:
 		return false
@@ -106,6 +107,7 @@ func _bootstrap_connections() -> bool:
 	ok = await _connect_api(chat_api, routes["chat"]["url"], "chat")
 	if not ok:
 		return false
+	chat_connected = true
 	print("SMOKE_STEP client connected to chat")
 	ok = await _send_chat_ping("initial")
 	if not ok:
@@ -119,6 +121,40 @@ func _bootstrap_connections() -> bool:
 	return true
 
 
+func _bootstrap_manual_connections() -> bool:
+	var ok := await _connect_api(master_api, NET_CONFIG.master_url(), "master")
+	if not ok:
+		return false
+	master_endpoint.request_routes.rpc_id(1)
+	ok = await _wait_until(func() -> bool: return _has_initial_world_route(), 5.0, "initial world route")
+	if not ok:
+		return false
+	print("[CLIENT] received manual routes; registered worlds=%s" % str(_available_world_ids()))
+	master_api.multiplayer_peer = OfflineMultiplayerPeer.new()
+
+	if routes.has("chat"):
+		chat_connected = await _connect_api(chat_api, routes["chat"]["url"], "chat", 1.0, false)
+		if chat_connected:
+			print("[CLIENT] optional chat connected")
+		else:
+			print("[CLIENT] optional chat unavailable; continuing without chat")
+
+	var initial_world: int = routes["initial_world"]
+	ok = await _connect_world(initial_world)
+	if not ok:
+		return false
+	print("[CLIENT] manual initial world ready: %d" % active_world_id)
+	return true
+
+
+func _has_initial_world_route() -> bool:
+	if routes.is_empty() or not routes.has("worlds") or not routes.has("initial_world"):
+		return false
+
+	var worlds: Dictionary = routes["worlds"]
+	return worlds.has(routes["initial_world"])
+
+
 func _has_all_world_routes() -> bool:
 	if routes.is_empty() or not routes.has("worlds"):
 		return false
@@ -127,7 +163,21 @@ func _has_all_world_routes() -> bool:
 	return worlds.has(1) and worlds.has(2) and worlds.has(3)
 
 
+func _available_world_ids() -> Array[int]:
+	var ids: Array[int] = []
+	if routes.has("worlds"):
+		var worlds: Dictionary = routes["worlds"]
+		for id in worlds.keys():
+			ids.append(int(id))
+	ids.sort()
+	return ids
+
+
 func _connect_world(world_id: int) -> bool:
+	if not _has_world_route(world_id):
+		push_error("[CLIENT] no registered route for world %d" % world_id)
+		return false
+
 	world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
 	active_world_id = 0
 	_load_world_scene(world_id)
@@ -137,6 +187,14 @@ func _connect_world(world_id: int) -> bool:
 		return false
 	world_endpoint.request_world_state.rpc_id(1)
 	return await _wait_until(func() -> bool: return active_world_id == world_id, 5.0, "world %d state" % world_id)
+
+
+func _has_world_route(world_id: int) -> bool:
+	if not routes.has("worlds"):
+		return false
+
+	var worlds: Dictionary = routes["worlds"]
+	return worlds.has(world_id)
 
 
 func _transfer_via_portal(target_world: int) -> bool:
@@ -160,16 +218,21 @@ func _transfer_via_portal(target_world: int) -> bool:
 
 
 func _send_chat_ping(label: String) -> bool:
+	if not chat_connected:
+		print("[CLIENT] chat ping skipped; chat is not connected")
+		return false
+
 	var message := "chat-ping-%s-world-%d" % [label, active_world_id]
 	chat_endpoint.send_chat.rpc_id(1, message)
 	return await _wait_until(func() -> bool: return message in chat_echoes, 5.0, "chat echo %s" % message)
 
 
-func _connect_api(api: MultiplayerAPI, url: String, label: String) -> bool:
+func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_seconds := 5.0, report_error := true) -> bool:
 	var peer := WebSocketMultiplayerPeer.new()
 	var err := peer.create_client(url)
 	if err != OK:
-		push_error("[CLIENT] create_client failed for %s url=%s err=%s" % [label, url, err])
+		if report_error:
+			push_error("[CLIENT] create_client failed for %s url=%s err=%s" % [label, url, err])
 		return false
 
 	api.multiplayer_peer = peer
@@ -177,24 +240,27 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String) -> bool:
 	var ok := await _wait_until(
 		func() -> bool:
 			return peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTING,
-		5.0,
-		"%s connection" % label
+		timeout_seconds,
+		"%s connection" % label,
+		report_error
 	)
 	if not ok or peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
-		push_error("[CLIENT] connection failed for %s" % label)
+		if report_error:
+			push_error("[CLIENT] connection failed for %s" % label)
 		return false
 	print("[CLIENT] connected to %s" % label)
 	return true
 
 
-func _wait_until(predicate: Callable, timeout_seconds: float, label: String) -> bool:
+func _wait_until(predicate: Callable, timeout_seconds: float, label: String, report_error := true) -> bool:
 	var elapsed := 0.0
 	while elapsed < timeout_seconds:
 		if predicate.call():
 			return true
 		await get_tree().create_timer(0.05).timeout
 		elapsed += 0.05
-	push_error("[CLIENT] timeout waiting for %s" % label)
+	if report_error:
+		push_error("[CLIENT] timeout waiting for %s" % label)
 	return false
 
 
@@ -204,12 +270,18 @@ func _load_world_scene(world_id: int) -> void:
 
 	var scene := load(NET_CONFIG.world_scene_path(world_id)) as PackedScene
 	current_world_scene = scene.instantiate()
+	if current_world_scene.has_method("set_available_world_ids"):
+		current_world_scene.set_available_world_ids(_available_world_ids())
 	current_world_scene.portal_requested.connect(_on_portal_requested)
 	world_view.add_child(current_world_scene)
 	_set_status("Loading World %d" % world_id)
 
 
 func _on_portal_requested(target_world: int) -> void:
+	if not _has_world_route(target_world):
+		print("[CLIENT] portal target world %d is not registered; ignoring" % target_world)
+		return
+
 	print("[CLIENT] requesting transfer from world %d to world %d" % [active_world_id, target_world])
 	world_endpoint.request_transfer.rpc_id(1, target_world)
 

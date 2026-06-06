@@ -64,6 +64,8 @@ Launch a manual client:
 & $godot --path . -- --role client
 ```
 
+Manual client mode is relaxed. It requires master plus the initial registered world, but chat and other worlds are optional. If only World 1 is registered, the client enters World 1 and hides portals to unavailable worlds.
+
 ## Automated Smoke Test
 
 Editor/headless smoke:
@@ -147,6 +149,11 @@ Important Godot limitations discovered:
 - Branch-local multiplayer works for separate contexts, but connection status checking was more reliable than relying only on `connected_to_server` signals in this smoke.
 - If this spike later uses `MultiplayerSpawner` and `MultiplayerSynchronizer`, server travel should fully tear down and rebuild the active replicated world branch. Do not carry live synchronized nodes from one server peer to another.
 - Godot 4 dedicated server execution uses `--headless`; no separate Godot 3-style server binary is needed.
+
+Runtime/testing split:
+
+- Manual client mode: relaxed partial topology for debugging.
+- `--smoke-test`: strict full topology, requiring chat and worlds 1/2/3.
 
 MCP and local validation used:
 

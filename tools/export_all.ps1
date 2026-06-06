@@ -6,6 +6,9 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildRoot = Join-Path $ProjectRoot "builds"
+$SharedRoot = Join-Path $BuildRoot "_shared"
+$SharedExe = Join-Path $SharedRoot "multi-server-test.exe"
+$SharedPck = Join-Path $SharedRoot "multi-server-test.pck"
 
 $targets = @(
     @{ Name = "client"; Path = "client\client.exe" },
@@ -17,23 +20,48 @@ $targets = @(
 )
 
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $SharedRoot | Out-Null
+
+function Wait-FileStable($path, $timeoutSeconds = 30) {
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    $lastLength = -1
+    $stableChecks = 0
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $path) {
+            $item = Get-Item $path
+            if ($item.Length -eq $lastLength -and $item.Length -gt 0) {
+                $stableChecks += 1
+                if ($stableChecks -ge 5) {
+                    return
+                }
+            }
+            else {
+                $stableChecks = 0
+                $lastLength = $item.Length
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    throw "File did not become stable: $path"
+}
+
+Remove-Item -Force -Path $SharedExe, $SharedPck -ErrorAction SilentlyContinue
+Write-Host "EXPORT_START shared $SharedExe"
+& $Godot --headless --path $ProjectRoot --export-debug $Preset $SharedExe
+$exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+if ($exitCode -ne 0) {
+    throw "Export failed for shared artifact with exit code $exitCode"
+}
+Wait-FileStable $SharedExe
+Wait-FileStable $SharedPck
+Write-Host "EXPORT_DONE shared"
 
 foreach ($target in $targets) {
     $output = Join-Path $BuildRoot $target.Path
+    $pckOutput = [System.IO.Path]::ChangeExtension($output, ".pck")
     New-Item -ItemType Directory -Force -Path (Split-Path $output -Parent) | Out-Null
-    Write-Host "EXPORT_START $($target.Name) $output"
-    & $Godot --headless --path $ProjectRoot --export-debug $Preset $output
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-    if ($exitCode -ne 0) {
-        throw "Export failed for $($target.Name) with exit code $exitCode"
-    }
-    $deadline = (Get-Date).AddSeconds(10)
-    while (-not (Test-Path $output) -and (Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 100
-    }
-    if (-not (Test-Path $output)) {
-        throw "Expected exported executable missing: $output"
-    }
+    Copy-Item -Force -Path $SharedExe -Destination $output
+    Copy-Item -Force -Path $SharedPck -Destination $pckOutput
     Write-Host "EXPORT_DONE $($target.Name)"
 }
 
