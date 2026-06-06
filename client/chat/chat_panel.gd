@@ -19,8 +19,8 @@ func add_system_line(message: String) -> void:
 	_append_line("[color=gray]%s[/color]" % message)
 
 
-func add_chat_line(message: String) -> void:
-	_append_line(message)
+func add_chat_line(sender_id: int, message: String) -> void:
+	_append_line("[b]%d:[/b] %s" % [sender_id, message])
 
 
 func _append_line(message: String) -> void:

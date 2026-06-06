@@ -32,10 +32,10 @@ func _ready() -> void:
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
 		routes = new_routes
 	)
-	chat_endpoint.chat_received.connect(func(message: String) -> void:
+	chat_endpoint.chat_received.connect(func(sender_id: int, message: String) -> void:
 		chat_echoes.append(message)
 		if chat_panel and chat_panel.has_method("add_chat_line"):
-			chat_panel.add_chat_line(message)
+			chat_panel.add_chat_line(sender_id, message)
 	)
 	world_endpoint.world_state_received.connect(func(world_id: int, _allowed_targets: Array) -> void:
 		active_world_id = world_id
