@@ -297,6 +297,214 @@ If losing it would hurt the player, Master or Social persists it.
 If it only exists during active gameplay, World owns it.
 ```
 
+## Live Requests, Caching, And Master Traffic
+
+Master should own durable truth, but World and Social servers should not ask
+Master for every tiny action.
+
+Use this rule:
+
+```text
+Ask Master at trust/session/save boundaries.
+Cache active session state in RAM.
+Write durable changes through Master.
+Keep high-frequency gameplay and chat local to World/Social.
+```
+
+### What Should Call Master
+
+World and Social servers should call Master for:
+
+- validating session, world-entry, and social-entry tokens;
+- loading a character snapshot when a player enters a world;
+- saving character location on transfer, logout, checkpoint, or timed save;
+- issuing or validating world transfer tokens;
+- creating, joining, leaving, or deleting guilds;
+- creating or accepting friend requests;
+- adding/removing blocks or ignores;
+- changing account, character, role, moderation, or permission state;
+- looking up another player's current world/presence when the local cache does
+  not know;
+- writing audit/moderation records that must survive crashes.
+
+World and Social servers should not call Master for:
+
+- every movement tick;
+- every collision or portal overlap check;
+- every local NPC update;
+- every normal global chat fanout;
+- every presence heartbeat if Social already owns the live connection;
+- every UI refresh while the relevant data is already cached.
+
+### Social Server Data
+
+Social should keep active social state in RAM:
+
+- connected clients;
+- account id, character id, display name, and roles for connected users;
+- online presence;
+- current world id for online users if Master or World publishes it;
+- joined chat channels;
+- recent chat history per channel;
+- active party/guild invite timers;
+- rate-limit counters;
+- mute/block cache for connected users.
+
+Social should ask Master or its durable store for:
+
+- initial identity/session validation;
+- friend list load on connect;
+- guild membership load on connect;
+- block/ignore list load on connect;
+- offline private messages/mail;
+- moderation state;
+- durable friend/guild/block mutations.
+
+For MVP, Social can persist chat in one of two ways:
+
+```text
+Option A: Social -> Master -> database
+Option B: Social owns its own SQLite database
+```
+
+Option A is simpler for one database owner. Option B is better if chat volume
+grows and you want chat history isolated from account/character data. Start with
+Option A unless chat history becomes noisy enough to justify a separate Social
+database.
+
+### Chat Persistence
+
+Do not write every transient chat fanout through Master before delivering it.
+
+Recommended chat path:
+
+```text
+Client -> Social: send message
+Social -> Social RAM: validate rate limit, channel, mute/block state
+Social -> clients in channel: deliver message
+Social -> durable store: append message asynchronously or in small batches
+```
+
+For global chat, keep a small recent history in RAM, such as the last 50 to 200
+messages per channel. Persist only what you need for moderation, reconnect
+history, or audit. If chat history is not important yet, persist less and log
+only moderation-relevant events.
+
+### Friends, Guilds, And Blocks
+
+Friends, guilds, and blocks are durable social data. They should not be
+world-local.
+
+Recommended ownership for MVP:
+
+```text
+Master owns durable friends/guilds/blocks.
+Social caches active friends/guilds/blocks for online users.
+Social asks Master to mutate durable social records.
+```
+
+Examples:
+
+```text
+Friend request:
+Client -> Social -> Master: create friend request
+Master -> database: save request
+Master -> Social: success
+Social -> recipient if online: notify
+```
+
+```text
+Guild chat:
+Client -> Social: send guild message
+Social RAM: confirm sender is in guild
+Social -> online guild members: deliver
+Social -> durable store: append chat/audit if needed
+```
+
+```text
+Block player:
+Client -> Social -> Master: block player
+Master -> database: save block
+Master -> Social: success
+Social RAM: update block cache immediately
+```
+
+Later, if Social becomes large enough, guild/friend/block persistence can move
+into a Social database. For the first real version, keeping those records in
+Master is simpler.
+
+### World Server Data
+
+World should keep active gameplay state in RAM:
+
+- connected players in that scene;
+- current position/velocity/input state;
+- active NPCs;
+- projectiles/effects;
+- temporary loot;
+- combat state;
+- portal overlap state;
+- scene-local timers.
+
+World should ask Master for:
+
+- token validation on join;
+- character snapshot on join;
+- transfer approval/token creation;
+- durable character save on logout/transfer/checkpoint;
+- periodic dirty character saves;
+- inventory/currency/quest changes if those systems are durable.
+
+Do not save to Master on every position change. Save on meaningful boundaries:
+
+- entering a new world;
+- logout/disconnect;
+- checkpoint reached;
+- inventory/currency/quest mutation;
+- every 30 to 120 seconds for dirty characters;
+- graceful world shutdown.
+
+For a small MMO, a dirty-save timer is enough:
+
+```text
+World keeps character runtime state in RAM.
+World marks character dirty when durable state changes.
+Every N seconds, World sends dirty character snapshot to Master.
+Master writes it transactionally.
+```
+
+### RAM Versus SQLite
+
+Do not think of this as "RAM database or SQLite database." Use both:
+
+- RAM for active sessions, tokens, connected users, hot character snapshots,
+  channel membership, recent chat, presence, and runtime gameplay.
+- SQLite for durable accounts, characters, saved locations, inventory, guilds,
+  friends, blocks, audit logs, and chat history you care about.
+
+It is normal for servers to cache hot data in RAM and write durable changes to a
+database. It is not normal to query SQLite for every movement tick or every UI
+frame. It is also risky to keep important data only in RAM without regular
+transactional saves.
+
+SQLite already has its own internal page cache, but that is not a replacement
+for application-level state. The application still needs RAM objects for the
+currently connected player, their current world, current channels, and live
+gameplay state.
+
+### Recommended Master Load
+
+For the expected VirtuCade scale, Master traffic should be modest:
+
+- Gateway calls Master on guest entry, register, login, and character selection.
+- World calls Master on join, transfer, logout, dirty saves, and shutdown.
+- Social calls Master on connect/session validation and durable social changes.
+- Social does not call Master for every delivered chat message unless Master is
+  explicitly the chat persistence owner.
+
+This keeps Master authoritative without making it a bottleneck for every live
+interaction.
+
 ## Database Recommendation
 
 Start with SQLite if one Master process owns all durable writes.
