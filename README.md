@@ -38,7 +38,8 @@ Main documentation:
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of this MVP.
 - [JDungeon Comparison Research](docs/jdungeon-comparison.md): comparison against JDungeon's Godot MORPG source, including gateway routing, component sync, persistence, and deployment tradeoffs.
-- [Godot Multiplayer Project Comparison Matrix](docs/godot-multiplayer-project-comparison.md): table comparison across this project, Godot Tiny MMO, and JDungeon.
+- [Godot 4 Network Tutorial Comparison Research](docs/godot4-network-tutorial-comparison.md): comparison against Something Like Games' Godot 4 networking tutorial, including JWT handoff, ENet/DTLS caveats, and high-level scene replication patterns.
+- [Godot Multiplayer Project Comparison Matrix](docs/godot-multiplayer-project-comparison.md): table comparison across this project, Godot Tiny MMO, JDungeon, and Godot 4 Network Tutorial.
 - [End-to-End Validation Findings](docs/end-to-end-validation.md): final smoke-test and export validation notes.
 - [Server Orchestration And Server Travel Research](docs/server-orchestration-and-travel.md): research notes that led to live world registration and branch-local travel.
 
@@ -59,7 +60,7 @@ World scene inheritance:
 - Client and world server both mount the active inherited world scene at `WorldNet/WorldSceneRoot`, so branch-local multiplayer paths match below `WorldNet`.
 - `world.tscn` includes `SpawnRoot` plus a `MultiplayerSpawner` whose `spawn_path` points at that root.
 - World servers spawn `Player_<peer_id>` instances as children of `SpawnRoot` when peers connect.
-- `Player.tscn` includes a `MultiplayerSynchronizer` for `position`. The automated smoke test proves spawning, chat, and travel; manual two-client testing is the better way to verify live movement synchronization.
+- `Player.tscn` includes a `MultiplayerSynchronizer` for `position`. The automated smoke test validates registration, chat, and travel, and it exercises spawning indirectly through world connections. It does not assert replicated player nodes or live movement synchronization; manual two-client testing is the better way to verify that.
 
 ## Run Roles From The Editor Binary
 
