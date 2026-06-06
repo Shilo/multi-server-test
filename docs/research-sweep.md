@@ -1,5 +1,7 @@
 # Research Sweep: Minimal Godot 4 Multi-Server MVP
 
+Historical note: this research sweep records the state before later implementation milestones. Export tooling, exported smoke testing, `MultiplayerSpawner`, and `MultiplayerSynchronizer` are now present. Treat `docs/mini-mmo-architecture-guide.md` as the canonical current architecture.
+
 Date: 2026-06-05
 
 ## What Was Researched
@@ -210,4 +212,3 @@ Next implementation actions after this research note:
 2. Re-run Godot parse and headless launch checks.
 3. Commit the role/client/server structure once it validates.
 4. Add export and smoke tooling only after the in-editor multi-process smoke passes.
-

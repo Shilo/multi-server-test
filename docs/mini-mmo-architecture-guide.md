@@ -68,7 +68,7 @@ ClientRoot
     WorldSceneRoot
   CanvasLayer
     StatusLabel
-    ChatPanel
+    ChatPanel (added at runtime)
 ```
 
 The branch-local APIs are assigned in `client/client_main.gd`:
@@ -129,6 +129,8 @@ shared/
 tools/
   run_smoke.ps1
   export_all.ps1
+
+run_instance_grid.gd
 ```
 
 The separation is deliberately obvious:
@@ -139,6 +141,7 @@ The separation is deliberately obvious:
 - `server/world/` contains the shared world server process, parameterized by `--world`.
 - `shared/` contains constants and RPC endpoint scripts used by both sides.
 - `tools/` contains CLI export and smoke orchestration.
+- `run_instance_grid.gd` is an editor autoload used to tile Run Instances windows during manual multi-client testing.
 
 ## Shared Configuration
 
@@ -214,10 +217,12 @@ Client route behavior:
 
 1. The client connects to master.
 2. The client calls `request_routes()`.
-3. Master replies with the live registered worlds, chat endpoint, and initial world.
+3. Master replies with live registered worlds plus the static chat endpoint and initial world from `NetConfig`.
 4. The client disconnects master by assigning `OfflineMultiplayerPeer`.
 
 For this MVP, the master is only needed for initial route discovery. Chat and world traffic do not go through master.
+
+Only world endpoints are dynamically registered in this spike. The chat endpoint and initial world are static config values returned with the route response, so chat can still be advertised even when the chat server is not running. Manual client mode handles that by treating chat as optional.
 
 ## Chat Server
 
@@ -296,9 +301,9 @@ Startup behavior:
 The world server has two independent multiplayer responsibilities:
 
 - `WorldNet`: accepts gameplay clients for that world.
-- `MasterNet`: connects upward to master for registry/heartbeat behavior.
+- `MasterNet`: connects upward to master for registry behavior and sends a heartbeat placeholder.
 
-This mirrors a real MMO split: world servers are independent game processes, but they report availability to a control-plane service.
+This mirrors a real MMO split: world servers are independent game processes, but they report their endpoints to a control-plane service. The current heartbeat RPC is intentionally minimal: worlds send it, but master does not store heartbeat timestamps or enforce heartbeat timeouts yet. Deregistration currently happens when the master sees the world peer disconnect.
 
 ## World Scenes
 
@@ -530,7 +535,7 @@ Set your local Godot path:
 $godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe"
 ```
 
-Launch roles manually:
+Launch roles manually in separate terminals, or start the server roles as background processes. The server commands keep running after their ready markers:
 
 ```powershell
 & $godot --headless --path . -- --role master
@@ -569,10 +574,13 @@ SMOKE_STEP client confirmed initial world 1
 SMOKE_STEP confirmed world 2 with chat alive
 SMOKE_STEP confirmed world 1 with chat alive
 SMOKE_STEP confirmed world 3 with chat alive
+SMOKE_STEP confirmed world 1 with chat alive
 SMOKE_PASS
 ```
 
 Logs are written under `.logs/`.
+
+The smoke sequence covers server startup, live world registration, chat round-trips, player spawning, and portal travel through `1 -> 2 -> 1 -> 3 -> 1`. It does not prove live movement synchronization between visible clients; use Godot Run Instances with two visible clients to verify synchronized player motion manually.
 
 ## Exporting
 
@@ -588,14 +596,20 @@ Outputs:
 
 ```text
 builds/client/client.exe
+builds/client/client.pck
 builds/master/master.exe
+builds/master/master.pck
 builds/chat/chat.exe
+builds/chat/chat.pck
 builds/world1/world1.exe
+builds/world1/world1.pck
 builds/world2/world2.exe
+builds/world2/world2.pck
 builds/world3/world3.exe
+builds/world3/world3.pck
 ```
 
-Each artifact is the same exported Godot project copied into a role-labeled location. Role behavior still comes from command-line arguments.
+Each role output is an `.exe` plus a sibling `.pck`, because the export preset uses `binary_format/embed_pck=false`. Keep each pair together when running or moving builds. The export script first creates a shared debug artifact under `builds/_shared/`, then copies the executable and pack into role-labeled folders. Role behavior still comes from command-line arguments.
 
 Run exported smoke:
 
@@ -699,4 +713,3 @@ This structure wins for the spike because it is boring in the right places:
 - The smoke script proves the full topology with logs.
 
 The result is small enough to throw away, but concrete enough to guide a real mini MMO prototype.
-

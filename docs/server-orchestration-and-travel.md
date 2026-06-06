@@ -1,5 +1,7 @@
 # Server Orchestration And Server Travel Research
 
+Historical note: this research note captures decisions from an earlier spike checkpoint. The current implementation has since added `MultiplayerSpawner` and `MultiplayerSynchronizer` to the world/player scenes. Treat `docs/mini-mmo-architecture-guide.md` as the canonical current architecture.
+
 Date: 2026-06-05
 
 ## What Was Researched
@@ -83,4 +85,3 @@ Add one minimal orchestration behavior:
 - The smoke script waits for `MASTER_WORLD_REGISTERED id=1`, `id=2`, and `id=3` before launching the client.
 
 This preserves the MVP while making the master/world relationship much closer to how real server registries and allocators work.
-

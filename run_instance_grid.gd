@@ -1,8 +1,7 @@
 extends Node
 ## MimicRunInstanceGrid optional editor-only AutoLoad.
 ## [br][br]
-## Not registered automatically by the plugin; add this script as an AutoLoad
-## to enable window tiling.
+## Registered in project.godot as the RunInstanceGrid AutoLoad.
 ## Automatically tiles multiple Godot run-instance windows into a shared grid.
 ## [br][br]
 ## This utility is intended for local multiplayer testing from the editor. Make

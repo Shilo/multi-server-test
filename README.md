@@ -31,6 +31,7 @@ For a complete explanation of how the multi-server setup works and how to grow i
 - `shared/`: shared endpoints, config, and CLI parsing.
 - `tools/`: export and smoke-test scripts.
 - `docs/`: research and audit notes.
+- `run_instance_grid.gd`: editor autoload that tiles visible Run Instances windows and helps manual multi-client debugging.
 
 Main documentation:
 
@@ -52,10 +53,10 @@ World scene inheritance:
 
 - `client/world/world.tscn` is the shared base world scene.
 - `client/world/world_1.tscn`, `world_2.tscn`, and `world_3.tscn` inherit from it and only override identity, color, and portal targets.
-- Add shared world-level nodes, such as a `MultiplayerSpawner`, to `world.tscn` when testing high-level replication.
 - Client and world server both mount the active inherited world scene at `WorldNet/WorldSceneRoot`, so branch-local multiplayer paths match below `WorldNet`.
-- `world.tscn` includes `SpawnRoot`; point `MultiplayerSpawner.spawn_path` there for replicated world children.
-- World servers spawn `Player_<peer_id>` instances as direct children of `SpawnRoot` when peers connect. This proves spawning only; add `MultiplayerSynchronizer` to the player scene when you want movement/property replication.
+- `world.tscn` includes `SpawnRoot` plus a `MultiplayerSpawner` whose `spawn_path` points at that root.
+- World servers spawn `Player_<peer_id>` instances as children of `SpawnRoot` when peers connect.
+- `Player.tscn` includes a `MultiplayerSynchronizer` for `position`. The automated smoke test proves spawning, chat, and travel; manual two-client testing is the better way to verify live movement synchronization.
 
 ## Run Roles From The Editor Binary
 
@@ -65,7 +66,7 @@ Use the local Godot 4.6.3 binary:
 $godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe"
 ```
 
-Launch servers:
+Launch servers in separate terminals, or start them as background processes. These server commands keep running after they print their `*_READY` marker:
 
 ```powershell
 & $godot --headless --path . -- --role master
@@ -86,9 +87,9 @@ Manual client mode is relaxed. It requires master plus the initial registered wo
 Manual portal reproduction test with only master, World 1, and World 2:
 
 ```powershell
-& $godot --headless --path . -- --role master
-& $godot --headless --path . -- --role world --world 1
-& $godot --headless --path . -- --role world --world 2
+Start-Process -FilePath $godot -ArgumentList @("--headless", "--path", (Resolve-Path .), "--", "--role", "master")
+Start-Process -FilePath $godot -ArgumentList @("--headless", "--path", (Resolve-Path .), "--", "--role", "world", "--world", "1")
+Start-Process -FilePath $godot -ArgumentList @("--headless", "--path", (Resolve-Path .), "--", "--role", "world", "--world", "2")
 & $godot --headless --path . -- --role client --manual-portal-test
 ```
 
@@ -145,7 +146,7 @@ Then press Play. Expected behavior:
 Important testing notes:
 
 - Stop the previous run before starting another one. Otherwise old headless servers can keep ports `19080` through `19084` bound.
-- Start order is handled by the client retry/wait path well enough for this spike, but if a client launches before every world registers, manual mode only sees worlds that were registered when routes were fetched.
+- The client performs a single connection wait, not a retry loop. Make sure master and the initial world are listening before clients start; if a client fetches routes before every world registers, manual mode only sees worlds registered in that startup snapshot.
 - If you change scripts or scenes used by the headless roles, stop and restart the run instances so those server processes reload the project.
 - Run-instance testing is for manual visual verification. Use `tools/run_smoke.ps1` for repeatable pass/fail automation.
 
@@ -190,6 +191,7 @@ Successful logs include:
 - `SMOKE_STEP confirmed world 2 with chat alive`
 - `SMOKE_STEP confirmed world 1 with chat alive`
 - `SMOKE_STEP confirmed world 3 with chat alive`
+- `SMOKE_STEP confirmed world 1 with chat alive`
 - `SMOKE_PASS`
 
 Logs are written under `.logs/` and ignored by git.
@@ -207,13 +209,19 @@ powershell -ExecutionPolicy Bypass -File tools\export_all.ps1
 Outputs:
 
 - `builds/client/client.exe`
+- `builds/client/client.pck`
 - `builds/master/master.exe`
+- `builds/master/master.pck`
 - `builds/chat/chat.exe`
+- `builds/chat/chat.pck`
 - `builds/world1/world1.exe`
+- `builds/world1/world1.pck`
 - `builds/world2/world2.exe`
+- `builds/world2/world2.pck`
 - `builds/world3/world3.exe`
+- `builds/world3/world3.pck`
 
-Each artifact is the same shared Godot project with a different filename. Role behavior still comes from `--role` and `--world`, which keeps the MVP simple and proves shared-project export without multiplying projects.
+Each role output is an `.exe` plus a sibling `.pck`, because the export preset does not embed the pack file. Keep each pair together when running or moving builds. The script exports one shared debug artifact under `builds/_shared/` and copies it into role-labeled folders; role behavior still comes from `--role` and `--world`, which keeps the MVP simple and proves shared-project export without multiplying projects.
 
 ## Research Findings
 
@@ -230,7 +238,7 @@ Important Godot limitations discovered:
 - RPC paths, node names, RPC annotations, and script signatures must match.
 - Client-to-server RPCs need `@rpc("any_peer")`.
 - Branch-local multiplayer works for separate contexts, but connection status checking was more reliable than relying only on `connected_to_server` signals in this smoke.
-- If this spike later uses `MultiplayerSpawner` and `MultiplayerSynchronizer`, server travel should fully tear down and rebuild the active replicated world branch. Do not carry live synchronized nodes from one server peer to another.
+- `MultiplayerSpawner` and `MultiplayerSynchronizer` are present in the current scenes. Server travel should still fully tear down and rebuild the active replicated world branch. Do not carry live synchronized nodes from one server peer to another.
 - Godot 4 dedicated server execution uses `--headless`; no separate Godot 3-style server binary is needed.
 
 Runtime/testing split:
