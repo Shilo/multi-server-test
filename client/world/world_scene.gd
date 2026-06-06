@@ -5,6 +5,8 @@ signal portal_requested(target_world: int)
 const ICON := preload("res://icon.svg")
 const PLAYER_SCENE := preload("res://client/player/Player.tscn")
 const PORTAL_SCRIPT := preload("res://client/world/portal_area.gd")
+const SPAWN_ROOT_PATH := "SpawnRoot"
+const SPAWNER_PATH := "MultiplayerSpawner"
 
 @export var world_id := 1
 @export var world_name := "World 1"
@@ -15,6 +17,8 @@ const PORTAL_SCRIPT := preload("res://client/world/portal_area.gd")
 var available_world_ids: Array[int] = []
 
 func _ready() -> void:
+	var spawner := get_node(SPAWNER_PATH) as MultiplayerSpawner
+	spawner.spawn_function = _spawn_player_from_data
 	_build_marker_field()
 	_build_label()
 	_build_portals()
@@ -45,21 +49,34 @@ func _build_label() -> void:
 
 
 func spawn_player(peer_id: int) -> Node:
-	var spawn_root := get_node("SpawnRoot")
+	var spawn_root := get_node(SPAWN_ROOT_PATH)
 	var player_name := "Player_%d" % peer_id
 	if spawn_root.has_node(player_name):
 		return spawn_root.get_node(player_name)
 
+	var spawner := get_node(SPAWNER_PATH) as MultiplayerSpawner
+	return spawner.spawn({
+		"peer_id": peer_id,
+		"position": player_spawn_position,
+	})
+
+
+func _spawn_player_from_data(data: Variant) -> Node:
+	var spawn_data: Dictionary = {}
+	if data is Dictionary:
+		spawn_data = data
+
+	var peer_id := int(spawn_data.get("peer_id", 1))
+	var spawn_position: Vector2 = spawn_data.get("position", player_spawn_position)
 	var player := PLAYER_SCENE.instantiate()
-	player.name = player_name
-	player.position = player_spawn_position
+	player.name = "Player_%d" % peer_id
+	player.position = spawn_position
 	player.set_multiplayer_authority(peer_id, true)
-	spawn_root.add_child(player)
 	return player
 
 
 func remove_player(peer_id: int) -> void:
-	var spawn_root := get_node("SpawnRoot")
+	var spawn_root := get_node(SPAWN_ROOT_PATH)
 	var player_name := "Player_%d" % peer_id
 	if spawn_root.has_node(player_name):
 		spawn_root.get_node(player_name).queue_free()
