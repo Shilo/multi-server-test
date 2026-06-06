@@ -133,7 +133,10 @@ VirtuCade's planned flow is:
 5. Master issues a temporary world-entry token.
 6. Gateway returns hub world address plus token.
 7. Client connects to the hub World Server as a guest.
-8. Client can move around the hub before registering or logging in.
+8. Client spawns in the hub as a ghost guest.
+9. Client can move around the hub before registering or logging in.
+10. Client cannot enter other worlds until the guest session becomes an
+   authenticated account/character session.
 
 ```mermaid
 sequenceDiagram
@@ -151,8 +154,15 @@ sequenceDiagram
     C->>W: connect with guest token
     W->>M: validate token
     M-->>W: token valid
-    W-->>C: spawn guest player
+    W-->>C: spawn ghost guest
 ```
+
+Guests should be visually distinct from logged-in characters. In the hub world,
+they should appear as ghosts: visible enough to prove presence and movement, but
+clearly marked as temporary/unregistered players. A guest token should only be
+valid for the hub world. If a ghost guest enters a portal or requests travel to
+any non-hub world, the world server should reject the transfer and show a login
+or register prompt.
 
 ## Register/Login From Inside Gameplay
 
