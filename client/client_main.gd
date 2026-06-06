@@ -35,12 +35,8 @@ func _ready() -> void:
 		active_world_id = world_id
 		_set_status("In World %d; chat echoes=%d" % [active_world_id, chat_echoes.size()])
 	)
-	world_endpoint.transfer_approved.connect(func(target_world: int, endpoint: Dictionary) -> void:
-		pending_transfer = {"target_world": target_world, "endpoint": endpoint}
-	)
-	world_endpoint.transfer_denied.connect(func(target_world: int) -> void:
-		denied_transfer = target_world
-	)
+	world_endpoint.transfer_approved.connect(_on_transfer_approved)
+	world_endpoint.transfer_denied.connect(_on_transfer_denied)
 
 	if smoke_test:
 		run_smoke_test()
@@ -66,6 +62,8 @@ func _setup_multiplayer_branches() -> void:
 func run_manual_client() -> void:
 	if await _bootstrap_manual_connections():
 		print("[CLIENT] manual client ready")
+		if CLI_ARGS.has_flag(OS.get_cmdline_user_args(), "manual-portal-test"):
+			await _run_manual_portal_test()
 
 
 func run_smoke_test() -> void:
@@ -217,6 +215,23 @@ func _transfer_via_portal(target_world: int) -> bool:
 	return await _connect_world(approved_world)
 
 
+func _run_manual_portal_test() -> void:
+	print("MANUAL_PORTAL_TEST start")
+	if not current_world_scene or not current_world_scene.has_method("activate_portal_to"):
+		print("MANUAL_PORTAL_TEST_FAIL no active portal scene")
+		get_tree().quit(1)
+		return
+
+	current_world_scene.activate_portal_to(2)
+	var ok := await _wait_until(func() -> bool: return active_world_id == 2, 5.0, "manual portal transfer to world 2")
+	if ok:
+		print("MANUAL_PORTAL_TEST_PASS")
+		get_tree().quit(0)
+	else:
+		print("MANUAL_PORTAL_TEST_FAIL did not reach world 2")
+		get_tree().quit(1)
+
+
 func _send_chat_ping(label: String) -> bool:
 	if not chat_connected:
 		print("[CLIENT] chat ping skipped; chat is not connected")
@@ -284,6 +299,28 @@ func _on_portal_requested(target_world: int) -> void:
 
 	print("[CLIENT] requesting transfer from world %d to world %d" % [active_world_id, target_world])
 	world_endpoint.request_transfer.rpc_id(1, target_world)
+
+
+func _on_transfer_approved(target_world: int, endpoint: Dictionary) -> void:
+	pending_transfer = {"target_world": target_world, "endpoint": endpoint}
+	if not smoke_test:
+		call_deferred("_complete_manual_transfer", target_world)
+
+
+func _on_transfer_denied(target_world: int) -> void:
+	denied_transfer = target_world
+
+
+func _complete_manual_transfer(target_world: int) -> void:
+	if pending_transfer.is_empty() or int(pending_transfer.get("target_world", -1)) != target_world:
+		return
+
+	_set_status("Transferring to World %d" % target_world)
+	var ok := await _connect_world(target_world)
+	if ok:
+		print("[CLIENT] manual transfer complete: world %d" % active_world_id)
+	else:
+		push_error("[CLIENT] manual transfer failed to world %d" % target_world)
 
 
 func _set_status(text: String) -> void:

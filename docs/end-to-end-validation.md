@@ -199,6 +199,7 @@ powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported -Clien
 Results:
 
 - Partial manual topology with master + World 1 + client: pass.
+- Manual portal topology with master + World 1 + World 2 + client, no chat: pass.
 - Editor/headless two-client smoke: pass.
 - Exported two-client smoke: pass.
 - 3 repeated editor/headless two-client runs: pass.

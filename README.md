@@ -66,6 +66,17 @@ Launch a manual client:
 
 Manual client mode is relaxed. It requires master plus the initial registered world, but chat and other worlds are optional. If only World 1 is registered, the client enters World 1 and hides portals to unavailable worlds.
 
+Manual portal reproduction test with only master, World 1, and World 2:
+
+```powershell
+& $godot --headless --path . -- --role master
+& $godot --headless --path . -- --role world --world 1
+& $godot --headless --path . -- --role world --world 2
+& $godot --headless --path . -- --role client --manual-portal-test
+```
+
+Success logs include `MANUAL_PORTAL_TEST_PASS`.
+
 ## Automated Smoke Test
 
 Editor/headless smoke:
