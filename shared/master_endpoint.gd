@@ -52,13 +52,9 @@ func register_world(world_id: int, endpoint: Dictionary, allowed_targets: Array)
 
 
 @rpc("any_peer", "call_remote", "unreliable")
-func world_heartbeat(world_id: int) -> void:
+func world_heartbeat(_world_id: int) -> void:
 	if not multiplayer.is_server():
 		return
-
-	var sender_id := multiplayer.get_remote_sender_id()
-	#if peer_worlds.get(sender_id, 0) == world_id:
-		#print("MASTER_WORLD_HEARTBEAT id=%d peer=%s" % [world_id, sender_id])
 
 
 @rpc("authority", "call_remote", "reliable")

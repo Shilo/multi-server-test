@@ -152,8 +152,11 @@ func _get_cell_rect(
 	reference_client_size: Vector2i
 ) -> Rect2i:
 	var grid := _get_grid(count, area.size, _get_aspect(reference_client_size))
-	var cell := Vector2i(area.size.x / grid.x, area.size.y / grid.y)
-	var slot := Vector2i(index % grid.x, index / grid.x)
+	var cell := Vector2i(
+		floori(float(area.size.x) / float(grid.x)),
+		floori(float(area.size.y) / float(grid.y))
+	)
+	var slot := Vector2i(index % grid.x, floori(float(index) / float(grid.x)))
 
 	return Rect2i(area.position + slot * cell, cell)
 
@@ -277,7 +280,11 @@ func _fit_frame_rect_to_cell(
 	# A cell smaller than the window chrome cannot preserve aspect; clamp so the
 	# fitted frame never spills out of its cell and overlaps a neighbor.
 	var fitted_frame_size := (fitted_client_size + frame_chrome_size).min(cell_rect.size)
-	var fitted_frame_position := cell_rect.position + (cell_rect.size - fitted_frame_size) / 2
+	var fitted_offset := cell_rect.size - fitted_frame_size
+	var fitted_frame_position := cell_rect.position + Vector2i(
+		floori(float(fitted_offset.x) / 2.0),
+		floori(float(fitted_offset.y) / 2.0)
+	)
 
 	return Rect2i(fitted_frame_position, fitted_frame_size)
 
@@ -324,7 +331,11 @@ func _set_frame_rect(rect: Rect2i, frame_margins := Vector4i(0, 0, 0, 0)) -> Vec
 	var frame_chrome_size := _get_frame_chrome_size(frame_margins)
 	var client_size := _get_frame_client_size(rect.size, frame_margins)
 	var frame_size := client_size + frame_chrome_size
-	var frame_position := rect.position + (rect.size - frame_size) / 2
+	var frame_offset := rect.size - frame_size
+	var frame_position := rect.position + Vector2i(
+		floori(float(frame_offset.x) / 2.0),
+		floori(float(frame_offset.y) / 2.0)
+	)
 
 	get_window().size = client_size
 	get_window().position = frame_position + Vector2i(frame_margins.x, frame_margins.y)
