@@ -71,6 +71,15 @@ live in:
 | Interest management | None. | Entity grid AOI support; props still have future-AOI notes. | View/watch areas drive add/remove and position updates to interested players. | Tiny synchronizer visibility example using `set_visibility_for`. |
 | Authority stance | Local player authority for movement plus server-side spawning/transfer checks. | Explicit client-owned vs server-owned sync fields; movement is not a server-authoritative reference in the inspected source. | Server-authority simulation with client input requests and server position correction. | Owning client has authority over input synchronizer; server owns resulting player state. |
 
+## Godot Multiplayer Feature Usage
+
+| Feature | This project | Godot Tiny MMO | JDungeon | Godot 4 Network Tutorial |
+| --- | --- | --- | --- | --- |
+| Uses `MultiplayerSpawner` at runtime | Yes. `client/world/world.tscn` has a `MultiplayerSpawner` under the shared world scene, and `world_scene.gd` spawns players through it. | No active runtime use found. Player and instance spawning are manual RPC/custom logic. A `MultiplayerSpawner` string appears in an editor plugin icon lookup only. | No active runtime use found in inspected main path. Entity creation/removal is manual through map/entity sync components. | Yes. World server uses `LevelSpawner` and level `PlayerSpawner`; client mirrors the required spawner structure. |
+| Uses `MultiplayerSynchronizer` at runtime | Yes. `client/player/Player.tscn` synchronizes player `position`. | No active runtime use found. It uses custom state synchronizers, path registries, and packed deltas instead. | No active runtime use found in inspected main path. Its synchronizer-named components are custom scripts/RPC components, not Godot `MultiplayerSynchronizer` nodes. | Yes. Player scenes use `ServerSynchronizer` and `PlayerInput` `MultiplayerSynchronizer` nodes. |
+| Uses Godot RPCs | Yes. Shared `master_endpoint.gd`, `chat_endpoint.gd`, and `world_endpoint.gd` expose high-level RPC endpoints. | Yes. RPCs are used for gateway/master/world control, data requests, manual spawn/despawn, and custom sync transport. | Yes. RPC components are central to client/gateway/server flow and custom component sync. | Yes. Login, auth forwarding, token response, world login, jump, and color switch use RPCs. |
+| Primary replication style | Godot high-level nodes plus explicit RPC endpoints. | Custom RPC and byte-packed state deltas; no high-level spawner/synchronizer runtime dependency. | Custom component sync and batched RPC messages; no high-level spawner/synchronizer runtime dependency. | Godot high-level scene replication with spawners/synchronizers plus RPC login/auth. |
+
 ## What Each Project Is Best For
 
 | Project | Best use as research | Do not use it for |
