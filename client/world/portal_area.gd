@@ -4,12 +4,14 @@ extends Area2D
 signal portal_entered(target_world: int)
 
 const ICON := preload("res://icon.svg")
+const PLAYER_COLLISION_LAYER := 2
 
 var target_world := 1
 
 func setup(new_target_world: int, portal_color: Color) -> void:
 	target_world = new_target_world
 	name = "PortalToWorld%d" % target_world
+	collision_mask = 1 << (PLAYER_COLLISION_LAYER - 1)
 
 	var sprite := Sprite2D.new()
 	sprite.name = "Sprite2D"
