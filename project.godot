@@ -15,6 +15,10 @@ run/main_scene="res://launcher/Launcher.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
+[autoload]
+
+RunInstanceGrid="*uid://dbmhy5wqiuj0h"
+
 [display]
 
 window/size/viewport_width=800
