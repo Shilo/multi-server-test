@@ -1,6 +1,12 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://b7scyr3xvnrbo"]
 
-[ext_resource type="Script" path="res://client/world/world_scene.gd" id="1"]
+[ext_resource type="Script" uid="uid://cn3lx40vk67aw" path="res://client/world/world_scene.gd" id="1"]
 
-[node name="World" type="Node2D"]
+[node name="World" type="Node2D" unique_id=850036949]
 script = ExtResource("1")
+
+[node name="SpawnRoot" type="Node2D" parent="."]
+
+[node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="." unique_id=415663681]
+_spawnable_scenes = PackedStringArray("res://client/player/Player.tscn")
+spawn_path = NodePath("../SpawnRoot")

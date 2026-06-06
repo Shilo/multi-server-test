@@ -8,6 +8,7 @@ var master_api: MultiplayerAPI
 var heartbeat_timer: Timer
 var world_id := 1
 var registered_with_master := false
+var world_scene: Node
 
 func _ready() -> void:
 	world_api = MultiplayerAPI.create_default_interface()
@@ -22,6 +23,7 @@ func _ready() -> void:
 		return
 
 	$WorldNet/WorldEndpoint.configure_server(world_id)
+	_load_world_scene()
 	world_api.peer_connected.connect(func(peer_id: int) -> void:
 		print("[WORLD %d] peer connected: %s" % [world_id, peer_id])
 	)
@@ -40,6 +42,12 @@ func _ready() -> void:
 	world_api.multiplayer_peer = peer
 	print("WORLD_READY id=%d port=%d scene=%s" % [world_id, port, NET_CONFIG.world_scene_path(world_id)])
 	_connect_to_master()
+
+
+func _load_world_scene() -> void:
+	var scene := load(NET_CONFIG.world_scene_path(world_id)) as PackedScene
+	world_scene = scene.instantiate()
+	$WorldNet/WorldSceneRoot.add_child(world_scene)
 
 
 func _connect_to_master() -> void:

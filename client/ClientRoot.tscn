@@ -23,7 +23,7 @@ script = ExtResource("3")
 [node name="WorldEndpoint" type="Node" parent="WorldNet"]
 script = ExtResource("4")
 
-[node name="WorldView" type="Node2D" parent="."]
+[node name="WorldSceneRoot" type="Node2D" parent="WorldNet"]
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 

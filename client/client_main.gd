@@ -19,7 +19,7 @@ var chat_connected := false
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $ChatNet/ChatEndpoint
 @onready var world_endpoint: Node = $WorldNet/WorldEndpoint
-@onready var world_view: Node2D = $WorldView
+@onready var world_view: Node2D = $WorldNet/WorldSceneRoot
 @onready var status_label: Label = $CanvasLayer/StatusLabel
 
 func _ready() -> void:

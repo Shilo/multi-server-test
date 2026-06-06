@@ -45,6 +45,8 @@ World scene inheritance:
 - `client/world/world.tscn` is the shared base world scene.
 - `client/world/world_1.tscn`, `world_2.tscn`, and `world_3.tscn` inherit from it and only override identity, color, and portal targets.
 - Add shared world-level nodes, such as a `MultiplayerSpawner`, to `world.tscn` when testing high-level replication.
+- Client and world server both mount the active inherited world scene at `WorldNet/WorldSceneRoot`, so branch-local multiplayer paths match below `WorldNet`.
+- `world.tscn` includes `SpawnRoot`; point `MultiplayerSpawner.spawn_path` there for replicated world children.
 
 ## Run Roles From The Editor Binary
 
