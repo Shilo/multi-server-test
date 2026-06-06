@@ -36,6 +36,7 @@ For a complete explanation of how the multi-server setup works and how to grow i
 Main documentation:
 
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
+- [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of this MVP.
 - [End-to-End Validation Findings](docs/end-to-end-validation.md): final smoke-test and export validation notes.
 - [Server Orchestration And Server Travel Research](docs/server-orchestration-and-travel.md): research notes that led to live world registration and branch-local travel.
 
