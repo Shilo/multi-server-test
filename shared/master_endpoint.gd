@@ -57,8 +57,8 @@ func world_heartbeat(world_id: int) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	if peer_worlds.get(sender_id, 0) == world_id:
-		print("MASTER_WORLD_HEARTBEAT id=%d peer=%s" % [world_id, sender_id])
+	#if peer_worlds.get(sender_id, 0) == world_id:
+		#print("MASTER_WORLD_HEARTBEAT id=%d peer=%s" % [world_id, sender_id])
 
 
 @rpc("authority", "call_remote", "reliable")
