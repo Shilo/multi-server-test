@@ -23,6 +23,7 @@ RunInstanceGrid="*uid://dbmhy5wqiuj0h"
 
 window/size/viewport_width=800
 window/size/viewport_height=520
+window/stretch/mode="canvas_items"
 
 [input]
 
