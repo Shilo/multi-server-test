@@ -94,15 +94,9 @@ history, run-instance guidance, and export intent.
 
 ## Role Purpose Comparison
 
-| Role | This project purpose | Godot Tiny MMO purpose | Main difference |
-| --- | --- | --- | --- |
-| Client | Starts directly in a tiny playable scene, connects to master for routes, keeps a persistent chat connection, connects to the active world, moves a `CharacterBody2D`, and uses portals to switch world servers. | Starts at a gateway/login UI, handles login or guest entry, selects character/world, connects to a realtime world server, loads instances, and runs broader gameplay UI. | This client proves multiplayer contexts and travel; Tiny MMO's client is an MMO front end with account, character, world selection, UI, and instance loading. |
-| Master server | Minimal coordinator. It accepts world registrations, stores world route data, exposes chat/world addresses, and answers client route requests. | Central orchestrator. It bridges gateway requests, tracks worlds, coordinates accounts and character/world entry, issues world-entry auth tokens, receives heartbeats, and powers dashboard controls. | This master is route-only; Tiny MMO's master is an account, registry, gateway bridge, token broker, and operations hub. |
-| Chat server | Separate WebSocket multiplayer server dedicated to chat echo and sender-id display. It exists to prove chat survives active world peer replacement. | No separate standalone chat server in the inspected source. Chat lives inside the world server and integrates with accounts, channels, moderation, persistence, and dashboard logs. | This project decouples chat to prove independent connections; Tiny MMO couples chat to world gameplay data for richer MMO behavior. |
-| World server | One shared world-server scene/script launched three times with `--world 1`, `--world 2`, and `--world 3`. Each process registers with master, accepts clients, spawns players, authorizes simple portal targets, and hosts one visually distinct world scene. | Realtime game server. It authenticates players using master-issued tokens, hosts instances/maps, manages player resources, chat, SQLite persistence, server-side gameplay requests, manual spawn/despawn, and custom state sync. | This world server proves process separation and portal transfer; Tiny MMO's world server is the main MMO simulation and persistence host. |
-| Gateway server | Not present. Clients talk to master directly because login, public HTTP routing, and account security are out of scope. | Public-facing HTTP gateway for login, guest accounts, account creation, character requests, world entry, and forwarding requests to master over Godot RPC. | This project intentionally skips a gateway; Tiny MMO uses a gateway to separate public account/control traffic from realtime world sockets. |
-| Shared code | Small shared config, CLI parsing, and endpoint scripts used by client and server roles. | Large shared layer for gameplay resources, maps, registries, network codecs, synchronization, utilities, content indexes, and role helpers. | This shared layer is MVP glue; Tiny MMO's shared layer is a real framework substrate. |
-| Export/run tooling | Exports one shared artifact and copies it into role-labeled folders; role behavior comes from `--role` and `--world`. Smoke scripts launch every server and client and assert log markers. | Uses one project with role routing by `--mode` or feature tags. Public docs describe dedicated server/client export intent, but no local `export_presets.cfg` was found in the inspected source. | This project has a proven automated smoke/export loop; Tiny MMO has stronger role concepts but less visible formal test/export automation in the inspected checkout. |
+The role-by-role table now lives in the shared
+[Godot Multiplayer Project Comparison Matrix](godot-multiplayer-project-comparison.md),
+which compares this project, Godot Tiny MMO, and JDungeon in one place.
 
 ## This Project's Architecture
 
@@ -374,7 +368,14 @@ Godot Tiny MMO explicitly does not rely on `MultiplayerSpawner` or
 
 That custom stack is extremely relevant research for a future MMO. It provides
 more control over bandwidth, ownership, field IDs, baseline/delta encoding, and
-server authority. It is also a major increase in complexity.
+field-level authority. It is also a major increase in complexity.
+
+Important authority caveat: Godot Tiny MMO's current player movement fields are
+client-owned. The inspected source allows the owning client to push fields such
+as `:position`, `:anim`, `:flipped`, and `:pivot`, while keeping other gameplay
+state such as health, stats, combat, zones, and administrative actions
+server-owned. Treat it as a custom field-sync and authority-partitioning
+reference, not as a server-authoritative movement reference.
 
 For this project, custom byte-level synchronization is out of scope. The stated
 goal is to prove Godot native high-level multiplayer with RPCs,
