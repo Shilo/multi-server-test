@@ -166,14 +166,6 @@ func _send_chat_ping(label: String) -> bool:
 
 
 func _connect_api(api: MultiplayerAPI, url: String, label: String) -> bool:
-	var connected := false
-	var failed := false
-	api.connected_to_server.connect(func() -> void:
-		connected = true
-	, CONNECT_ONE_SHOT)
-	api.connection_failed.connect(func() -> void:
-		failed = true
-	, CONNECT_ONE_SHOT)
 	var peer := WebSocketMultiplayerPeer.new()
 	var err := peer.create_client(url)
 	if err != OK:
@@ -184,11 +176,11 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String) -> bool:
 	print("[CLIENT] connecting to %s at %s" % [label, url])
 	var ok := await _wait_until(
 		func() -> bool:
-			return connected or failed or peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED,
+			return peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTING,
 		5.0,
 		"%s connection" % label
 	)
-	if not ok or failed:
+	if not ok or peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		push_error("[CLIENT] connection failed for %s" % label)
 		return false
 	print("[CLIENT] connected to %s" % label)
