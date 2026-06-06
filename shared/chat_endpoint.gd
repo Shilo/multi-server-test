@@ -9,7 +9,7 @@ func send_chat(message: String) -> void:
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	print("[CHAT] received from peer %s: %s" % [sender_id, message])
-	receive_chat.rpc_id(sender_id, message)
+	receive_chat.rpc(message)
 
 
 @rpc("authority", "call_remote", "reliable")

@@ -2,6 +2,7 @@ extends Node
 
 const CLI_ARGS := preload("res://shared/cli_args.gd")
 const NET_CONFIG := preload("res://shared/net_config.gd")
+const CHAT_PANEL_SCENE := preload("res://client/chat/ChatPanel.tscn")
 
 var master_api: MultiplayerAPI
 var chat_api: MultiplayerAPI
@@ -15,14 +16,17 @@ var pending_transfer := {}
 var denied_transfer := -1
 var smoke_test := false
 var chat_connected := false
+var chat_panel: Node
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $ChatNet/ChatEndpoint
 @onready var world_endpoint: Node = $WorldNet/WorldEndpoint
 @onready var world_view: Node2D = $WorldNet/WorldSceneRoot
+@onready var canvas_layer: CanvasLayer = $CanvasLayer
 @onready var status_label: Label = $CanvasLayer/StatusLabel
 
 func _ready() -> void:
+	_setup_chat_panel()
 	_setup_multiplayer_branches()
 	smoke_test = CLI_ARGS.has_flag(OS.get_cmdline_user_args(), "smoke-test")
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
@@ -30,6 +34,8 @@ func _ready() -> void:
 	)
 	chat_endpoint.chat_received.connect(func(message: String) -> void:
 		chat_echoes.append(message)
+		if chat_panel and chat_panel.has_method("add_chat_line"):
+			chat_panel.add_chat_line(message)
 	)
 	world_endpoint.world_state_received.connect(func(world_id: int, _allowed_targets: Array) -> void:
 		active_world_id = world_id
@@ -53,10 +59,20 @@ func _setup_multiplayer_branches() -> void:
 	get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
 	chat_api.server_disconnected.connect(func() -> void:
 		print("[CLIENT] chat server disconnected")
+		chat_connected = false
+		_set_chat_connected(false)
+		_add_chat_system_line("chat disconnected")
 	)
 	world_api.server_disconnected.connect(func() -> void:
 		print("[CLIENT] world server disconnected")
 	)
+
+
+func _setup_chat_panel() -> void:
+	chat_panel = CHAT_PANEL_SCENE.instantiate()
+	chat_panel.message_submitted.connect(_on_chat_message_submitted)
+	canvas_layer.add_child(chat_panel)
+	_add_chat_system_line("chat starting")
 
 
 func run_manual_client() -> void:
@@ -106,6 +122,8 @@ func _bootstrap_smoke_connections() -> bool:
 	if not ok:
 		return false
 	chat_connected = true
+	_set_chat_connected(true)
+	_add_chat_system_line("chat connected")
 	print("SMOKE_STEP client connected to chat")
 	ok = await _send_chat_ping("initial")
 	if not ok:
@@ -134,8 +152,12 @@ func _bootstrap_manual_connections() -> bool:
 		chat_connected = await _connect_api(chat_api, routes["chat"]["url"], "chat", 1.0, false)
 		if chat_connected:
 			print("[CLIENT] optional chat connected")
+			_set_chat_connected(true)
+			_add_chat_system_line("chat connected")
 		else:
 			print("[CLIENT] optional chat unavailable; continuing without chat")
+			_set_chat_connected(false)
+			_add_chat_system_line("chat unavailable")
 
 	var initial_world: int = routes["initial_world"]
 	ok = await _connect_world(initial_world)
@@ -240,6 +262,24 @@ func _send_chat_ping(label: String) -> bool:
 	var message := "chat-ping-%s-world-%d" % [label, active_world_id]
 	chat_endpoint.send_chat.rpc_id(1, message)
 	return await _wait_until(func() -> bool: return message in chat_echoes, 5.0, "chat echo %s" % message)
+
+
+func _on_chat_message_submitted(message: String) -> void:
+	if not chat_connected:
+		_add_chat_system_line("chat unavailable")
+		return
+
+	chat_endpoint.send_chat.rpc_id(1, message)
+
+
+func _set_chat_connected(is_connected: bool) -> void:
+	if chat_panel and chat_panel.has_method("set_connected"):
+		chat_panel.set_connected(is_connected)
+
+
+func _add_chat_system_line(message: String) -> void:
+	if chat_panel and chat_panel.has_method("add_system_line"):
+		chat_panel.add_system_line(message)
 
 
 func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_seconds := 5.0, report_error := true) -> bool:
