@@ -40,7 +40,7 @@ func _build_label() -> void:
 	var label := Label.new()
 	label.name = "WorldLabel"
 	label.text = "%s  |  Portals: %s" % [world_name, portal_targets_csv]
-	label.position = Vector2(24, 18)
+	label.position = Vector2(24, 54)
 	add_child(label)
 
 
