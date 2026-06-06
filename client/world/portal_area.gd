@@ -42,5 +42,12 @@ func activate() -> void:
 
 
 func _on_body_entered(body: Node) -> void:
-	if body is CharacterBody2D:
+	if body is CharacterBody2D and _is_local_authority_body(body):
 		activate()
+
+
+func _is_local_authority_body(body: Node) -> bool:
+	if not body.multiplayer.has_multiplayer_peer():
+		return true
+
+	return body.is_multiplayer_authority()
