@@ -19,6 +19,8 @@ This is a one-project Godot 4.6 MVP proving a native multiplayer topology with:
 
 This is intentionally a spike, not a production framework.
 
+For a complete explanation of how the multi-server setup works and how to grow it into a small MMO-style prototype, read the [Mini MMO Architecture Guide](docs/mini-mmo-architecture-guide.md).
+
 ## Structure
 
 - `launcher/`: the one main scene. It reads `--role`.
@@ -29,6 +31,12 @@ This is intentionally a spike, not a production framework.
 - `shared/`: shared endpoints, config, and CLI parsing.
 - `tools/`: export and smoke-test scripts.
 - `docs/`: research and audit notes.
+
+Main documentation:
+
+- [Mini MMO Architecture Guide](docs/mini-mmo-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
+- [End-to-End Validation Findings](docs/end-to-end-validation.md): final smoke-test and export validation notes.
+- [Server Orchestration And Server Travel Research](docs/server-orchestration-and-travel.md): research notes that led to live world registration and branch-local travel.
 
 The client uses sibling networking branches:
 
