@@ -10,6 +10,7 @@ const PORTAL_SCRIPT := preload("res://client/world/portal_area.gd")
 @export var world_name := "World 1"
 @export var world_color := Color(0.2, 0.8, 0.5, 1.0)
 @export var portal_targets_csv := "2"
+@export var player_spawn_position := Vector2(400, 260)
 
 var available_world_ids: Array[int] = []
 
@@ -51,7 +52,7 @@ func spawn_player(peer_id: int) -> Node:
 
 	var player := PLAYER_SCENE.instantiate()
 	player.name = player_name
-	player.position = Vector2(400, 260)
+	player.position = player_spawn_position
 	player.set_multiplayer_authority(peer_id, true)
 	spawn_root.add_child(player)
 	return player
