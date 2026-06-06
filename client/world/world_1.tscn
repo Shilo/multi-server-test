@@ -1,8 +1,7 @@
-[gd_scene format=3 uid="uid://c2aj0suu7xthi"]
+[gd_scene load_steps=2 format=3 uid="uid://c2aj0suu7xthi"]
 
-[ext_resource type="Script" uid="uid://cn3lx40vk67aw" path="res://client/world/world_scene.gd" id="1"]
+[ext_resource type="PackedScene" path="res://client/world/world.tscn" id="1"]
 
-[node name="World1" type="Node2D" unique_id=1376836035]
-script = ExtResource("1")
+[node name="World1" instance=ExtResource("1")]
 world_color = Color(0.1, 0.75, 0.45, 1)
 portal_targets_csv = "2,3"

@@ -40,6 +40,12 @@ Those names are mirrored in the server scenes so RPC paths and scripts match.
 
 World servers also use a separate `MasterNet/MasterEndpoint` branch to register with master while their `WorldNet/WorldEndpoint` branch accepts gameplay clients.
 
+World scene inheritance:
+
+- `client/world/world.tscn` is the shared base world scene.
+- `client/world/world_1.tscn`, `world_2.tscn`, and `world_3.tscn` inherit from it and only override identity, color, and portal targets.
+- Add shared world-level nodes, such as a `MultiplayerSpawner`, to `world.tscn` when testing high-level replication.
+
 ## Run Roles From The Editor Binary
 
 Use the local Godot 4.6.3 binary:
