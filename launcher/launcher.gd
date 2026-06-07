@@ -7,7 +7,6 @@ const ROLE_SCENES := {
 	"master": "res://server/master/MasterServer.tscn",
 	"chat": "res://server/chat/ChatServer.tscn",
 	"world": "res://server/world/WorldServer.tscn",
-	"orchestrator": "res://server/orchestrator/Orchestrator.tscn",
 }
 
 func _ready() -> void:

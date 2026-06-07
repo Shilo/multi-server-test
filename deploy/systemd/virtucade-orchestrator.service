@@ -1,0 +1,30 @@
+[Unit]
+Description=VirtuCade world orchestrator
+After=network-online.target nakama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=virtucade
+Group=virtucade
+WorkingDirectory=/opt/virtucade
+EnvironmentFile=/etc/virtucade/orchestrator.env
+ExecStart=/opt/virtucade/bin/virtucade-orchestrator \
+  --host 127.0.0.1 \
+  --port 19100 \
+  --key ${ORCHESTRATOR_KEY} \
+  --godot /opt/virtucade/bin/godot \
+  --project-root /opt/virtucade/project \
+  --log-root /var/log/virtucade/worlds \
+  --nakama-host 127.0.0.1 \
+  --nakama-port 7350 \
+  --nakama-server-key ${NAKAMA_SERVER_KEY} \
+  --nakama-http-key ${NAKAMA_HTTP_KEY} \
+  --idle-shutdown-seconds 300
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

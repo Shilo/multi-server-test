@@ -2,7 +2,8 @@
 
 Branch note: the `nakama` branch is a Nakama glue MVP. The client now uses the
 vendored Nakama Godot SDK for guest auth, RPC, and room chat, while gameplay
-still connects directly to Godot headless world servers. Start with
+still connects directly to Godot headless world servers. A tiny Go daemon owns
+local world process orchestration. Start with
 [`docs/nakama-mvp.md`](docs/nakama-mvp.md) for the current branch workflow.
 
 This is a one-project Godot 4.6 MVP proving a native multiplayer topology with:
@@ -33,7 +34,7 @@ For a complete explanation of how the multi-server setup works and how to grow i
 - `server/master/`: master route server.
 - `server/chat/`: separate chat server.
 - `server/world/`: shared world server role, configured by `--world`.
-- `server/orchestrator/`: local on-demand world process supervisor for the
+- `orchestrator/`: lightweight Go on-demand world process supervisor for the
   Nakama MVP branch.
 - `nakama/`: Nakama Lua runtime/config files to mount into your Nakama server.
 - `addons/com.heroiclabs.nakama/`: vendored Nakama Godot SDK.
@@ -49,7 +50,11 @@ Main documentation:
 - [VirtuCade Infrastructure Options, PocketBase, And Nakama Research](docs/virtucade-infrastructure-options.md): decision research comparing a full custom split, a Go/PocketBase Master Backend, and Nakama plus Godot dedicated world servers.
 - [Nakama And Godot World Server Viability Research](docs/nakama-godot-world-server-viability.md): deep Nakama-specific research for using Nakama as the backend/control/social/database platform while Godot headless servers own gameplay worlds.
 - [Nakama MVP Glue](docs/nakama-mvp.md): current branch implementation notes and
-  local run instructions for Nakama plus the Godot orchestrator/world servers.
+  local run instructions for Nakama plus the Go orchestrator and Godot world
+  servers.
+- [Lightweight Orchestration Spike](docs/orchestration-language-spike.md):
+  language/runtime comparison and recommendation for a Go orchestrator under
+  systemd on Linux.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of the minimal production loop.
 - [Godot Tiny MMO Database Research](docs/godot-tiny-mmo-database-resource-vs-sqlite-research.md): focused research on Tiny MMO's Resource-vs-SQLite persistence history, old 2D MMO file storage, and a test plan for mini-MMORPG persistence tradeoffs.
 - [JDungeon Comparison Research](docs/jdungeon-comparison.md): comparison against JDungeon's Godot MORPG source, including gateway routing, component sync, persistence, and deployment tradeoffs.

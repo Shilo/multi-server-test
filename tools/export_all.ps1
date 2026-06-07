@@ -14,7 +14,6 @@ $targets = @(
     @{ Name = "client"; Path = "client\client.exe" },
     @{ Name = "master"; Path = "master\master.exe" },
     @{ Name = "chat"; Path = "chat\chat.exe" },
-    @{ Name = "orchestrator"; Path = "orchestrator\orchestrator.exe" },
     @{ Name = "world1"; Path = "world1\world1.exe" },
     @{ Name = "world2"; Path = "world2\world2.exe" },
     @{ Name = "world3"; Path = "world3\world3.exe" }

@@ -5,8 +5,8 @@ This branch replaces the old master/chat control path with:
 ```text
 Godot client -> Nakama guest auth/RPC/socket chat
 Godot client -> active Godot headless world WebSocket
-Nakama Lua RPC -> local Godot orchestrator HTTP API
-Godot orchestrator -> on-demand Godot headless world processes
+Nakama Lua RPC -> local Go orchestrator HTTP API
+Go orchestrator -> on-demand Godot headless world processes
 Godot world -> Nakama validate_ticket RPC
 ```
 
@@ -24,7 +24,7 @@ client-authority through `Player.tscn` and its `MultiplayerSynchronizer`.
   - `transfer_world`
 - Nakama server-to-server RPC:
   - `validate_ticket`
-- Local orchestrator role:
+- Local Go orchestrator:
   - `POST /worlds/ensure`
   - `POST /worlds/heartbeat`
   - `GET /worlds`
@@ -34,7 +34,7 @@ client-authority through `Player.tscn` and its `MultiplayerSynchronizer`.
 ## Files
 
 - `client/client_main.gd`: Nakama guest auth, socket chat, world join/transfer.
-- `server/orchestrator/orchestrator.gd`: small localhost process supervisor.
+- `orchestrator/main.go`: small localhost process supervisor.
 - `server/world/world_server.gd`: ticket validation before player spawn.
 - `shared/world_endpoint.gd`: client sends ticket with world-state request.
 - `nakama/modules/virtucade.lua`: Nakama Lua runtime RPC glue.
@@ -66,12 +66,20 @@ powershell -ExecutionPolicy Bypass -File tools\run_nakama_mvp.ps1
 ```
 
 The Nakama scripts run a quick headless editor import first so Godot refreshes
-the vendored SDK class metadata.
+the vendored SDK class metadata. They also build the Go orchestrator with
+`go build`; install Go locally or pass `-OrchestratorExe` to use a prebuilt
+binary.
 
 For automated validation after Nakama is running:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run_nakama_smoke.ps1
+```
+
+On Linux/GitHub Actions:
+
+```bash
+GODOT=/path/to/godot tools/run_nakama_smoke.sh
 ```
 
 ## Expected Flow
@@ -94,8 +102,12 @@ Local verification without installing/running Nakama:
 
 - Godot editor import pass generated Nakama SDK class metadata.
 - Client script loads and reaches Nakama guest auth.
-- Orchestrator role boots and listens on `127.0.0.1:19100`.
+- Earlier Godot orchestrator role booted and listened on `127.0.0.1:19100`.
+- That has been replaced by the lighter Go orchestrator design in
+  `docs/orchestration-language-spike.md`.
 - World role boots and reaches `WORLD_READY` on a spare test port.
-- `POST /worlds/ensure` returns a world endpoint and starts a Godot world process.
+- The old `POST /worlds/ensure` behavior was verified with the Godot
+  orchestrator; the Go replacement could not be compiled in this local
+  environment because Go is not installed here.
 
 Full chat/join/transfer smoke requires a running Nakama server.

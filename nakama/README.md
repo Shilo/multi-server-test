@@ -12,4 +12,4 @@ The Lua module provides:
 
 Run Nakama with `nakama/modules` mounted to `/nakama/data/modules` and
 `nakama/local.yml` mounted as the server config. The config points Nakama at the
-local Godot orchestrator on `http://host.docker.internal:19100`.
+local Go orchestrator on `http://host.docker.internal:19100`.
