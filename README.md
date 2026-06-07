@@ -36,8 +36,8 @@ For a complete explanation of how the multi-server setup works and how to grow i
 Main documentation:
 
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
-- [VirtuCade Infrastructure](docs/virtucade.md): proposed future infrastructure for VirtuCade using Gateway, Master, World, and Social server roles.
-- [VirtuCade Infrastructure Options And Nakama Research](docs/virtucade-infrastructure-options.md): decision research comparing a full custom split, a smaller custom Master Backend, and Nakama plus Godot dedicated world servers.
+- [VirtuCade Infrastructure](docs/virtucade.md): proposed future infrastructure for VirtuCade using Gateway, Master, World, and Social as conceptual roles that can be compressed for MVP.
+- [VirtuCade Infrastructure Options, PocketBase, And Nakama Research](docs/virtucade-infrastructure-options.md): decision research comparing a full custom split, a Go/PocketBase Master Backend, and Nakama plus Godot dedicated world servers.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of this MVP.
 - [Godot Tiny MMO Database Research](docs/godot-tiny-mmo-database-resource-vs-sqlite-research.md): focused research on Tiny MMO's Resource-vs-SQLite persistence history, old 2D MMO file storage, and a test plan for mini-MMORPG persistence tradeoffs.
 - [JDungeon Comparison Research](docs/jdungeon-comparison.md): comparison against JDungeon's Godot MORPG source, including gateway routing, component sync, persistence, and deployment tradeoffs.

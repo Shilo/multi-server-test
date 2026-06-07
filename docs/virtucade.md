@@ -10,7 +10,7 @@ servers and 100+ concurrent users without forcing a rewrite.
 
 ## High-Level Overview
 
-VirtuCade should use four main server roles:
+VirtuCade should keep four conceptual server roles:
 
 - **Gateway Server**: public entry point for guest sessions, register/login, and
   initial world routing.
@@ -19,7 +19,7 @@ VirtuCade should use four main server roles:
   instance.
 - **Social Server**: chat and social presence service.
 
-Recommended topology:
+The conceptual topology is:
 
 ```text
 Client -> Gateway Server  HTTP/HTTPS
@@ -40,6 +40,28 @@ Master owns durable truth.
 Gateway is the public front door.
 Social owns cross-world communication.
 ```
+
+For the MVP, these conceptual roles do not need to be separate deployable
+services. The current validated research in
+[`virtucade-infrastructure-options.md`](virtucade-infrastructure-options.md)
+recommends validating a Nakama backend/control/social layer first, with a
+Go/PocketBase Master Backend as the first custom fallback:
+
+```text
+If using Nakama:
+Nakama = Gateway + Master + Social + database/control plane
+Godot = World servers
+
+If using PocketBase:
+Go/PocketBase Master Backend = Gateway + Master + Social + database
+Godot = World servers
+
+If fully custom later:
+Gateway + Master + Social + World can be split into separate deployables
+```
+
+The role names remain useful even when the backend implementation is compressed
+into one platform or one backend process.
 
 ## Why These Server Names
 
@@ -585,7 +607,7 @@ scene should do almost nothing.
 
 ## MVP Version
 
-The smallest serious VirtuCade MVP:
+The smallest serious custom VirtuCade MVP:
 
 ```text
 Gateway Server
@@ -612,6 +634,19 @@ Social Server
 - global chat
 - presence
 ```
+
+The current research does not recommend building that full custom deployment
+first. The recommended validation order is:
+
+```text
+1. Nakama + Godot world-server admission-ticket spike.
+2. If Nakama fits, let Nakama cover Gateway/Master/Social/database duties.
+3. If Nakama does not fit, build a Go/PocketBase Master Backend before
+   splitting Gateway, Master, and Social into separate custom services.
+```
+
+The acceptance test below remains the core product loop. The backend platform
+may be Nakama, Go/PocketBase, or a later custom split.
 
 MVP acceptance test:
 
