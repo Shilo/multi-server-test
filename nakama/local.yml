@@ -1,0 +1,21 @@
+name: virtucade-nakama-mvp
+
+logger:
+  level: INFO
+
+runtime:
+  path: /nakama/data/modules
+  http_key: defaulthttpkey
+  env:
+    - ORCHESTRATOR_URL=http://host.docker.internal:19100
+    - ORCHESTRATOR_KEY=localdev-secret
+
+socket:
+  server_key: defaultkey
+
+session:
+  token_expiry_sec: 7200
+
+console:
+  username: admin
+  password: password

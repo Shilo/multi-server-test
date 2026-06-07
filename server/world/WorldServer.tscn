@@ -1,8 +1,7 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://server/world/world_server.gd" id="1"]
 [ext_resource type="Script" path="res://shared/world_endpoint.gd" id="2"]
-[ext_resource type="Script" path="res://shared/master_endpoint.gd" id="3"]
 
 [node name="WorldRoot" type="Node"]
 script = ExtResource("1")
@@ -13,8 +12,3 @@ script = ExtResource("1")
 script = ExtResource("2")
 
 [node name="WorldSceneRoot" type="Node2D" parent="WorldNet"]
-
-[node name="MasterNet" type="Node" parent="."]
-
-[node name="MasterEndpoint" type="Node" parent="MasterNet"]
-script = ExtResource("3")

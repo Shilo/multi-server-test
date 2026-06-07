@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Nakama="*res://addons/com.heroiclabs.nakama/Nakama.gd"
 RunInstanceGrid="*uid://dbmhy5wqiuj0h"
 
 [display]

@@ -3,6 +3,7 @@ extends Node
 signal world_state_received(world_id: int, allowed_targets: Array)
 signal transfer_approved(target_world: int, endpoint: Dictionary)
 signal transfer_denied(target_world: int)
+signal world_state_requested(peer_id: int, ticket: String)
 
 const NET_CONFIG := preload("res://shared/net_config.gd")
 
@@ -13,13 +14,20 @@ func configure_server(world_id: int) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func request_world_state() -> void:
+func request_world_state(ticket := "") -> void:
 	if not multiplayer.is_server():
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	print("[WORLD %d] state request from peer %s" % [server_world_id, sender_id])
-	receive_world_state.rpc_id(sender_id, server_world_id, NET_CONFIG.allowed_targets(server_world_id))
+	world_state_requested.emit(sender_id, ticket)
+
+
+func send_world_state(peer_id: int, allowed_targets: Array) -> void:
+	if not multiplayer.is_server():
+		return
+
+	receive_world_state.rpc_id(peer_id, server_world_id, allowed_targets)
 
 
 @rpc("any_peer", "call_remote", "reliable")
