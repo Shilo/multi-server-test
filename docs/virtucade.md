@@ -43,10 +43,22 @@ Social owns cross-world communication.
 ```
 
 For the small-scale production target, these conceptual roles do not need to be
-separate deployable services. The current validated research in
-[`virtucade-infrastructure-options.md`](virtucade-infrastructure-options.md)
-recommends validating a Nakama backend/control/social layer first, with a
-Go/PocketBase Master Backend as the first custom fallback:
+separate deployable services. The latest same-codebase decision challenge in
+[`virtucade-custom-godot-sqlite-pocketbase-decision.md`](virtucade-custom-godot-sqlite-pocketbase-decision.md)
+frames collapsing Gateway, Master, and Social into one Godot Master Server as a
+validation hypothesis, with SQLite embedded in that Master process:
+
+```text
+Godot Master = Gateway + Master + Social + SQLite database owner
+Godot World servers = authoritative gameplay scenes
+```
+
+Earlier Nakama/PocketBase research remains useful. The current custom-first
+hypothesis better matches the desire to keep the client, master, database logic,
+and world servers in one Godot codebase, but it must be rejected if auth, admin,
+backup, ticket, or orchestration work grows faster than expected.
+
+Alternative compressed implementations are still possible:
 
 ```text
 If using Nakama:
@@ -637,18 +649,22 @@ Social Server
 - presence
 ```
 
-The current research does not recommend building that full custom deployment
-first. The recommended validation order is:
+The current same-codebase decision challenge does not recommend building that
+full custom deployment first. Validate a collapsed Gateway, Master, and Social
+Godot Master process before splitting services. The validation order is:
 
 ```text
-1. Nakama + Godot world-server admission-ticket validation build.
-2. If Nakama fits, let Nakama cover Gateway/Master/Social/database duties.
-3. If Nakama does not fit, build a Go/PocketBase Master Backend before
-   splitting Gateway, Master, and Social into separate custom services.
+1. Custom Godot Master + embedded SQLite + Godot world-server tickets.
+2. If secure auth/admin tooling becomes the bottleneck, test PocketBase as a
+   sidecar or Go/PocketBase Master Backend.
+3. If custom backend scope grows too large, revisit Nakama with the existing
+   admission-ticket research.
+4. Split Gateway, Master, and Social only after measured pressure requires it.
 ```
 
 The acceptance test below remains the core product loop. The backend platform
-may be Nakama, Go/PocketBase, or a later custom split.
+may be a collapsed Godot Master, PocketBase-assisted backend, Nakama, or a later
+custom split.
 
 Minimal production acceptance test:
 

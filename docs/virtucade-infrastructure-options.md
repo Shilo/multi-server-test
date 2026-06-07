@@ -18,7 +18,24 @@ The target is a small-scale production MMO, not a disposable prototype:
 - Workflow simplicity matters because it reduces years of operational and
   integration work, not because the system is a toy.
 
-## Current Recommendation
+## Recommendation Status
+
+This page captures the earlier Nakama/PocketBase option comparison. A later
+same-codebase decision spike supersedes its validation order when workflow
+simplicity is weighted highest:
+
+- [VirtuCade Custom Godot, SQLite, And PocketBase Decision](virtucade-custom-godot-sqlite-pocketbase-decision.md)
+
+The updated working hypothesis is:
+
+```text
+Validate Custom Godot Master Server + embedded SQLite + Godot World Servers.
+Do not assume it wins until auth, admin, backup, ticket, and orchestration
+risks are tested.
+PocketBase and Nakama remain fallback options if the custom backend grows.
+```
+
+## Earlier Recommendation
 
 Do not build the full four-service custom infrastructure first.
 
@@ -26,7 +43,7 @@ Do not commit to Nakama just because it has many useful backend features.
 
 Do not treat PocketBase as something to embed inside a Godot process.
 
-The validated next move is:
+The earlier validated next move was:
 
 ```text
 Run a narrow Nakama + Godot world-server admission-ticket validation build first.
@@ -634,9 +651,10 @@ Gateway + Master + Social + World can be split into separate deployables
 
 This keeps the mental model but lowers the workflow cost.
 
-## Final Sequence
+## Earlier Final Sequence
 
-Use this sequence:
+This was the earlier Nakama-first sequence before the custom Godot/SQLite
+decision update:
 
 ```text
 Phase 1: Current Godot multi-server spike

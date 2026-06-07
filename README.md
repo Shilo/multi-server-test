@@ -37,8 +37,11 @@ Main documentation:
 
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
 - [VirtuCade Infrastructure](docs/virtucade.md): proposed future infrastructure for a small-scale production VirtuCade using Gateway, Master, World, and Social as conceptual roles that can be compressed into fewer services.
+- [VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): latest decision spike stress-testing a custom Godot Master plus embedded SQLite as a production-shaped hypothesis, with PocketBase and Nakama kept as fallback pressure-release options.
 - [VirtuCade Infrastructure Options, PocketBase, And Nakama Research](docs/virtucade-infrastructure-options.md): decision research comparing a full custom split, a Go/PocketBase Master Backend, and Nakama plus Godot dedicated world servers.
 - [Nakama And Godot World Server Viability Research](docs/nakama-godot-world-server-viability.md): deep Nakama-specific research for using Nakama as the backend/control/social/database platform while Godot headless servers own gameplay worlds.
+- [Nakama MVP Glue](docs/nakama-mvp.md): notes for the separate `nakama` branch implementation; useful as archived Nakama bridge/orchestration research, not the mainline run workflow.
+- [Lightweight Orchestration Spike](docs/orchestration-language-spike.md): language/runtime comparison from the Nakama branch for a Go process supervisor; reference material if custom Master process supervision is later split out.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of the minimal production loop.
 - [Godot Tiny MMO Database Research](docs/godot-tiny-mmo-database-resource-vs-sqlite-research.md): focused research on Tiny MMO's Resource-vs-SQLite persistence history, old 2D MMO file storage, and a test plan for mini-MMORPG persistence tradeoffs.
 - [JDungeon Comparison Research](docs/jdungeon-comparison.md): comparison against JDungeon's Godot MORPG source, including gateway routing, component sync, persistence, and deployment tradeoffs.
