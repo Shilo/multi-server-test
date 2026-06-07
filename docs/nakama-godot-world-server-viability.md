@@ -174,6 +174,32 @@ headless dedicated server instances. The difference is that VirtuCade's world
 servers are persistent or semi-persistent MMO-style worlds, not short match
 instances, so the registry and ticket flow should be custom Nakama runtime code.
 
+## Nakama Multiplayer Model
+
+Use Nakama's session-based dedicated-server pattern as the conceptual model, but
+do not route normal world gameplay through Nakama multiplayer matches.
+
+The practical model is:
+
+```text
+Nakama session-based dedicated-server pattern
++ custom runtime RPCs
++ custom world registry
++ custom admission/transfer tickets
++ direct Godot world-server gameplay sockets
+```
+
+That means:
+
+- Nakama chooses or authorizes a world.
+- Nakama issues and validates admission tickets.
+- Nakama stores durable player/social/world-control data.
+- Godot world servers run the actual simulation.
+- Godot clients connect directly to the active Godot world server.
+
+The Nakama `Matchmaker` can be useful later for parties, dungeons, PvP rooms, or
+instance grouping. It is not required for ordinary hub entry or portal travel.
+
 ## What Not To Do
 
 Do not use Nakama relayed multiplayer for VirtuCade gameplay.
@@ -518,6 +544,43 @@ Use the existing Godot multiplayer approach for:
 world server connection, player spawning, movement, portals, gameplay sync
 ```
 
+Concrete SDK features to use:
+
+- `Nakama.create_client(...)` to create the backend client;
+- device/custom/email auth for guest and logged-in sessions;
+- session restore, refresh, and logout;
+- `Nakama.create_socket_from(client)` for the Nakama realtime socket;
+- `client.rpc_async(...)` for hub entry, character selection, and transfers;
+- `socket.rpc_async(...)` for realtime RPCs while the socket is alive;
+- `join_chat_async`, `write_chat_message_async`, and channel message signals;
+- status/presence APIs for online, hub, and world status;
+- friends, groups, parties, and notifications as social features grow;
+- storage reads for safe display data.
+
+Avoid direct client writes for authoritative character, inventory, currency, and
+location data. Those should be written by Nakama runtime code after validation
+or by Godot world servers through server-to-server RPC.
+
+### SDK Freshness
+
+The Godot SDK is official and supports Godot 4.0+, but it is not especially
+fresh. The latest GitHub release found during this research was `3.4.0` from
+March 19, 2024. The official docs still publish a Godot 4 client guide, and the
+repository states that Godot 4 support is on `master`.
+
+For VirtuCade, this is acceptable because the planned use is conservative:
+
+```text
+Use SDK:
+auth, sessions, socket, RPC, chat, status, social, storage reads
+
+Do not depend on SDK:
+Nakama multiplayer bridge as the core gameplay transport
+```
+
+Before committing production work, run a small compatibility check with the
+exact Godot version in use, especially Godot 4.6.x.
+
 ## Implementation Shape
 
 Recommended production runtime modules inside Nakama:
@@ -609,7 +672,7 @@ BeforeAddFriends/CreateGroup/etc:
    Decide early whether registering links credentials to the guest user or
    switches to an existing account session.
 
-## Spike Acceptance Test
+## Validation Acceptance Test
 
 The Nakama + Godot world-server validation build should pass this end-to-end:
 
