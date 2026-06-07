@@ -8,13 +8,15 @@ This document compares three possible infrastructure directions for
    pairing with PocketBase + Godot World servers.
 3. Nakama backend/control/social layer + Godot dedicated World servers.
 
-The target scale is modest but real:
+The target is a small-scale production MMO, not a disposable prototype:
 
-- 100-300 CCU should feel comfortable.
-- 1000 CCU would be nice, but is not the design center.
+- 100-200 CCU should feel comfortable.
+- Some headroom above that is useful, but 1000 CCU is not the design center.
 - Dozens of world servers may exist over time.
 - Godot world servers should remain authoritative for moment-to-moment gameplay.
-- Workflow simplicity matters almost as much as scalability.
+- Prefer vertical scaling and minimal service count before horizontal scaling.
+- Workflow simplicity matters because it reduces years of operational and
+  integration work, not because the system is a toy.
 
 ## Current Recommendation
 
@@ -27,7 +29,7 @@ Do not treat PocketBase as something to embed inside a Godot process.
 The validated next move is:
 
 ```text
-Run a narrow Nakama + Godot world-server admission-ticket spike first.
+Run a narrow Nakama + Godot world-server admission-ticket validation build first.
 Keep Go + PocketBase Master Backend as the first custom fallback.
 ```
 
@@ -80,7 +82,7 @@ Subagent reviews were also used:
 
 - PocketBase feasibility and Option 2 architecture.
 - Nakama + external Godot dedicated server integration.
-- Skeptical review challenging both options and the spike design.
+- Skeptical review challenging both options and the validation design.
 
 ## Facts That Matter
 
@@ -106,7 +108,7 @@ Go Master Backend embeds PocketBase as a framework
 Acceptable sidecar shape:
 Custom Master Backend calls a standalone PocketBase service
 
-Rejected spike shape:
+Rejected validation shape:
 Godot Master Server embeds PocketBase in the same process
 ```
 
@@ -120,7 +122,7 @@ PocketBase's own docs also matter for risk:
 - its realtime API is Server-Sent Events for subscriptions, not a game socket or
   a full social presence system.
 
-That does not disqualify PocketBase for VirtuCade. For 100-300 CCU with
+That does not disqualify PocketBase for VirtuCade. For 100-200 CCU with
 gameplay traffic direct to Godot worlds, it is plausible. It does mean Option 2
 still needs custom game backend logic.
 
@@ -245,8 +247,8 @@ Use this if VirtuCade needs:
 
 ### Verdict
 
-Good architecture later. Too much custom infrastructure for the first serious
-MVP.
+Good architecture later. Too much custom infrastructure for the first
+small-scale production version.
 
 ## Option 2: Go/PocketBase Master Backend + Godot World Servers
 
@@ -357,7 +359,8 @@ server broad admin credentials that can mutate arbitrary account data.
 - SQLite-first workflow stays lightweight.
 - Custom control over weird game-specific rules.
 - Easy to understand data ownership.
-- Enough for 100-300 CCU if world traffic is direct-to-world.
+- Enough for 100-200 CCU if world traffic is direct-to-world and load testing
+  confirms database/write behavior.
 
 ### Costs
 
@@ -369,9 +372,9 @@ server broad admin credentials that can mutate arbitrary account data.
 - PocketBase is pre-1.0.
 - Horizontal scaling is not the default shape.
 
-### Option 2 Spike Must Prove
+### Option 2 Validation Must Prove
 
-An Option 2 spike is useful only if it proves the hard part:
+An Option 2 validation build is useful only if it proves the hard part:
 
 1. Go app embeds PocketBase and boots admin UI plus migrations.
 2. Client can register/login and receive a PocketBase auth token.
@@ -387,8 +390,9 @@ An Option 2 spike is useful only if it proves the hard part:
 
 ### Verdict
 
-Best custom fallback and possibly the final MVP backend if Nakama integration is
-awkward. Do not embed PocketBase inside Godot; embed or extend it from Go.
+Best custom fallback and possibly the final small-scale production backend if
+Nakama integration is awkward. Do not embed PocketBase inside Godot; embed or
+extend it from Go.
 
 ## Option 3: Nakama Backend + Godot World Servers
 
@@ -514,9 +518,10 @@ That is normal. It keeps gameplay traffic separate from backend/social traffic.
 - Nakama uses PostgreSQL-compatible persistence, not embedded SQLite.
 - You may shape VirtuCade around Nakama concepts.
 
-### Option 3 Spike Must Prove
+### Option 3 Validation Must Prove
 
-A Nakama spike is useful only if it proves the bridge, not just auth/chat:
+A Nakama validation build is useful only if it proves the bridge, not just
+auth/chat:
 
 1. Godot client authenticates with Nakama.
 2. Client restores or refreshes session.
@@ -532,7 +537,7 @@ A Nakama spike is useful only if it proves the bridge, not just auth/chat:
 11. World server reports a durable save/result/location back to Nakama.
 12. A world transfer issues and validates a second ticket.
 
-### Nakama Spike Disqualifiers
+### Nakama Validation Disqualifiers
 
 Fail the Nakama path if:
 
@@ -545,14 +550,14 @@ Fail the Nakama path if:
 - The dual-socket model is unstable or painful in Godot.
 - Character persistence becomes awkward in Nakama storage compared with a small
   custom relational backend.
-- The spike validates only easy auth/chat and skips ticket replay, world
+- The validation build proves only easy auth/chat and skips ticket replay, world
   identity, and durable save boundaries.
 
 ### Verdict
 
-Most promising first spike because the upside is largest, but not validated
-enough to commit. Treat Nakama as a control plane and social backend, not as the
-Godot world server.
+Most promising first validation build because the upside is largest, but not
+validated enough to commit. Treat Nakama as a control plane and social backend,
+not as the Godot world server.
 
 ## Comparison Table
 
@@ -568,7 +573,7 @@ Godot world server.
 | Godot world authority | Yes | Yes | Yes, if worlds stay separate |
 | Direct Godot high-level multiplayer | Yes | Yes | Yes for world only |
 | Uses Godot high-level nodes in world | Yes | Yes | Yes, not through Nakama socket |
-| Best for 100-300 CCU | Overbuilt | Strong | Strong if bridge works |
+| Best for 100-200 CCU | Overbuilt | Strong | Strong if bridge works |
 | Best for backend learning/control | Strong | Strong | Medium |
 | Best for shipping gameplay sooner | Weak | Medium | Strong if bridge works |
 | Easiest to split later | Already split | Good if modular | Depends on Nakama coupling |
@@ -576,7 +581,8 @@ Godot world server.
 
 ## Recommended Decision
 
-Run the Nakama admission-ticket spike first, with strict disqualifiers.
+Run the Nakama admission-ticket validation build first, with strict
+disqualifiers.
 
 If it passes, use Nakama as:
 
@@ -607,10 +613,11 @@ The earlier VirtuCade infrastructure document describes:
 Gateway + Master + Social + World
 ```
 
-That remains a valid conceptual model, but the MVP implementation should not
-necessarily deploy all four as separate custom servers.
+That remains a valid conceptual model, but the small-scale production
+implementation should not necessarily deploy all four as separate custom
+servers.
 
-For MVP, compress the conceptual roles:
+For a minimal-service production workflow, compress the conceptual roles:
 
 ```text
 If using Nakama:
@@ -633,11 +640,11 @@ Use this sequence:
 
 ```text
 Phase 1: Current Godot multi-server spike
-Phase 2: Nakama + Godot world server admission-ticket spike
+Phase 2: Nakama + Godot world server admission-ticket validation build
 Phase 3A: If Nakama works, build VirtuCade backend on Nakama
 Phase 3B: If Nakama does not fit, build Go/PocketBase Master Backend
 Phase 4: Split Social/Gateway only if measured pressure requires it
 ```
 
-The recommendation is validated enough to proceed to a spike, not enough to
-commit to a platform permanently.
+The recommendation is validated enough to proceed to a production-shaped
+validation build, not enough to commit to a platform permanently.

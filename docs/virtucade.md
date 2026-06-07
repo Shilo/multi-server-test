@@ -4,9 +4,10 @@ This document sketches the intended server infrastructure for **VirtuCade**, a
 small-scale 2D online RPG/MMORPG built from the lessons in this Godot
 multi-server spike.
 
-The goal is not to design a giant MMO platform. The goal is a simple structure
-that can start as an MVP, support real players, and grow toward dozens of world
-servers and 100+ concurrent users without forcing a rewrite.
+The goal is not to design a giant MMO platform. The goal is a small-scale
+production MMO structure that can support real players, grow toward dozens of
+world servers and 100-200 concurrent users, and keep the workflow reasonable
+without forcing years of infrastructure work.
 
 ## High-Level Overview
 
@@ -41,8 +42,8 @@ Gateway is the public front door.
 Social owns cross-world communication.
 ```
 
-For the MVP, these conceptual roles do not need to be separate deployable
-services. The current validated research in
+For the small-scale production target, these conceptual roles do not need to be
+separate deployable services. The current validated research in
 [`virtucade-infrastructure-options.md`](virtucade-infrastructure-options.md)
 recommends validating a Nakama backend/control/social layer first, with a
 Go/PocketBase Master Backend as the first custom fallback:
@@ -109,8 +110,8 @@ It handles:
 
 The **World Server** is the authoritative runtime for gameplay.
 
-For the MVP, each world server can host exactly one scene/map/instance. That
-keeps the mental model simple:
+For the first production slice, each world server can host exactly one
+scene/map/instance. That keeps the mental model simple:
 
 ```text
 one world server process = one active playable scene
@@ -249,7 +250,8 @@ Target World -> Master: validate token
 Target World -> Client: spawn
 ```
 
-For the MVP, this can be done with a simple portal and a short-lived token.
+For the first production slice, this can be done with a simple portal and a
+short-lived token.
 Avoid prediction, rollback, cross-server entity handoff, and complex loading
 screens until the simple version works.
 
@@ -275,7 +277,7 @@ Master -> Social: account id, character id, display name, roles
 Social -> Client: connected
 ```
 
-Early MVP social features:
+First production-slice social features:
 
 - global chat
 - sender id/display name
@@ -382,7 +384,7 @@ Social should ask Master or its durable store for:
 - moderation state;
 - durable friend/guild/block mutations.
 
-For MVP, Social can persist chat in one of two ways:
+For the first production slice, Social can persist chat in one of two ways:
 
 ```text
 Option A: Social -> Master -> database
@@ -417,7 +419,7 @@ only moderation-relevant events.
 Friends, guilds, and blocks are durable social data. They should not be
 world-local.
 
-Recommended ownership for MVP:
+Recommended ownership for the first production slice:
 
 ```text
 Master owns durable friends/guilds/blocks.
@@ -605,9 +607,9 @@ For dozens of world servers, Master needs:
 World servers should simulate only active content. A server with one inactive
 scene should do almost nothing.
 
-## MVP Version
+## Minimal Production Version
 
-The smallest serious custom VirtuCade MVP:
+The smallest serious custom VirtuCade production shape:
 
 ```text
 Gateway Server
@@ -639,7 +641,7 @@ The current research does not recommend building that full custom deployment
 first. The recommended validation order is:
 
 ```text
-1. Nakama + Godot world-server admission-ticket spike.
+1. Nakama + Godot world-server admission-ticket validation build.
 2. If Nakama fits, let Nakama cover Gateway/Master/Social/database duties.
 3. If Nakama does not fit, build a Go/PocketBase Master Backend before
    splitting Gateway, Master, and Social into separate custom services.
@@ -648,7 +650,7 @@ first. The recommended validation order is:
 The acceptance test below remains the core product loop. The backend platform
 may be Nakama, Go/PocketBase, or a later custom split.
 
-MVP acceptance test:
+Minimal production acceptance test:
 
 1. Start Master.
 2. Start Gateway.
@@ -668,7 +670,7 @@ MVP acceptance test:
 
 ## What To Avoid Early
 
-Avoid these until the MVP is stable:
+Avoid these until the minimal production loop is stable:
 
 - custom packet protocol
 - Kubernetes
