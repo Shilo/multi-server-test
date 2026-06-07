@@ -26,12 +26,13 @@ simplicity is weighted highest:
 
 - [VirtuCade Custom Godot, SQLite, And PocketBase Decision](virtucade-custom-godot-sqlite-pocketbase-decision.md)
 
-The updated recommendation is:
+The updated working hypothesis is:
 
 ```text
-Custom Godot Master Server + embedded SQLite + Godot World Servers first.
-PocketBase remains an optional auth/admin/backend fallback.
-Nakama remains useful research, but is no longer the preferred next step.
+Validate Custom Godot Master Server + embedded SQLite + Godot World Servers.
+Do not assume it wins until auth, admin, backup, ticket, and orchestration
+risks are tested.
+PocketBase and Nakama remain fallback options if the custom backend grows.
 ```
 
 ## Earlier Recommendation

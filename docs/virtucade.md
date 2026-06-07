@@ -43,19 +43,20 @@ Social owns cross-world communication.
 ```
 
 For the small-scale production target, these conceptual roles do not need to be
-separate deployable services. The latest same-codebase decision spike in
+separate deployable services. The latest same-codebase decision challenge in
 [`virtucade-custom-godot-sqlite-pocketbase-decision.md`](virtucade-custom-godot-sqlite-pocketbase-decision.md)
-recommends collapsing Gateway, Master, and Social into one Godot Master Server
-first, with SQLite embedded in that Master process:
+frames collapsing Gateway, Master, and Social into one Godot Master Server as a
+validation hypothesis, with SQLite embedded in that Master process:
 
 ```text
 Godot Master = Gateway + Master + Social + SQLite database owner
 Godot World servers = authoritative gameplay scenes
 ```
 
-Earlier Nakama/PocketBase research remains useful, but the current custom-first
-path better matches the desire to keep the client, master, database logic, and
-world servers in one Godot codebase.
+Earlier Nakama/PocketBase research remains useful. The current custom-first
+hypothesis better matches the desire to keep the client, master, database logic,
+and world servers in one Godot codebase, but it must be rejected if auth, admin,
+backup, ticket, or orchestration work grows faster than expected.
 
 Alternative compressed implementations are still possible:
 
@@ -648,9 +649,9 @@ Social Server
 - presence
 ```
 
-The current same-codebase decision does not recommend building that full custom
-deployment first. Collapse Gateway, Master, and Social into one Godot Master
-process before splitting services. The recommended validation order is:
+The current same-codebase decision challenge does not recommend building that
+full custom deployment first. Validate a collapsed Gateway, Master, and Social
+Godot Master process before splitting services. The validation order is:
 
 ```text
 1. Custom Godot Master + embedded SQLite + Godot world-server tickets.

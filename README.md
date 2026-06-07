@@ -47,7 +47,7 @@ Main documentation:
 
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
 - [VirtuCade Infrastructure](docs/virtucade.md): proposed future infrastructure for a small-scale production VirtuCade using Gateway, Master, World, and Social as conceptual roles that can be compressed into fewer services.
-- [VirtuCade Custom Godot, SQLite, And PocketBase Decision](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): latest decision spike recommending a custom Godot Master plus embedded SQLite as the next production-shaped path, with PocketBase as an optional fallback.
+- [VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): latest decision spike stress-testing a custom Godot Master plus embedded SQLite as the next production-shaped hypothesis, with PocketBase/Nakama as fallback pressure-release options.
 - [VirtuCade Infrastructure Options, PocketBase, And Nakama Research](docs/virtucade-infrastructure-options.md): decision research comparing a full custom split, a Go/PocketBase Master Backend, and Nakama plus Godot dedicated world servers.
 - [Nakama And Godot World Server Viability Research](docs/nakama-godot-world-server-viability.md): deep Nakama-specific research for using Nakama as the backend/control/social/database platform while Godot headless servers own gameplay worlds.
 - [Nakama MVP Glue](docs/nakama-mvp.md): current branch implementation notes and

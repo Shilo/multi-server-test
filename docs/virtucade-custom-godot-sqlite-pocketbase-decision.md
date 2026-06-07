@@ -1,4 +1,4 @@
-# VirtuCade Custom Godot, SQLite, And PocketBase Decision
+# VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge
 
 Date: 2026-06-07
 
@@ -14,9 +14,9 @@ the PocketBase/SQLite research. It focuses on the current product goal:
 - no fleet, matchmaking, relay multiplayer, Docker, dedicated database service,
   or separate backend codebase unless the benefit is large enough.
 
-## Decision
+## Working Hypothesis
 
-Prefer this as the next architecture:
+Treat this as the architecture to validate next, not as a settled decision:
 
 ```text
 One Godot project
@@ -39,7 +39,7 @@ Godot World Servers
 In short:
 
 ```text
-Recommended first production slice:
+Candidate first production slice:
 Custom Godot Master Server + embedded SQLite + Godot World Servers
 ```
 
@@ -48,11 +48,61 @@ next step. It is useful if its auth/admin/REST scaffolding becomes worth the
 extra process or Go codebase. It does not match the strongest workflow goal as
 well as SQLite embedded into the Godot master.
 
-Nakama remains useful research, but it is no longer the best first path if the
-highest-value constraint is "master server, world servers, database, and client
-all in the same codebase."
+Nakama remains useful research. It may still be the better production choice if
+the custom Godot backend starts recreating too many solved backend systems.
 
-## Why The Recommendation Changed
+## Strongest Challenge To This Idea
+
+The custom Godot Master + SQLite plan is attractive because it keeps workflow
+small. The danger is that it may only look small because the hard parts are
+being hidden under "we can build that ourselves."
+
+The serious counterargument:
+
+```text
+Godot Master + SQLite saves service count, but it transfers backend product
+risk onto the game codebase.
+```
+
+That means VirtuCade would own:
+
+- secure password hashing and account recovery;
+- abuse-resistant guest creation and login throttling;
+- session tokens and revocation policy;
+- world-server service identity;
+- transfer-ticket replay prevention;
+- database migrations and rollback discipline;
+- admin tooling for users, bans, items, characters, and support;
+- backup and restore rehearsals;
+- moderation logs and audit trails;
+- observability for Master, worlds, SQLite, and player sessions;
+- a custom protocol for every backend feature.
+
+Those are not impossible. But they are real product/backend work. If they grow
+faster than expected, PocketBase or Nakama may become the simpler path even
+though they add services.
+
+## When The Godot Master Plan Is Wrong
+
+Reject or pause the custom Godot Master path if any of these happen during the
+validation slice:
+
+- secure auth requires a native addon or helper service anyway;
+- admin/support tooling becomes urgent before gameplay is stable;
+- the Master protocol starts becoming a custom web API in disguise;
+- database migrations feel fragile inside GDScript;
+- SQLite write queues become visible during chat/save/transfer tests;
+- world process orchestration inside Godot is awkward to supervise in Linux;
+- production deployment needs reverse proxy, TLS, rate limits, and web account
+  flows soon;
+- debugging backend state from Godot tools is worse than using PocketBase's
+  dashboard or Nakama's console;
+- the same feature is easier to express as a PocketBase hook/custom route or
+  Nakama runtime RPC than as Godot Master code.
+
+If two or three of those appear early, do not keep forcing the Godot-only path.
+
+## Why The Hypothesis Changed
 
 The earlier Nakama-first recommendation optimized for not rebuilding backend
 features. That was a valid axis, but it underweighted the workflow cost:
@@ -64,8 +114,10 @@ features. That was a valid axis, but it underweighted the workflow cost:
 - A custom Godot master with SQLite keeps the project close to the proven
   multi-server spike and Godot Tiny MMO's one-project workflow.
 
-For VirtuCade's current scope, the simplest serious production shape is not "no
-backend." It is "the backend is the Godot master server."
+For VirtuCade's current scope, the smallest serious custom shape is not "no
+backend." It is "the backend is the Godot master server." The question this
+validation must answer is whether that remains smaller after auth, admin,
+migrations, ticket security, and deployment are included.
 
 ## Recommended Topology
 
@@ -147,7 +199,8 @@ directly to SQLite or PocketBase.
 
 ## SQLite As Embedded Master Database
 
-SQLite is the best database fit if the Godot Master is the only durable writer.
+SQLite is the best database fit only if the Godot Master is the only durable
+writer and the write workload stays modest.
 
 Official SQLite docs say:
 
@@ -158,8 +211,8 @@ Official SQLite docs say:
 - Many concurrent writers or network-filesystem access are reasons to consider
   a client/server database.
 
-That is acceptable for this architecture because the Master serializes writes
-and the write rate should be low:
+That is acceptable only if the Master serializes writes and the write rate stays
+low:
 
 - login/register;
 - guest entry;
@@ -201,8 +254,8 @@ README describes Godot 4.x support, install through Asset Library or releases,
 raw SQL queries, parameter bindings, multiple connections, and dedicated-server
 notes.
 
-This is still a native addon dependency. That is real cost, but it is smaller
-than adding a complete backend service if the goal is a Godot-centered workflow.
+This is still a native addon dependency. That is real cost. If secure auth also
+requires a native dependency, the "pure Godot workflow" advantage shrinks.
 
 Recommended layout:
 
@@ -446,17 +499,17 @@ Linux process manager eventually performs the launch.
 
 | Option | Fit for current goal | Main upside | Main cost | Verdict |
 | --- | --- | --- | --- | --- |
-| Godot Master + SQLite | Strongest | One codebase, embedded DB, simple local tests/deploy | Build auth/admin/migrations yourself | Recommended next |
-| Godot Master + PocketBase sidecar | Medium | PocketBase auth/admin/REST while Master stays Godot | Extra service, split data logic | Keep as fallback |
-| Go/PocketBase Master + Godot worlds | Medium | One backend binary with PocketBase framework features | Master leaves Godot codebase | Good if auth/admin wins |
+| Godot Master + SQLite | Strong if validated | One codebase, embedded DB, simple local tests/deploy | Build auth/admin/migrations yourself | Validate, do not assume |
+| Godot Master + PocketBase sidecar | Medium | PocketBase auth/admin/REST while Master stays Godot | Extra service, split data logic | Use if auth/admin wins |
+| Go/PocketBase Master + Godot worlds | Medium | One backend binary with PocketBase framework features | Master leaves Godot codebase | Strong fallback if Godot auth/admin drags |
 | PocketBase embedded in Godot | Weak | The desired "one process" idea | Unsupported native/Go bridge complexity | Reject |
 | Worlds write SQLite directly | Weak | Fewer Master round trips | Bad authority boundary and writer contention | Avoid |
 | Worlds write PocketBase directly | Medium-low | Easy REST persistence | Credential sprawl and duplicated rules | Avoid for durable game state |
-| Nakama + Godot worlds | Medium-low for current goal | Many backend/social features | High learning curve and extra stack | Pause |
+| Nakama + Godot worlds | Medium-low for current workflow goal, stronger for backend features | Many backend/social features | High learning curve and extra stack | Pause, but keep as pressure-release option |
 
-## Recommended First Production Slice
+## Validation Slice
 
-Build this next:
+Build this only as a validation slice:
 
 ```text
 Godot Master
@@ -482,7 +535,8 @@ Godot Client
   - login/register through Master connection once secure auth exists
 ```
 
-The first acceptance test:
+The first acceptance test must prove the uncomfortable parts, not just that the
+client can connect:
 
 1. Start Master.
 2. Client connects to Master as guest.
@@ -499,6 +553,14 @@ The first acceptance test:
 13. World validates ticket with Master.
 14. Master saves character location.
 15. Worlds shut down after 0 players for X seconds.
+16. Failed login and guest spam are rate-limited.
+17. Expired/replayed/wrong-world tickets fail.
+18. A database backup can be restored into a clean Master.
+19. The same flow runs from exported artifacts, not only the editor.
+20. The Master logs enough state to debug a stuck transfer or bad save.
+
+Fail the custom path if those items feel like building a backend platform from
+scratch rather than adding small game-specific rules.
 
 ## When To Revisit PocketBase
 
