@@ -5,6 +5,11 @@ This note answers a narrow but important question for future small MMO work:
 Can a Godot MMO use Godot `Resource` files as the database if one master server
 owns all database reads and writes, or is SQLite worth the extra complexity?
 
+Follow-up: [Godot Resource Database Wrapper Spike](godot-resource-database-wrapper-spike.md)
+challenges the strongest Resource-only design directly: a RAM-first,
+single-writer object store with sharded Resource snapshots, write-ahead command
+logs, indexes, migrations, and recovery tests.
+
 Short answer: a Resource-only database is viable for a deliberately small,
 single-writer mini-MMORPG if it is designed as a careful file-backed object
 store. It is not automatically foolish. It is also not the same thing as a real
