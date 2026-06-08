@@ -32,7 +32,7 @@ For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godo
 - `client/`: playable client root and UI.
 - `master_server/`: master server scene and script. Hosts `MasterNet`.
 - `world_server/`: world server scene and script.
-- `shared/net/`: endpoint scripts and keyed network config.
+- `shared/net/`: endpoint scripts and minimal derived network config.
 - `shared/world/`: world scenes and portal logic.
 - `shared/player/`: replicated player scene and script.
 - `tools/`: export and smoke-test scripts.
@@ -193,7 +193,7 @@ Smoke/CI launches scenes directly when testing from the editor binary. Exported 
 
 ## Network Constants
 
-This MVP keeps the advertised URL host, ports, and local world-registration secret in `shared/net/net_config.gd`. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
+This MVP keeps the advertised URL host, ordered world keys, and local world-registration secret in `shared/net/net_config.gd`. Ports, scene paths, display names, and hub-spoke travel rules are derived from those constants. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Current Limits
 

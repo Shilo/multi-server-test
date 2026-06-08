@@ -128,7 +128,7 @@ world_server/
 
 ## Network Config
 
-`shared/net/net_config.gd` owns keyed world configuration.
+`shared/net/net_config.gd` owns the ordered world key list and derives most world data from it.
 
 Current ports:
 
@@ -146,6 +146,15 @@ hub
 left_world
 right_world
 ```
+
+Derived rules:
+
+- `hub` is the default world.
+- World ports start at `19081` and follow the `WORLD_KEYS` order.
+- World scene paths are `res://shared/world/<world_key>.tscn`.
+- Display names are derived from the world key.
+- `hub` can transfer to every non-hub world.
+- Non-hub worlds transfer back to `hub`.
 
 Important helpers:
 
@@ -394,7 +403,7 @@ The export presets are:
 
 ## Network Constants
 
-`shared/net/net_config.gd` owns the advertised URL host, ports, world scene paths, travel graph, and local world-registration secret. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
+`shared/net/net_config.gd` owns the advertised URL host, ordered world keys, and local world-registration secret. Ports, scene paths, display names, and the hub-spoke travel graph are derived from those constants. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Known Limits
 
