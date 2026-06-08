@@ -11,13 +11,13 @@ config_version=5
 [application]
 
 config/name="multi-server-test"
-run/main_scene="res://launcher/Launcher.tscn"
+run/main_scene="res://shared/main/main.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 
 [autoload]
 
-RunInstanceGrid="*uid://dbmhy5wqiuj0h"
+RunInstanceGrid="*res://editor/run_instance_grid.gd"
 
 [display]
 

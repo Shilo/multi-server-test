@@ -1,61 +1,53 @@
-# Godot Multi-Server Architecture Guide
+# Godot Three-Role Multi-Server Architecture Guide
 
-This document explains the working multi-server Godot setup in this project and how it can be used as the seed for a small online world architecture.
+This document explains the current Godot setup after the three-role refactor. The project is still intentionally small, but it now models the workflow we want to keep exploring for a small-scale online world:
 
-The project is intentionally small. It proves the shape:
+- `client`: visible game client.
+- `master_server`: control-plane server plus chat host.
+- `world_server`: gameplay server process, one instance per world key.
 
-- One Godot project.
-- One shared exportable codebase.
-- One client role.
-- One master server role.
-- One chat server role.
-- Three world server roles.
-- Native Godot high-level multiplayer over `WebSocketMultiplayerPeer`.
-- Separate multiplayer contexts for master, chat, and the active world.
-- Persistent chat while the active world connection is replaced.
-- Inherited world scenes with portal-based server travel.
-- Server-authority player spawning under a shared world scene root.
+There is no gateway process, standalone chat process, auth server, database, persistence layer, or orchestration layer in this refactor.
 
-It is not a production framework. It has no login, database, matchmaking, ticketing, prediction, rollback, inventory, NPCs, or cloud orchestration.
+## Runtime Shape
 
-## High-Level Model
-
-The project uses one main Godot scene, `res://launcher/Launcher.tscn`. The launcher reads command-line arguments and instantiates the requested role scene.
+Normal editor/export startup uses the main scene:
 
 ```text
---role client
---role master
---role chat
---role world --world 1
---role world --world 2
---role world --world 3
+res://shared/main/main.tscn
 ```
 
-Every role is a separate Godot process. The same project can run all roles because the launcher selects a role at startup.
+`shared/main/main.gd` selects a role from Godot feature tags:
 
-The runtime topology looks like this:
+- `master_server` starts `res://master_server/master_server.tscn`
+- `world_server` starts `res://world_server/world_server.tscn`
+- no role feature tag starts `res://client/client.tscn`
+
+If both `master_server` and `world_server` are present, startup fails clearly.
+
+Editor-binary smoke tests and CI launch scenes directly with Godot's built-in `--scene`, because Godot CLI does not provide a clean way to inject custom feature tags at launch time. Exported smoke runs the role-tagged artifacts directly, because exported Godot binaries do not support scene path overrides.
+
+## Topology
 
 ```mermaid
 flowchart LR
     Client["Client process"]
-    Master["Master server<br/>ws://127.0.0.1:19080"]
-    Chat["Chat server<br/>ws://127.0.0.1:19081"]
-    World1["World 1 server<br/>ws://127.0.0.1:19082"]
-    World2["World 2 server<br/>ws://127.0.0.1:19083"]
-    World3["World 3 server<br/>ws://127.0.0.1:19084"]
+    Master["Master server<br/>MasterNet 19080<br/>ChatNet 19081"]
+    Hub["hub world<br/>WorldNet 19082"]
+    Left["left_world<br/>WorldNet 19083"]
+    Right["right_world<br/>WorldNet 19084"]
 
-    World1 -- "register endpoint" --> Master
-    World2 -- "register endpoint" --> Master
-    World3 -- "register endpoint" --> Master
+    Hub -- "register + heartbeat" --> Master
+    Left -- "register + heartbeat" --> Master
+    Right -- "register + heartbeat" --> Master
 
-    Client -- "route lookup, then disconnect" --> Master
-    Client -- "persistent chat" --> Chat
-    Client -- "active world only" --> World1
-    Client -. "travel replaces world connection" .-> World2
-    Client -. "travel replaces world connection" .-> World3
+    Client -- "routes + transfer requests" --> Master
+    Client -- "chat" --> Master
+    Client -- "active gameplay" --> Hub
+    Client -. "approved travel swaps WorldNet" .-> Left
+    Client -. "approved travel swaps WorldNet" .-> Right
 ```
 
-The most important design rule is that chat and world networking are not sharing one global multiplayer peer. The client has sibling scene branches, and each branch has its own `MultiplayerAPI`.
+The key Godot technique is separate sibling multiplayer branches. The client has one `MultiplayerAPI` per branch:
 
 ```text
 ClientRoot
@@ -68,246 +60,207 @@ ClientRoot
     WorldSceneRoot
   CanvasLayer
     StatusLabel
-    ChatPanel (added at runtime)
 ```
 
-The branch-local APIs are assigned in `client/client_main.gd`:
+The master server mirrors two of those branches:
 
-```gdscript
-master_api = MultiplayerAPI.create_default_interface()
-chat_api = MultiplayerAPI.create_default_interface()
-world_api = MultiplayerAPI.create_default_interface()
-get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
-get_tree().set_multiplayer(chat_api, get_node("ChatNet").get_path())
-get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
+```text
+MasterServer
+  MasterNet
+    MasterEndpoint
+  ChatNet
+    ChatEndpoint
 ```
 
-That is the core Godot trick this spike validates. The client can replace the `WorldNet` peer without touching the `ChatNet` peer.
+The world server has one branch for gameplay clients and one branch for registering with master:
+
+```text
+WorldServer
+  WorldNet
+    WorldEndpoint
+    WorldSceneRoot
+  MasterNet
+    MasterEndpoint
+```
+
+`ChatNet` remains a separate multiplayer branch, but it is hosted inside the master process.
 
 ## Directory Map
 
 ```text
-launcher/
-  Launcher.tscn
-  launcher.gd
-
-client/
-  ClientRoot.tscn
-  client_main.gd
-  chat/
-    ChatPanel.tscn
-    chat_panel.gd
+shared/
+  main/
+    main.tscn
+    main.gd
+  net/
+    net_config.gd
+    master_endpoint.gd
+    chat_endpoint.gd
+    world_endpoint.gd
   player/
-    Player.tscn
+    player.tscn
     player.gd
   world/
     world.tscn
-    world_1.tscn
-    world_2.tscn
-    world_3.tscn
-    world_scene.gd
+    hub.tscn
+    left_world.tscn
+    right_world.tscn
+    world.gd
     portal_area.gd
 
-server/
-  master/
-    MasterServer.tscn
-    master_server.gd
+client/
+  client.tscn
+  client.gd
   chat/
-    ChatServer.tscn
-    chat_server.gd
-  world/
-    WorldServer.tscn
-    world_server.gd
+    chat.tscn
+    chat.gd
 
-shared/
-  net_config.gd
-  cli_args.gd
-  master_endpoint.gd
-  chat_endpoint.gd
-  world_endpoint.gd
+master_server/
+  master_server.tscn
+  master_server.gd
 
-tools/
-  run_smoke.ps1
-  export_all.ps1
-
-run_instance_grid.gd
+world_server/
+  world_server.tscn
+  world_server.gd
 ```
 
-The separation is deliberately obvious:
+`shared/` is intentionally named `shared`, not `common`, because it describes shared project code across client, master, and world roles. Role-only code stays in the role folders.
 
-- `client/` contains the playable view, player, chat UI, and world scenes.
-- `server/master/` contains the world registry and route server process.
-- `server/chat/` contains the chat server process.
-- `server/world/` contains the shared world server process, parameterized by `--world`.
-- `shared/` contains constants and RPC endpoint scripts used by both sides.
-- `tools/` contains CLI export and smoke orchestration.
-- `run_instance_grid.gd` is an editor autoload used to tile Run Instances windows during manual multi-client testing.
+## Network Config
 
-## Shared Configuration
+`shared/net/net_config.gd` owns keyed world configuration.
 
-`shared/net_config.gd` is the one place that defines local ports, URLs, world scene paths, and the transfer graph.
-
-Current local ports:
+Current ports:
 
 ```text
-master: 19080
-chat:   19081
-world1: 19082
-world2: 19083
-world3: 19084
+master:      19080
+chat:        19081
+hub:         19082
+left_world:  19083
+right_world: 19084
 ```
 
-Current transfer graph:
+Current world keys:
 
 ```text
-World 1 -> World 2
-World 2 -> World 1
-World 1 -> World 3
-World 3 -> World 1
+hub
+left_world
+right_world
 ```
 
-For this spike, `NetConfig` is enough. A larger online world prototype would eventually replace some of this with database-backed world records, health status, region, population, and shard allocation.
+Important helpers:
 
-## Launcher Role Selection
+- `world_keys()`
+- `world_endpoint(world_key)`
+- `world_scene_path(world_key)`
+- `allowed_targets(world_key)`
+- `initial_world()`
 
-`launcher/launcher.gd` reads `OS.get_cmdline_user_args()`, checks `--role`, and instantiates the matching root scene:
+The transfer graph is:
 
 ```text
-client -> res://client/ClientRoot.tscn
-master -> res://server/master/MasterServer.tscn
-chat   -> res://server/chat/ChatServer.tscn
-world  -> res://server/world/WorldServer.tscn
+hub -> left_world
+hub -> right_world
+left_world -> hub
+right_world -> hub
 ```
 
-This keeps the Godot project simple:
+## World Startup Arguments
 
-- One `project.godot`.
-- One main scene.
-- One export preset.
-- Same binary can become any role by changing args.
+The world role accepts exactly one world-selection syntax: a bare positional key after Godot's `--`.
 
-This is the simplest useful setup for a multi-role MVP.
+```powershell
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- hub
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- left_world
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- right_world
+```
 
-## Master Server
+If no user argument is provided, the world server starts `hub`. If more than one user argument is provided, or if the key is invalid, startup fails.
 
-The master server is a small registry. It is not an account server, lobby server, or matchmaking service.
+## Master Responsibilities
 
-Files:
+The master process owns:
 
-- `server/master/MasterServer.tscn`
-- `server/master/master_server.gd`
-- `shared/master_endpoint.gd`
+- World registry.
+- Route snapshots.
+- Transfer approval.
+- Chat server branch.
 
 Startup behavior:
 
-1. Creates a `MultiplayerAPI`.
-2. Assigns it to the `MasterNet` branch.
-3. Creates a `WebSocketMultiplayerPeer` server on `127.0.0.1:19080`.
-4. Prints `MASTER_READY`.
+1. Creates a `MultiplayerAPI` for `MasterNet`.
+2. Starts a `WebSocketMultiplayerPeer` server on `127.0.0.1:19080`.
+3. Creates a second `MultiplayerAPI` for `ChatNet`.
+4. Starts a `WebSocketMultiplayerPeer` server on `127.0.0.1:19081`.
+5. Prints `MASTER_READY` and `CHAT_READY`.
 
 World registration behavior:
 
-1. A world server connects to master using its own `MasterNet` branch.
-2. The world calls `register_world(world_id, endpoint, allowed_targets)`.
-3. Master stores the registered endpoint by world ID.
-4. Master prints `MASTER_WORLD_REGISTERED id=<id>`.
-5. Master acknowledges the world.
+1. A world connects to `MasterNet`.
+2. The world calls `register_world(world_key, endpoint, allowed_targets)`.
+3. Master validates the key against `NetConfig`.
+4. Master stores the live endpoint by world key.
+5. Master prints `MASTER_WORLD_REGISTERED key=<world_key>`.
+6. Master acknowledges the world.
 
-Client route behavior:
+Transfer approval behavior:
 
-1. The client connects to master.
-2. The client calls `request_routes()`.
-3. Master replies with live registered worlds plus the static chat endpoint and initial world from `NetConfig`.
-4. The client disconnects master by assigning `OfflineMultiplayerPeer`.
+1. Client keeps `MasterNet` connected.
+2. A portal emits a target world key.
+3. Client asks master for transfer approval.
+4. Master checks that the target is allowed from the current world.
+5. Master checks that the target world is registered.
+6. Master sends either approval with endpoint data or a denial.
+7. Client swaps only `WorldNet` after approval.
 
-For this MVP, the master is only needed for initial route discovery. Chat and world traffic do not go through master.
+## Chat Responsibilities
 
-Only world endpoints are dynamically registered in this spike. The chat endpoint and initial world are static config values returned with the route response, so chat can still be advertised even when the chat server is not running. Manual client mode handles that by treating chat as optional.
+Chat is still logically separate from gameplay and route control, but it is no longer a standalone process.
 
-## Chat Server
-
-The chat server is intentionally separate from all world servers.
-
-Files:
-
-- `server/chat/ChatServer.tscn`
-- `server/chat/chat_server.gd`
-- `shared/chat_endpoint.gd`
-- `client/chat/ChatPanel.tscn`
-- `client/chat/chat_panel.gd`
-
-Startup behavior:
-
-1. Creates a `MultiplayerAPI`.
-2. Assigns it to the `ChatNet` branch.
-3. Creates a `WebSocketMultiplayerPeer` server on `127.0.0.1:19081`.
-4. Prints `CHAT_READY`.
-
-Chat behavior:
-
-1. Client connects on `ChatNet`.
-2. The chat panel enables its `LineEdit`.
-3. User presses Enter in the input.
-4. Client calls `send_chat.rpc_id(1, message)`.
-5. Server reads `multiplayer.get_remote_sender_id()`.
-6. Server broadcasts `receive_chat(sender_id, message)` to clients.
-7. Client displays the sender peer ID and message.
-
-The packed chat UI is a `PanelContainer` with:
+The chat branch lives at:
 
 ```text
-ChatPanel
-  VBox
-    Output: RichTextLabel
-    Input: LineEdit
+MasterServer/ChatNet/ChatEndpoint
+ClientRoot/ChatNet/ChatEndpoint
 ```
 
-There is no send button. Press Enter to send.
+Chat flow:
 
-The important architectural point is that `ChatNet` is not touched during world travel. If the world peer is replaced, chat remains connected.
+1. Client receives the chat endpoint from master routes.
+2. Client connects `ChatNet`.
+3. User presses Enter in the chat panel.
+4. Client calls `send_chat.rpc_id(1, message)`.
+5. Master reads the sender peer id.
+6. Master broadcasts `receive_chat(sender_id, message)`.
 
-## World Servers
+World travel replaces only the `WorldNet` peer. `ChatNet` stays connected through transfers.
 
-There are three world server processes, all using the same world server scene and script.
+## World Responsibilities
 
-Files:
-
-- `server/world/WorldServer.tscn`
-- `server/world/world_server.gd`
-- `shared/world_endpoint.gd`
-- `client/world/world.tscn`
-- `client/world/world_1.tscn`
-- `client/world/world_2.tscn`
-- `client/world/world_3.tscn`
-
-Each world server is configured by `--world`.
-
-```powershell
---role world --world 1
---role world --world 2
---role world --world 3
-```
+Each world server process owns gameplay for exactly one world key.
 
 Startup behavior:
 
-1. Creates a `world_api` for the `WorldNet` branch.
-2. Creates a `master_api` for the `MasterNet` branch.
-3. Reads `--world`.
-4. Loads the matching inherited world scene under `WorldNet/WorldSceneRoot`.
-5. Starts a WebSocket server on that world's port.
-6. Connects to master.
-7. Registers its world ID, URL, scene path, and allowed transfer targets.
+1. Reads zero or one user arguments.
+2. Defaults to `hub` if no key is present.
+3. Loads the keyed world scene into `WorldNet/WorldSceneRoot`.
+4. Starts a `WorldNet` WebSocket server on the keyed port.
+5. Connects to master on `MasterNet`.
+6. Registers the world key, endpoint, and allowed targets.
+7. Prints `WORLD_READY key=<world_key>`.
 
-The world server has two independent multiplayer responsibilities:
+World servers still own:
 
-- `WorldNet`: accepts gameplay clients for that world.
-- `MasterNet`: connects upward to master for registry behavior and sends a heartbeat placeholder.
+- Gameplay peer connections.
+- Player spawn/despawn.
+- Movement replication.
+- World state replies.
 
-This mirrors a real MMO split: world servers are independent game processes, but they report their endpoints to a control-plane service. The current heartbeat RPC is intentionally minimal: worlds send it, but master does not store heartbeat timestamps or enforce heartbeat timeouts yet. Deregistration currently happens when the master sees the world peer disconnect.
+They do not own transfer approval. That belongs to master.
 
 ## World Scenes
 
-`client/world/world.tscn` is the base world scene.
+`shared/world/world.tscn` is the base world scene.
 
 ```text
 World
@@ -315,401 +268,123 @@ World
   MultiplayerSpawner
 ```
 
-`world_1.tscn`, `world_2.tscn`, and `world_3.tscn` inherit from the base scene and override only:
+The inherited scenes are:
 
-- `world_id`
+- `shared/world/hub.tscn`
+- `shared/world/left_world.tscn`
+- `shared/world/right_world.tscn`
+
+They override:
+
+- `world_key`
 - `world_name`
 - `world_color`
 - `portal_targets_csv`
 
-Runtime-generated visuals:
-
-- Marker sprites use `res://icon.svg` with world color modulation.
-- Portal sprites use `res://icon.svg` with target color modulation.
-- The player uses `res://icon.svg` through `Player.tscn`.
-- Labels identify the current world and portal targets.
-
-The same inherited world scene is mounted on both the client and the world server at:
+Client and world server both mount the active scene at:
 
 ```text
 WorldNet/WorldSceneRoot
 ```
 
-That shared path matters for high-level multiplayer nodes. `MultiplayerSpawner` and `MultiplayerSynchronizer` depend on matching scene paths and authority rules.
+That matching path is required for high-level multiplayer spawning and synchronization.
 
-## Player Spawning
+## Player Spawning And Movement
 
-`client/player/Player.tscn` is a `CharacterBody2D` with:
+`shared/player/player.tscn` is a `CharacterBody2D` with a `MultiplayerSynchronizer` for position.
 
-- A `Sprite2D` using `res://icon.svg`.
-- A `CollisionShape2D`.
-- Collision layer `2`, so players do not collide with each other in the current setup.
-- A `MultiplayerSynchronizer` configured for `.:position` in the current player scene.
+Authority model:
 
-`client/player/player.gd` is intentionally tiny:
+- World server spawns `Player_<peer_id>` under `SpawnRoot`.
+- Spawn data includes `peer_id` and starting position.
+- The spawned player node gives multiplayer authority to that peer.
+- The local authority player reads input and moves.
+- Remote players do not consume local input.
+- Position is synchronized through the `MultiplayerSynchronizer`.
 
-- Reads movement from `Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")`.
-- Sets `velocity`.
-- Calls `move_and_slide()`.
-- Does not use gravity.
-- Only moves if the node is local multiplayer authority.
-
-Players are spawned through the base world scene's `MultiplayerSpawner`.
-
-Server-side flow:
-
-1. A peer connects to a world server.
-2. `world_server.gd` receives `world_api.peer_connected`.
-3. The server calls `world_scene.spawn_player(peer_id)`.
-4. `world_scene.gd` calls `MultiplayerSpawner.spawn(...)`.
-5. Spawn data includes:
-   - `peer_id`
-   - `position`
-6. `_spawn_player_from_data()` creates `Player.tscn`.
-7. The spawned node is named `Player_<peer_id>`.
-8. Authority is assigned to that peer.
-9. The node is added under `SpawnRoot`.
-
-Client-side flow:
-
-1. Godot receives the spawner event.
-2. The same `_spawn_player_from_data()` function runs locally.
-3. The same `Player_<peer_id>` node is created under `SpawnRoot`.
-4. The local player can move only if its authority matches the local peer.
-5. Remote players are present but do not consume local input.
-
-The spawn data is important. Without passing the spawn position through `MultiplayerSpawner.spawn(data)`, clients can instantiate spawned players at default scene positions such as `(0, 0)`.
-
-## Movement Synchronization
-
-The current `Player.tscn` includes a `MultiplayerSynchronizer` for `position`.
-
-The intended authority model is:
-
-- The local player owns its own `Player_<peer_id>` node.
-- The local player moves through input.
-- The `MultiplayerSynchronizer` replicates that authority-owned `position` to remote peers.
-- Remote player nodes do not run input movement because they are not local authority.
-
-Two pitfalls matter here:
-
-1. If every client moves every `Player` node, players will fight each other and snap or disappear.
-2. If remote synchronized player bodies can trigger portals, one player's travel can appear to make other clients travel.
-
-This project avoids the second pitfall in `portal_area.gd`:
-
-```gdscript
-func _on_body_entered(body: Node) -> void:
-    if body is CharacterBody2D and _is_local_authority_body(body):
-        activate()
-```
-
-Only the local authority player can activate a portal on that client. Synchronized remote player bodies can overlap portal areas visually, but they should not request travel for the local client.
+This keeps the current MVP simple: movement is client-authority, while world servers still own spawn/despawn.
 
 ## Portal Travel
 
-Portals are client-visible `Area2D` nodes generated by `world_scene.gd`.
-
-`portal_targets_csv` controls which portals exist:
-
-```text
-World 1: "2,3"
-World 2: "1"
-World 3: "1"
-```
-
-Manual travel flow:
+Portal flow:
 
 1. Local authority player enters a portal.
 2. `portal_area.gd` emits `portal_entered(target_world)`.
-3. `world_scene.gd` emits `portal_requested(target_world)`.
-4. `client_main.gd` receives the request.
-5. Client checks whether the target world was registered by master.
-6. Client calls `world_endpoint.request_transfer.rpc_id(1, target_world)` on the current world server.
-7. Current world server checks `NetConfig.allowed_targets(server_world_id)`.
-8. If allowed, server sends `approve_transfer(target_world, endpoint)`.
-9. Client disconnects the old world peer.
-10. Client unloads the old world scene.
-11. Client loads the target world scene locally.
-12. Client connects `WorldNet` to the target world server.
-13. Client requests and receives target world state.
-14. Chat remains connected on `ChatNet`.
+3. `world.gd` emits `portal_requested(target_world)`.
+4. `client.gd` sends a transfer request to master with current and target world keys.
+5. Master validates the target against `NetConfig.allowed_targets(current_world)` and the live registry.
+6. On approval, client disconnects the old world peer.
+7. Client unloads the old world scene.
+8. Client loads the target world scene.
+9. Client connects `WorldNet` to the target world endpoint.
+10. Client requests world state.
+11. Chat remains connected.
 
-The key implementation detail is that travel replaces only this branch:
+Only local authority player bodies can activate portals, so remote synchronized bodies should not trigger travel for another client.
 
-```text
-ClientRoot/WorldNet
-```
+## Smoke And CI
 
-It does not replace:
-
-```text
-ClientRoot/ChatNet
-```
-
-That is why chat can survive world transfer.
-
-## Scene Paths And RPC Rules
-
-Godot high-level multiplayer is sensitive to paths.
-
-For RPC endpoints, both sides must have matching node paths and scripts. This project keeps the important paths stable:
-
-```text
-MasterNet/MasterEndpoint
-ChatNet/ChatEndpoint
-WorldNet/WorldEndpoint
-WorldNet/WorldSceneRoot
-```
-
-For high-level spawning/synchronization, client and server both load the inherited world scene under `WorldNet/WorldSceneRoot`, with spawned players under:
-
-```text
-WorldNet/WorldSceneRoot/<WorldN>/SpawnRoot/Player_<peer_id>
-```
-
-That matching structure is why the spawner can replicate player nodes.
-
-Rules to keep in mind:
-
-- Do not nest custom multiplayer branches.
-- Set branch multiplayer APIs before relying on branch-local RPC/spawner/synchronizer behavior.
-- Keep RPC method signatures and annotations identical on both sides.
-- Client-to-server RPC methods need `@rpc("any_peer")`.
-- Server-to-client RPC methods usually use authority RPCs.
-- Use stable node names for nodes involved in RPC or replication.
-- Treat world travel as teardown/rebuild of the world branch, not as carrying live synchronized nodes between servers.
-
-## Manual Testing In Godot
-
-Use:
-
-```text
-Debug > Customize Run Instances...
-```
-
-For the full local topology with two visible clients:
-
-```text
-main editor run: visible client
-instance 1:       visible client
-instance 2:       --headless -- --role master
-instance 3:       --headless -- --role world --world 1
-instance 4:       --headless -- --role world --world 2
-instance 5:       --headless -- --role world --world 3
-instance 6:       --headless -- --role chat
-```
-
-Expected manual behavior:
-
-- Both clients connect to master.
-- Both clients connect to chat if chat is running.
-- Both clients connect to World 1.
-- Both clients spawn `Player_<peer_id>` nodes under `SpawnRoot`.
-- Movement is top-down with WASD or arrows.
-- Chat input sends on Enter.
-- Chat lines show the sender peer ID.
-- Entering a portal transfers only the local client.
-- Other clients can stay in the previous world.
-- Chat remains connected after travel.
-
-For partial topology debugging, manual mode is relaxed:
-
-- Chat is optional.
-- World 2 and World 3 are optional.
-- Portals to missing worlds are hidden.
-
-That means this is valid for quick client/world debugging:
-
-```text
---headless -- --role master
---headless -- --role world --world 1
-visible client
-```
-
-## CLI Testing
-
-Set your local Godot path:
-
-```powershell
-$godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe"
-```
-
-Launch roles manually in separate terminals, or start the server roles as background processes. The server commands keep running after their ready markers:
-
-```powershell
-& $godot --headless --path . -- --role master
-& $godot --headless --path . -- --role chat
-& $godot --headless --path . -- --role world --world 1
-& $godot --headless --path . -- --role world --world 2
-& $godot --headless --path . -- --role world --world 3
-& $godot --path . -- --role client
-```
-
-Run the automated smoke test:
+The smoke script launches direct scenes when using the editor binary:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1
 ```
 
-Run two smoke clients:
+The expected server launches are:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -ClientCount 2
+```text
+res://master_server/master_server.tscn
+res://world_server/world_server.tscn -- hub
+res://world_server/world_server.tscn -- left_world
+res://world_server/world_server.tscn -- right_world
+res://client/client.tscn -- smoke_test
 ```
 
-Expected smoke markers:
+With `-UseExported`, the smoke script runs `builds/client/client.exe`, `builds/master_server/master_server.exe`, and `builds/world_server/world_server.exe` directly. The master and world artifacts rely on their export preset feature tags.
+
+Expected markers:
 
 ```text
 MASTER_READY
 CHAT_READY
-WORLD_READY id=1
-WORLD_READY id=2
-WORLD_READY id=3
-MASTER_WORLD_REGISTERED id=1
-MASTER_WORLD_REGISTERED id=2
-MASTER_WORLD_REGISTERED id=3
-SMOKE_STEP client connected to chat
-SMOKE_STEP client confirmed initial world 1
-SMOKE_STEP confirmed world 2 with chat alive
-SMOKE_STEP confirmed world 1 with chat alive
-SMOKE_STEP confirmed world 3 with chat alive
-SMOKE_STEP confirmed world 1 with chat alive
+WORLD_READY key=hub
+WORLD_READY key=left_world
+WORLD_READY key=right_world
+MASTER_WORLD_REGISTERED key=hub
+MASTER_WORLD_REGISTERED key=left_world
+MASTER_WORLD_REGISTERED key=right_world
 SMOKE_PASS
 ```
 
-Logs are written under `.logs/`.
-
-The smoke sequence covers server startup, live world registration, chat round-trips, player spawning, and portal travel through `1 -> 2 -> 1 -> 3 -> 1`. It does not prove live movement synchronization between visible clients; use Godot Run Instances with two visible clients to verify synchronized player motion manually.
+The smoke sequence validates route lookup, chat round-trips, transfers through `hub`, `left_world`, and `right_world`, and world branch reconnection. Manual two-client testing is still the better way to inspect live movement replication visually.
 
 ## Exporting
 
-The project uses one Windows Desktop export preset.
-
-Export all role-labeled artifacts:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\export_all.ps1
-```
-
-Outputs:
+`tools/export_all.ps1` outputs three role-labeled artifacts:
 
 ```text
 builds/client/client.exe
-builds/client/client.pck
-builds/master/master.exe
-builds/master/master.pck
-builds/chat/chat.exe
-builds/chat/chat.pck
-builds/world1/world1.exe
-builds/world1/world1.pck
-builds/world2/world2.exe
-builds/world2/world2.pck
-builds/world3/world3.exe
-builds/world3/world3.pck
+builds/master_server/master_server.exe
+builds/world_server/world_server.exe
 ```
 
-Each role output is an `.exe` plus a sibling `.pck`, because the export preset uses `binary_format/embed_pck=false`. Keep each pair together when running or moving builds. The export script first creates a shared debug artifact under `builds/_shared/`, then copies the executable and pack into role-labeled folders. Role behavior still comes from command-line arguments.
+Each `.exe` has a sibling `.pck`. Keep each pair together.
 
-Run exported smoke:
+The export presets are:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported
-```
+- `Windows Client`: no role feature tag.
+- `Windows Master Server`: `master_server` feature tag.
+- `Windows World Server`: `world_server` feature tag.
 
-This proves that the shared project exports and the same topology runs outside the editor.
+## Known Limits
 
-## How To Add A New World
-
-For an MVP-style fourth world:
-
-1. Add a port in `NetConfig.WORLD_PORTS`.
-2. Add allowed targets in `NetConfig.allowed_targets()`.
-3. Create `client/world/world_4.tscn` inherited from `client/world/world.tscn`.
-4. Override:
-   - `world_id = 4`
-   - `world_name = "World 4"`
-   - `world_color`
-   - `portal_targets_csv`
-5. Update `NetConfig.world_scene_path()` if the naming convention changes.
-6. Add a launch line:
-   - `--headless -- --role world --world 4`
-7. Update smoke tooling if the new world is required for automated validation.
-
-Do not duplicate `world_server.gd`. One world server script should stay parameterized by `--world`.
-
-## How To Evolve This
-
-The current architecture is a seed. A small multi-server online game can grow from it by keeping the same separation of responsibilities.
-
-Suggested next layers:
-
-- Keep the launcher/role pattern while prototyping.
-- Turn master into a registry plus allocation service.
-- Let worlds register health, population, max players, shard ID, region, and map name.
-- Add authenticated login before route lookup.
-- Add short-lived transfer tickets before moving between worlds.
-- Persist character state before transfer and restore it on the target world.
-- Add server-side validation for spawn position and portal entry.
-- Add local/global chat channels.
-- Add world-local chat by connecting chat identity to world membership.
-- Add reconnect behavior for chat and world separately.
-- Add interest management before adding lots of synchronized entities.
-- Build editor-friendly context nodes later, after this explicit version stays understandable.
-
-Keep this boundary:
-
-```text
-control plane: master/auth/allocation
-social plane: chat
-simulation plane: world servers
-client plane: visible world, input, UI, travel requests
-```
-
-That boundary is the most important thing to preserve.
-
-## Known Limitations And Pitfalls
-
-This project is intentionally local and minimal.
-
-Known limitations:
-
-- No auth.
+- No login.
 - No database.
 - No persistence.
 - No transfer tickets.
-- No server-side movement validation.
-- No production orchestration.
+- No orchestration.
 - No reconnect UX.
-- No latency or packet-loss handling.
+- No server-side movement validation.
 - No world population balancing.
-- No security around chat or transfer requests.
 
-Godot-specific pitfalls discovered during the spike:
-
-- Nested custom multiplayer branches are not allowed.
-- RPC node paths and method signatures must match.
-- `MultiplayerSpawner` needs matching spawn paths on server and clients.
-- Initial spawn properties should be passed through spawn data.
-- Authority must be deterministic and reapplied after spawn/name assignment.
-- Peer IDs belong to a connection. Do not assume they are global account IDs.
-- Remote synchronized bodies can trigger local physics areas unless filtered.
-- Travel should replace the world branch, not move live synchronized nodes to a different server peer.
-- A transient WebSocket `ready_state != STATE_OPEN` send warning can appear during startup/teardown if RPCs race connection readiness; it can be harmless if the higher-level smoke still passes.
-- Manual mode route lookup is a startup snapshot. If a world registers after the client already fetched routes, restart the client or add route refresh logic.
-
-## Why This Structure Was Chosen
-
-This structure wins for the spike because it is boring in the right places:
-
-- One Godot project is easy to inspect.
-- One launcher makes export simple.
-- Role folders keep responsibilities visible.
-- Shared endpoint scripts reduce RPC drift.
-- Sibling multiplayer branches prove multiple simultaneous connections.
-- World travel replaces only the world branch.
-- Chat persistence is tested directly.
-- World scenes are inherited rather than copied.
-- The smoke script proves the full topology with logs.
-
-The result is small enough to throw away, but concrete enough to guide a real multi-server online world prototype.
+The important boundary is now sharper than the previous spike: master handles control/chat approval, world servers handle gameplay, and the client keeps long-lived `MasterNet` and `ChatNet` branches while swapping `WorldNet`.

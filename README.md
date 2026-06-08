@@ -1,114 +1,109 @@
-# Minimal Godot 4 Multi-Server Multiplayer Spike
+# Minimal Godot 4 Three-Role Multiplayer Spike
 
-This is a one-project Godot 4.6 MVP proving a native multiplayer topology with:
+This is a one-project Godot 4.6 spike proving a small online-world topology with:
 
-- One client.
-- One master server.
-- One chat server.
-- Three world servers.
-- WebSocket-based `MultiplayerAPI` peers.
-- Separate client multiplayer contexts for master, chat, and active world.
+- One client role.
+- One master server role.
+- One world server role, started once per world key.
+- Chat hosted by the master server on a separate `ChatNet` branch.
+- Native Godot high-level multiplayer over `WebSocketMultiplayerPeer`.
+- Separate client multiplayer contexts for master, chat, and the active world.
 - A persistent chat connection while the active world connection is replaced.
-- Live world registration with the master server before client route lookup.
-- A tiny top-down `CharacterBody2D` player.
-- Three visibly distinct worlds with portal transfer topology:
-  - World 1 -> World 2
-  - World 2 -> World 1
-  - World 1 -> World 3
-  - World 3 -> World 1
+- Server-authority player spawn/despawn with client-authority movement.
+- Three visibly distinct worlds:
+  - `hub`
+  - `left_world`
+  - `right_world`
 
-This is intentionally a spike, not a production framework.
+Portal topology:
 
-For a complete explanation of how the multi-server setup works and how to grow it into a small online world prototype, read the [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md).
+- `hub -> left_world`
+- `hub -> right_world`
+- `left_world -> hub`
+- `right_world -> hub`
+
+For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md).
 
 ## Structure
 
-- `launcher/`: the one main scene. It reads `--role`.
-- `client/`: client root, player, world scenes, and portals.
-- `server/master/`: master route server.
-- `server/chat/`: separate chat server.
-- `server/world/`: shared world server role, configured by `--world`.
-- `shared/`: shared endpoints, config, and CLI parsing.
+- `shared/main/`: feature-tag bootstrap scene.
+- `client/`: playable client root and UI.
+- `master_server/`: master server scene and script. Hosts `MasterNet` and `ChatNet`.
+- `world_server/`: world server scene and script.
+- `shared/net/`: endpoint scripts and keyed network config.
+- `shared/world/`: world scenes and portal logic.
+- `shared/player/`: replicated player scene and script.
 - `tools/`: export and smoke-test scripts.
-- `docs/`: research and audit notes.
-- `run_instance_grid.gd`: editor autoload that tiles visible Run Instances windows and helps manual multi-client debugging.
+- `docs/`: architecture, research, and audit notes.
+- `editor/run_instance_grid.gd`: editor-only autoload that tiles visible Run Instances windows for manual debugging. Production exports exclude `editor/*` and the export script temporarily removes this autoload while building.
 
 Main documentation:
 
-- [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical high-level and detailed walkthrough of the current working architecture.
-- [VirtuCade Infrastructure](docs/virtucade.md): proposed future infrastructure for a small-scale production VirtuCade using Gateway, Master, World, and Social as conceptual roles that can be compressed into fewer services.
-- [VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): latest decision spike stress-testing a custom Godot Master plus embedded SQLite as a production-shaped hypothesis, with PocketBase and Nakama kept as fallback pressure-release options.
-- [VirtuCade Infrastructure Options, PocketBase, And Nakama Research](docs/virtucade-infrastructure-options.md): decision research comparing a full custom split, a Go/PocketBase Master Backend, and Nakama plus Godot dedicated world servers.
-- [Nakama And Godot World Server Viability Research](docs/nakama-godot-world-server-viability.md): deep Nakama-specific research for using Nakama as the backend/control/social/database platform while Godot headless servers own gameplay worlds.
-- [Nakama MVP Glue](docs/nakama-mvp.md): notes for the separate `nakama` branch implementation; useful as archived Nakama bridge/orchestration research, not the mainline run workflow.
-- [Lightweight Orchestration Spike](docs/orchestration-language-spike.md): language/runtime comparison from the Nakama branch for a Go process supervisor; reference material if custom Master process supervision is later split out.
-- [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): comparison against SlayHorizon's Godot Tiny MMO project, including what to borrow later and what should stay out of the minimal production loop.
-- [Godot Tiny MMO Database Research](docs/godot-tiny-mmo-database-resource-vs-sqlite-research.md): focused research on Tiny MMO's Resource-vs-SQLite persistence history, old 2D MMO file storage, and a test plan for mini-MMORPG persistence tradeoffs.
-- [Godot Resource Database Wrapper Spike](docs/godot-resource-database-wrapper-spike.md): challenged follow-up on whether a Resource-only, RAM-first object store could be production-shaped for accounts, characters, items, and MMO state.
-- [JDungeon Comparison Research](docs/jdungeon-comparison.md): comparison against JDungeon's Godot MORPG source, including gateway routing, component sync, persistence, and deployment tradeoffs.
-- [Godot 4 Network Tutorial Comparison Research](docs/godot4-network-tutorial-comparison.md): comparison against Something Like Games' Godot 4 networking tutorial, including JWT handoff, ENet/DTLS caveats, and high-level scene replication patterns.
-- [Intersect Engine Research](docs/intersect-engine-research.md): research on AscensionGameDev's mature C# / MonoGame 2D MMORPG engine, including server authority, databases, packet networking, maps, and lessons for this Godot spike.
-- [Godot Multiplayer Project Comparison Matrix](docs/godot-multiplayer-project-comparison.md): table comparison across this project, Godot Tiny MMO, JDungeon, and Godot 4 Network Tutorial.
-- [End-to-End Validation Findings](docs/end-to-end-validation.md): final smoke-test and export validation notes.
-- [Server Orchestration And Server Travel Research](docs/server-orchestration-and-travel.md): research notes that led to live world registration and branch-local travel.
+- [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical current architecture.
+- [VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): custom infrastructure decision spike.
+- [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): Tiny MMO comparison and lessons.
+- [Godot Resource Database Wrapper Spike](docs/godot-resource-database-wrapper-spike.md): Resource-file persistence challenge spike.
+- [Nakama And Godot World Server Viability Research](docs/nakama-godot-world-server-viability.md): Nakama viability research.
+- [Nakama MVP Glue](docs/nakama-mvp.md): archived notes for the separate Nakama branch.
 
-The client uses sibling networking branches:
+## Role Selection
 
-- `MasterNet/MasterEndpoint`
-- `ChatNet/ChatEndpoint`
-- `WorldNet/WorldEndpoint`
+Normal/editor/export workflow uses Godot feature tags:
 
-Those names are mirrored in the server scenes so RPC paths and scripts match.
+- `master_server`: starts `res://master_server/master_server.tscn`
+- `world_server`: starts `res://world_server/world_server.tscn`
+- no role feature tag: starts `res://client/client.tscn`
 
-World servers also use a separate `MasterNet/MasterEndpoint` branch to register with master while their `WorldNet/WorldEndpoint` branch accepts gameplay clients.
+The main scene is:
 
-World scene inheritance:
+```text
+res://shared/main/main.tscn
+```
 
-- `client/world/world.tscn` is the shared base world scene.
-- `client/world/world_1.tscn`, `world_2.tscn`, and `world_3.tscn` inherit from it and only override identity, color, and portal targets.
-- Client and world server both mount the active inherited world scene at `WorldNet/WorldSceneRoot`, so branch-local multiplayer paths match below `WorldNet`.
-- `world.tscn` includes `SpawnRoot` plus a `MultiplayerSpawner` whose `spawn_path` points at that root.
-- World servers spawn `Player_<peer_id>` instances as children of `SpawnRoot` when peers connect.
-- `Player.tscn` includes a `MultiplayerSynchronizer` for `position`. The automated smoke test validates registration, chat, and travel, and it exercises spawning indirectly through world connections. It does not assert replicated player nodes or live movement synchronization; manual two-client testing is the better way to verify that.
+If both `master_server` and `world_server` feature tags are present, startup fails clearly. The app does not support role or mode command-line flags.
 
-## Run Roles From The Editor Binary
+For smoke tests and CI, launch role scenes directly with Godot's built-in `--scene` option.
 
-Use the local Godot 4.6.3 binary:
+## World Keys
+
+World selection uses exactly one syntax: a bare positional key after Godot's `--`.
+
+Examples:
+
+```powershell
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- hub
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- left_world
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- right_world
+```
+
+If no world key is provided, the world server starts `hub`. If more than one user argument is provided, or if the key is unknown, startup fails clearly.
+
+## Manual CLI Run
+
+Use the local Godot binary:
 
 ```powershell
 $godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe"
 ```
 
-Launch servers in separate terminals, or start them as background processes. These server commands keep running after they print their `*_READY` marker:
+Start servers in separate terminals:
 
 ```powershell
-& $godot --headless --path . -- --role master
-& $godot --headless --path . -- --role chat
-& $godot --headless --path . -- --role world --world 1
-& $godot --headless --path . -- --role world --world 2
-& $godot --headless --path . -- --role world --world 3
+& $godot --headless --path . --scene res://master_server/master_server.tscn
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- hub
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- left_world
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- right_world
 ```
 
 Launch a manual client:
 
 ```powershell
-& $godot --path . -- --role client
+& $godot --path . --scene res://client/client.tscn
 ```
 
-Manual client mode is relaxed. It requires master plus the initial registered world, but chat and other worlds are optional. If only World 1 is registered, the client enters World 1 and hides portals to unavailable worlds.
+Manual client mode requires master plus the initial registered world. Chat and non-initial worlds can be missing while debugging; portals to unavailable worlds are hidden.
 
-Manual portal reproduction test with only master, World 1, and World 2:
-
-```powershell
-Start-Process -FilePath $godot -ArgumentList @("--headless", "--path", (Resolve-Path .), "--", "--role", "master")
-Start-Process -FilePath $godot -ArgumentList @("--headless", "--path", (Resolve-Path .), "--", "--role", "world", "--world", "1")
-Start-Process -FilePath $godot -ArgumentList @("--headless", "--path", (Resolve-Path .), "--", "--role", "world", "--world", "2")
-& $godot --headless --path . -- --role client --manual-portal-test
-```
-
-Success logs include `MANUAL_PORTAL_TEST_PASS`.
-
-## Test From Godot Run Instances
+## Editor Run Instances
 
 Use Godot's editor launcher when you want visible local clients and headless local servers.
 
@@ -118,50 +113,16 @@ Open:
 Debug > Customize Run Instances...
 ```
 
-![Godot Run Instances configured for two clients and five headless servers](docs/images/godot-run-instances-full-topology.png)
-
 Recommended setup for two visible clients plus the full server topology:
 
-- Leave `Main Run Args` empty. The main run becomes one visible client.
-- Enable `Enable Multiple Instances`.
-- Set the instance count to `7`.
-- Leave the first extra instance's `Launch Arguments` empty. This becomes the second visible client.
-- Add these launch arguments for the remaining extra instances:
+- Main editor run: visible client with no launch arguments.
+- Extra instance 1: visible client with no launch arguments.
+- Extra instance 2: headless master using the `master_server` feature tag.
+- Extra instance 3: headless world using the `world_server` feature tag and `-- hub`.
+- Extra instance 4: headless world using the `world_server` feature tag and `-- left_world`.
+- Extra instance 5: headless world using the `world_server` feature tag and `-- right_world`.
 
-```text
---headless -- --role master
---headless -- --role world --world 1
---headless -- --role world --world 2
---headless -- --role world --world 3
---headless -- --role chat
-```
-
-The final run-instance table should conceptually be:
-
-```text
-main editor run: visible client
-instance 1:       visible client
-instance 2:       --headless -- --role master
-instance 3:       --headless -- --role world --world 1
-instance 4:       --headless -- --role world --world 2
-instance 5:       --headless -- --role world --world 3
-instance 6:       --headless -- --role chat
-```
-
-Then press Play. Expected behavior:
-
-- Both visible clients connect to master, chat, and World 1.
-- Both clients spawn `Player_<peer_id>` nodes under `SpawnRoot`.
-- Chat messages sent with Enter show the sender peer id.
-- A local-authority player entering a portal transfers only that client.
-- Chat remains connected while the active world connection changes.
-
-Important testing notes:
-
-- Stop the previous run before starting another one. Otherwise old headless servers can keep ports `19080` through `19084` bound.
-- The client performs a single connection wait, not a retry loop. Make sure master and the initial world are listening before clients start; if a client fetches routes before every world registers, manual mode only sees worlds registered in that startup snapshot.
-- If you change scripts or scenes used by the headless roles, stop and restart the run instances so those server processes reload the project.
-- Run-instance testing is for manual visual verification. Use `tools/run_smoke.ps1` for repeatable pass/fail automation.
+Stop the previous run before starting another one so old processes do not keep ports `19080` through `19084` bound.
 
 ## Automated Smoke Test
 
@@ -183,35 +144,23 @@ Exported-artifact smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported
 ```
 
-Three simultaneous exported clients:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported -ClientCount 3
-```
-
 Successful logs include:
 
 - `MASTER_READY`
 - `CHAT_READY`
-- `WORLD_READY id=1`
-- `WORLD_READY id=2`
-- `WORLD_READY id=3`
-- `MASTER_WORLD_REGISTERED id=1`
-- `MASTER_WORLD_REGISTERED id=2`
-- `MASTER_WORLD_REGISTERED id=3`
-- `SMOKE_STEP client connected to chat`
-- `SMOKE_STEP client confirmed initial world 1`
-- `SMOKE_STEP confirmed world 2 with chat alive`
-- `SMOKE_STEP confirmed world 1 with chat alive`
-- `SMOKE_STEP confirmed world 3 with chat alive`
-- `SMOKE_STEP confirmed world 1 with chat alive`
+- `WORLD_READY key=hub`
+- `WORLD_READY key=left_world`
+- `WORLD_READY key=right_world`
+- `MASTER_WORLD_REGISTERED key=hub`
+- `MASTER_WORLD_REGISTERED key=left_world`
+- `MASTER_WORLD_REGISTERED key=right_world`
 - `SMOKE_PASS`
 
 Logs are written under `.logs/` and ignored by git.
 
 ## Export
 
-Install Godot export templates for `4.6.3.stable` first if needed. The export script expects Windows Desktop templates at Godot's normal template path.
+Install Godot export templates for `4.6.3.stable` first if needed.
 
 Export all role-labeled artifacts:
 
@@ -223,54 +172,30 @@ Outputs:
 
 - `builds/client/client.exe`
 - `builds/client/client.pck`
-- `builds/master/master.exe`
-- `builds/master/master.pck`
-- `builds/chat/chat.exe`
-- `builds/chat/chat.pck`
-- `builds/world1/world1.exe`
-- `builds/world1/world1.pck`
-- `builds/world2/world2.exe`
-- `builds/world2/world2.pck`
-- `builds/world3/world3.exe`
-- `builds/world3/world3.pck`
+- `builds/master_server/master_server.exe`
+- `builds/master_server/master_server.pck`
+- `builds/world_server/world_server.exe`
+- `builds/world_server/world_server.pck`
 
-Each role output is an `.exe` plus a sibling `.pck`, because the export preset does not embed the pack file. Keep each pair together when running or moving builds. The script exports one shared debug artifact under `builds/_shared/` and copies it into role-labeled folders; role behavior still comes from `--role` and `--world`, which keeps the MVP simple and proves shared-project export without multiplying projects.
+There is only one world server executable. It contains all world scenes, and each process selects `hub`, `left_world`, or `right_world` with the bare world key argument.
 
-## Research Findings
+The export script uses three Windows Desktop presets:
 
-Research notes:
+- `Windows Client`: no role feature tag.
+- `Windows Master Server`: `master_server` feature tag.
+- `Windows World Server`: `world_server` feature tag.
 
-- `docs/spike-findings.md`
-- `docs/research-sweep.md`
-- `docs/server-orchestration-and-travel.md`
-- `docs/end-to-end-validation.md`
+Smoke/CI launches scenes directly when testing from the editor binary. Exported smoke runs the role-tagged artifacts directly.
 
-Important Godot limitations discovered:
+## Current Limits
 
-- Custom multiplayer branches cannot be nested.
-- RPC paths, node names, RPC annotations, and script signatures must match.
-- Client-to-server RPCs need `@rpc("any_peer")`.
-- Branch-local multiplayer works for separate contexts, but connection status checking was more reliable than relying only on `connected_to_server` signals in this smoke.
-- `MultiplayerSpawner` and `MultiplayerSynchronizer` are present in the current scenes. Server travel should still fully tear down and rebuild the active replicated world branch. Do not carry live synchronized nodes from one server peer to another.
-- Godot 4 dedicated server execution uses `--headless`; no separate Godot 3-style server binary is needed.
+- No auth.
+- No database.
+- No persistence.
+- No transfer tickets.
+- No standalone gateway.
+- No standalone chat process.
+- No production orchestration.
+- No server-side movement validation.
 
-Runtime/testing split:
-
-- Manual client mode: relaxed partial topology for debugging.
-- `--smoke-test`: strict full topology, requiring chat and worlds 1/2/3.
-
-MCP and local validation used:
-
-- Godot MCP `get_project_info`.
-- Godot CLI parse checks.
-- Godot CLI headless role launches.
-- Multi-process editor/headless smoke.
-- Exported-artifact smoke.
-
-## Next Mimic-Oriented Steps
-
-- Turn `MasterNet`, `ChatNet`, and `WorldNet` into explicit reusable context nodes.
-- Create editor-visible configuration for endpoints and allowed transfers.
-- Keep RPC endpoint names stable or generate mirrored client/server scenes.
-- Add a tiny test harness around branch setup timing and RPC path validation.
-- Resist adding replication/prediction until the branch-context abstraction is proven.
+The purpose of this branch is to keep the workflow small while preserving the important production-shaped boundary: master owns control/chat approval, world servers own gameplay simulation, and clients keep separate master/chat/world multiplayer branches.

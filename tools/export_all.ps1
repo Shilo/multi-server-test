@@ -1,26 +1,25 @@
 param(
-    [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
-    [string]$Preset = "Windows Desktop"
+    [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe"
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildRoot = Join-Path $ProjectRoot "builds"
-$SharedRoot = Join-Path $BuildRoot "_shared"
-$SharedExe = Join-Path $SharedRoot "multi-server-test.exe"
-$SharedPck = Join-Path $SharedRoot "multi-server-test.pck"
+$ProjectFile = Join-Path $ProjectRoot "project.godot"
 
 $targets = @(
-    @{ Name = "client"; Path = "client\client.exe" },
-    @{ Name = "master"; Path = "master\master.exe" },
-    @{ Name = "chat"; Path = "chat\chat.exe" },
-    @{ Name = "world1"; Path = "world1\world1.exe" },
-    @{ Name = "world2"; Path = "world2\world2.exe" },
-    @{ Name = "world3"; Path = "world3\world3.exe" }
+    @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe" },
+    @{ Name = "master_server"; Preset = "Windows Master Server"; Path = "master_server\master_server.exe" },
+    @{ Name = "world_server"; Preset = "Windows World Server"; Path = "world_server\world_server.exe" }
 )
 
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
-New-Item -ItemType Directory -Force -Path $SharedRoot | Out-Null
+
+function Remove-EditorAutoloadForExport() {
+    $content = Get-Content -LiteralPath $ProjectFile
+    $filtered = $content | Where-Object { $_ -notmatch '^RunInstanceGrid=' }
+    Set-Content -LiteralPath $ProjectFile -Value $filtered
+}
 
 function Wait-FileStable($path, $timeoutSeconds = 30) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
@@ -45,24 +44,30 @@ function Wait-FileStable($path, $timeoutSeconds = 30) {
     throw "File did not become stable: $path"
 }
 
-Remove-Item -Force -Path $SharedExe, $SharedPck -ErrorAction SilentlyContinue
-Write-Host "EXPORT_START shared $SharedExe"
-& $Godot --headless --path $ProjectRoot --export-debug $Preset $SharedExe
-$exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-if ($exitCode -ne 0) {
-    throw "Export failed for shared artifact with exit code $exitCode"
-}
-Wait-FileStable $SharedExe
-Wait-FileStable $SharedPck
-Write-Host "EXPORT_DONE shared"
+$originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
+try {
+    Remove-EditorAutoloadForExport
 
-foreach ($target in $targets) {
-    $output = Join-Path $BuildRoot $target.Path
-    $pckOutput = [System.IO.Path]::ChangeExtension($output, ".pck")
-    New-Item -ItemType Directory -Force -Path (Split-Path $output -Parent) | Out-Null
-    Copy-Item -Force -Path $SharedExe -Destination $output
-    Copy-Item -Force -Path $SharedPck -Destination $pckOutput
-    Write-Host "EXPORT_DONE $($target.Name)"
+    foreach ($target in $targets) {
+        $output = Join-Path $BuildRoot $target.Path
+        $pckOutput = [System.IO.Path]::ChangeExtension($output, ".pck")
+        New-Item -ItemType Directory -Force -Path (Split-Path $output -Parent) | Out-Null
+        Remove-Item -Force -Path $output, $pckOutput -ErrorAction SilentlyContinue
+
+        Write-Host "EXPORT_START $($target.Name) $output"
+        & $Godot --headless --path $ProjectRoot --export-debug $target.Preset $output
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        if ($exitCode -ne 0) {
+            throw "Export failed for $($target.Name) with exit code $exitCode"
+        }
+
+        Wait-FileStable $output
+        Wait-FileStable $pckOutput
+        Write-Host "EXPORT_DONE $($target.Name)"
+    }
+}
+finally {
+    Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline
 }
 
 Write-Host "EXPORT_ALL_DONE"

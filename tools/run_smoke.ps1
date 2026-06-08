@@ -20,24 +20,32 @@ function Get-Executable($name) {
     if ($name -like "client*") {
         return Join-Path $BuildRoot "client\client.exe"
     }
-    switch ($name) {
-        "master" { return Join-Path $BuildRoot "master\master.exe" }
-        "chat" { return Join-Path $BuildRoot "chat\chat.exe" }
-        "world1" { return Join-Path $BuildRoot "world1\world1.exe" }
-        "world2" { return Join-Path $BuildRoot "world2\world2.exe" }
-        "world3" { return Join-Path $BuildRoot "world3\world3.exe" }
+    if ($name -eq "master") {
+        return Join-Path $BuildRoot "master_server\master_server.exe"
     }
+    return Join-Path $BuildRoot "world_server\world_server.exe"
 }
 
-function Start-Role($name, $roleArgs) {
+function Start-Scene($name, $scenePath, $userArgs = @(), [switch]$Headless) {
     $out = Join-Path $LogRoot "$name.out.log"
     $err = Join-Path $LogRoot "$name.err.log"
     $exe = Get-Executable $name
     if ($UseExported) {
-        $args = @("--headless", "--") + $roleArgs
+        $args = @()
+        if ($Headless) {
+            $args += "--headless"
+        }
     }
     else {
-        $args = @("--headless", "--path", $ProjectRoot, "--") + $roleArgs
+        $args = @()
+        if ($Headless) {
+            $args += "--headless"
+        }
+        $args += @("--path", $ProjectRoot, "--scene", $scenePath)
+    }
+    if ($userArgs.Count -gt 0) {
+        $args += "--"
+        $args += $userArgs
     }
     Write-Host "SMOKE_LAUNCH $name"
     return Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
@@ -67,29 +75,27 @@ function Wait-LogMarker($name, $marker, $timeoutSeconds = 10) {
 $servers = @()
 $clients = @()
 try {
-    $servers += Start-Role "master" @("--role", "master")
+    $servers += Start-Scene "master" "res://master_server/master_server.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
+    Wait-LogMarker "master" "CHAT_READY"
 
-    $servers += Start-Role "chat" @("--role", "chat")
-    Wait-LogMarker "chat" "CHAT_READY"
+    $servers += Start-Scene "hub" "res://world_server/world_server.tscn" @("hub") -Headless
+    Wait-LogMarker "hub" "WORLD_READY key=hub"
+    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=hub"
 
-    $servers += Start-Role "world1" @("--role", "world", "--world", "1")
-    Wait-LogMarker "world1" "WORLD_READY id=1"
-    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=1"
+    $servers += Start-Scene "left_world" "res://world_server/world_server.tscn" @("left_world") -Headless
+    Wait-LogMarker "left_world" "WORLD_READY key=left_world"
+    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=left_world"
 
-    $servers += Start-Role "world2" @("--role", "world", "--world", "2")
-    Wait-LogMarker "world2" "WORLD_READY id=2"
-    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=2"
-
-    $servers += Start-Role "world3" @("--role", "world", "--world", "3")
-    Wait-LogMarker "world3" "WORLD_READY id=3"
-    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED id=3"
+    $servers += Start-Scene "right_world" "res://world_server/world_server.tscn" @("right_world") -Headless
+    Wait-LogMarker "right_world" "WORLD_READY key=right_world"
+    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=right_world"
 
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
         $clients += @{
             Name = $clientName
-            Process = Start-Role $clientName @("--role", "client", "--smoke-test")
+            Process = Start-Scene $clientName "res://client/client.tscn" @("smoke_test") -Headless
         }
     }
 
@@ -117,12 +123,12 @@ try {
     $requiredMarkers = @(
         "MASTER_READY",
         "CHAT_READY",
-        "WORLD_READY id=1",
-        "WORLD_READY id=2",
-        "WORLD_READY id=3",
-        "MASTER_WORLD_REGISTERED id=1",
-        "MASTER_WORLD_REGISTERED id=2",
-        "MASTER_WORLD_REGISTERED id=3"
+        "WORLD_READY key=hub",
+        "WORLD_READY key=left_world",
+        "WORLD_READY key=right_world",
+        "MASTER_WORLD_REGISTERED key=hub",
+        "MASTER_WORLD_REGISTERED key=left_world",
+        "MASTER_WORLD_REGISTERED key=right_world"
     )
     foreach ($marker in $requiredMarkers) {
         $found = Get-ChildItem $LogRoot -Filter "*.out.log" | Select-String -SimpleMatch $marker -Quiet
@@ -132,9 +138,9 @@ try {
     }
 
     $expectedChatMessages = 5 * $ClientCount
-    $chatMessages = (Select-String -Path (Join-Path $LogRoot "chat.out.log") -SimpleMatch "[CHAT] received from peer").Count
+    $chatMessages = (Select-String -Path (Join-Path $LogRoot "master.out.log") -SimpleMatch "[CHAT] received from peer").Count
     if ($chatMessages -lt $expectedChatMessages) {
-        Write-Host (Get-Content (Join-Path $LogRoot "chat.out.log") -Raw)
+        Write-Host (Get-Content (Join-Path $LogRoot "master.out.log") -Raw)
         throw "Expected at least $expectedChatMessages chat messages, found $chatMessages"
     }
 

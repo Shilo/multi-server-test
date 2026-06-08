@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://c2aj0suu7xthi"]
+
+[ext_resource type="PackedScene" path="res://shared/world/world.tscn" id="1"]
+
+[node name="Hub" instance=ExtResource("1")]
+world_key = "hub"
+world_name = "Hub"
+world_color = Color(0.1, 0.75, 0.45, 1)
+portal_targets_csv = "left_world,right_world"
