@@ -33,7 +33,8 @@ For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godo
 - `master_server/`: master server scene and script. Hosts `MasterNet`.
 - `world_server/`: world server scene and script.
 - `shared/net/`: endpoint scripts and minimal derived network config.
-- `shared/world/`: world scenes and portal logic.
+- `shared/world/`: reusable world base scene and portal logic.
+- `shared/worlds/`: playable world scenes discovered from strict `<world_key>/<world_key>.tscn` folders.
 - `shared/player/`: replicated player scene and script.
 - `tools/`: export and smoke-test scripts.
 - `docs/`: architecture, research, and audit notes.
@@ -193,7 +194,7 @@ Smoke/CI launches scenes directly when testing from the editor binary. Exported 
 
 ## Network Constants
 
-This MVP keeps the advertised URL host, ordered world keys, and local world-registration secret in `shared/net/net_config.gd`. Ports, scene paths, display names, and hub-spoke travel rules are derived from those constants. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
+This MVP keeps the advertised URL host and local world-registration secret in `shared/net/net_config.gd`. Playable worlds are discovered from `shared/worlds/<world_key>/<world_key>.tscn`; ports and display names are derived from the sorted world keys. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Current Limits
 
@@ -207,4 +208,4 @@ This MVP keeps the advertised URL host, ordered world keys, and local world-regi
 - No production orchestration.
 - No server-side movement validation.
 
-Minimum guardrails already present: world registration secret, heartbeat expiry, master-tracked client world state for transfer approval, and chat length/rate caps. Missing before public testing: authenticated sessions, transfer tickets validated by target worlds, persistence, remote host configuration, and stronger movement validation.
+Minimum guardrails already present: world registration secret, heartbeat expiry, target-world registration checks for transfer approval, and chat length/rate caps. Missing before public testing: authenticated sessions, server-side portal/travel authority, persistence, remote host configuration, and stronger movement validation.

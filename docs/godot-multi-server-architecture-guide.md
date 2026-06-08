@@ -102,11 +102,15 @@ shared/
     player.gd
   world/
     world.tscn
-    hub.tscn
-    left_world.tscn
-    right_world.tscn
     world.gd
     portal_area.gd
+  worlds/
+    hub/
+      hub.tscn
+    left_world/
+      left_world.tscn
+    right_world/
+      right_world.tscn
 
 client/
   client.tscn
@@ -128,7 +132,7 @@ world_server/
 
 ## Network Config
 
-`shared/net/net_config.gd` owns the ordered world key list and derives most world data from it.
+`shared/net/net_config.gd` discovers playable worlds from `shared/worlds/`.
 
 Current ports:
 
@@ -150,28 +154,18 @@ right_world
 Derived rules:
 
 - `hub` is the default world.
-- World ports start at `19081` and follow the `WORLD_KEYS` order.
-- World scene paths are `res://shared/world/<world_key>.tscn`.
+- A playable world must live at `res://shared/worlds/<world_key>/<world_key>.tscn`.
+- World keys are sorted after discovery.
+- World ports start at `19081` and follow the sorted world key order.
 - Display names are derived from the world key.
-- `hub` can transfer to every non-hub world.
-- Non-hub worlds transfer back to `hub`.
+- Portal topology lives in the world scenes, not in `NetConfig`.
 
 Important helpers:
 
 - `world_keys()`
 - `world_endpoint(world_key)`
 - `world_scene_path(world_key)`
-- `allowed_targets(world_key)`
 - `initial_world()`
-
-The transfer graph is:
-
-```text
-hub -> left_world
-hub -> right_world
-left_world -> hub
-right_world -> hub
-```
 
 ## World Startup Arguments
 
@@ -215,10 +209,9 @@ Transfer approval behavior:
 1. Client keeps `MasterNet` connected.
 2. A portal emits a target world key.
 3. Client asks master for transfer approval.
-4. Master checks its tracked current world for that client.
-5. Master checks that the target world is registered.
-6. Master sends either approval with endpoint data or a denial.
-7. Client swaps only `WorldNet` after approval.
+4. Master checks that the target world is registered.
+5. Master sends either approval with endpoint data or a denial.
+6. Client swaps only `WorldNet` after approval.
 
 ## Chat Responsibilities
 
@@ -293,9 +286,9 @@ World
 
 The inherited scenes are:
 
-- `shared/world/hub.tscn`
-- `shared/world/left_world.tscn`
-- `shared/world/right_world.tscn`
+- `shared/worlds/hub/hub.tscn`
+- `shared/worlds/left_world/left_world.tscn`
+- `shared/worlds/right_world/right_world.tscn`
 
 They override:
 
@@ -335,7 +328,7 @@ Portal flow:
 2. `portal_area.gd` emits `portal_entered(target_world)`.
 3. `world.gd` emits `portal_requested(target_world)`.
 4. `client.gd` sends a transfer request to master with the target world key.
-5. Master validates the target against `NetConfig.allowed_targets(current_world)` and the live registry.
+5. Master validates that the target world is registered.
 6. On approval, client disconnects the old world peer.
 7. Client unloads the old world scene.
 8. Client loads the target world scene.
@@ -403,7 +396,7 @@ The export presets are:
 
 ## Network Constants
 
-`shared/net/net_config.gd` owns the advertised URL host, ordered world keys, and local world-registration secret. Ports, scene paths, display names, and the hub-spoke travel graph are derived from those constants. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
+`shared/net/net_config.gd` owns the advertised URL host and local world-registration secret. Playable worlds are discovered from strict `shared/worlds/<world_key>/<world_key>.tscn` folders; ports and display names are derived from sorted world keys. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Known Limits
 
@@ -416,4 +409,4 @@ The export presets are:
 - No server-side movement validation.
 - No world population balancing.
 
-Current guardrails are still deliberately small: shared-secret world registration, heartbeat expiry, master-tracked client world state for transfer checks, and chat length/rate caps. Before public testing, add authenticated sessions, target-world transfer ticket validation, and remote host configuration.
+Current guardrails are still deliberately small: shared-secret world registration, heartbeat expiry, target-world registration checks for transfer approval, and chat length/rate caps. Before public testing, add authenticated sessions, server-side portal/travel authority, and remote host configuration.

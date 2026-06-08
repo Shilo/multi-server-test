@@ -40,9 +40,8 @@ func _ready() -> void:
 		if chat and chat.has_method("add_chat_line"):
 			chat.add_chat_line(sender_id, message)
 	)
-	world_endpoint.world_state_received.connect(func(world_key: String, _allowed_targets: Array[String]) -> void:
+	world_endpoint.world_state_received.connect(func(world_key: String) -> void:
 		active_world_key = world_key
-		master_endpoint.set_client_world.rpc_id(1, active_world_key)
 		_set_status("In %s; chat echoes=%d" % [active_world_key, chat_echoes.size()])
 	)
 

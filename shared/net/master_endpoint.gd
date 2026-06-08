@@ -11,7 +11,6 @@ const HEARTBEAT_TIMEOUT_SECONDS := 5.0
 var registered_worlds := {}
 var peer_worlds := {}
 var world_last_seen := {}
-var client_worlds := {}
 
 
 func _ready() -> void:
@@ -26,7 +25,6 @@ func _ready() -> void:
 func unregister_peer(peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
-	client_worlds.erase(peer_id)
 	if not peer_worlds.has(peer_id):
 		return
 
@@ -74,22 +72,8 @@ func register_world(world_key: String, registration_secret: String) -> void:
 	registered_worlds[world_key] = normalized_endpoint
 	peer_worlds[sender_id] = world_key
 	world_last_seen[world_key] = Time.get_unix_time_from_system()
-	var allowed_targets := NET_CONFIG.allowed_targets(world_key)
-	print("MASTER_WORLD_REGISTERED key=%s peer=%s url=%s allowed=%s" % [world_key, sender_id, normalized_endpoint["url"], str(allowed_targets)])
+	print("MASTER_WORLD_REGISTERED key=%s peer=%s url=%s" % [world_key, sender_id, normalized_endpoint["url"]])
 	world_registered_ack.rpc_id(sender_id, world_key)
-
-
-@rpc("any_peer", "call_remote", "reliable")
-func set_client_world(world_key: String) -> void:
-	if not multiplayer.is_server():
-		return
-
-	var sender_id := multiplayer.get_remote_sender_id()
-	if not NET_CONFIG.is_valid_world_key(world_key) or not registered_worlds.has(world_key):
-		push_error("[MASTER] rejected client world report from peer %s: %s" % [sender_id, world_key])
-		return
-	client_worlds[sender_id] = world_key
-	print("[MASTER] client peer %s active_world=%s" % [sender_id, world_key])
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -98,10 +82,8 @@ func request_transfer(target_world: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	var current_world := str(client_worlds.get(sender_id, ""))
-	var allowed_targets := NET_CONFIG.allowed_targets(current_world) if NET_CONFIG.is_valid_world_key(current_world) else []
-	print("[MASTER] transfer request from peer %s: %s -> %s" % [sender_id, current_world, target_world])
-	if target_world in allowed_targets and registered_worlds.has(target_world):
+	print("[MASTER] transfer request from peer %s to %s" % [sender_id, target_world])
+	if registered_worlds.has(target_world):
 		approve_transfer.rpc_id(sender_id, target_world, registered_worlds[target_world])
 	else:
 		deny_transfer.rpc_id(sender_id, target_world)
