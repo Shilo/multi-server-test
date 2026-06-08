@@ -193,6 +193,10 @@ func world_start_timeout_seconds() -> float:
 	return WORLD_START_TIMEOUT_SECONDS
 
 
+func world_stop_kill_seconds() -> float:
+	return WORLD_STOP_KILL_SECONDS
+
+
 func _launch_world(world_key: String) -> bool:
 	var launch_token := _new_launch_token()
 	var arguments := _world_server_arguments(world_key, launch_token)

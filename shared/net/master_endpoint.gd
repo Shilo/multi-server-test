@@ -230,7 +230,9 @@ func _approve_transfer_when_available(sender_id: int, target_world: String) -> v
 
 func _ensure_world_available(world_key: String) -> bool:
 	if world_process_manager and world_process_manager.is_world_stopping(world_key):
-		return false
+		var stopped := await _wait_for_world_stop(world_key)
+		if not stopped:
+			return false
 
 	if registered_worlds.has(world_key):
 		if world_process_manager and not world_process_manager.is_world_available(world_key):
@@ -252,6 +254,24 @@ func _ensure_world_available(world_key: String) -> bool:
 		elapsed += 0.05
 
 	return false
+
+
+func _wait_for_world_stop(world_key: String) -> bool:
+	if not world_process_manager:
+		return true
+
+	var elapsed := 0.0
+	var timeout_seconds := 3.0
+	if world_process_manager.has_method("world_stop_kill_seconds"):
+		timeout_seconds = float(world_process_manager.world_stop_kill_seconds()) + 1.0
+
+	while elapsed < timeout_seconds:
+		if not world_process_manager.is_world_stopping(world_key):
+			return true
+		await get_tree().create_timer(0.05).timeout
+		elapsed += 0.05
+
+	return not world_process_manager.is_world_stopping(world_key)
 
 
 func _expire_stale_worlds() -> void:
