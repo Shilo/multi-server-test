@@ -35,7 +35,7 @@ client-authority through `Player.tscn` and its `MultiplayerSynchronizer`.
 
 - `client/client_main.gd`: Nakama guest auth, socket chat, world join/transfer.
 - `orchestrator/main.go`: small localhost process supervisor.
-- `server/world/world_server.gd`: ticket validation before player spawn.
+- `server/world/world.gd`: ticket validation before player spawn.
 - `shared/world_endpoint.gd`: client sends ticket with world-state request.
 - `nakama/modules/virtucade.lua`: Nakama Lua runtime RPC glue.
 - `nakama/local.yml`: local Nakama config example.

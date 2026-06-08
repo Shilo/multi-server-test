@@ -187,12 +187,16 @@ func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 	var ok := await _ensure_world_available(world_key)
 	if not ok:
 		push_error("[MASTER] failed to make initial world available: %s" % world_key)
+	elif world_process_manager and world_process_manager.has_method("reserve_world_join"):
+		world_process_manager.reserve_world_join(world_key, sender_id)
 	receive_routes.rpc_id(sender_id, live_routes())
 
 
 func _approve_transfer_when_available(sender_id: int, target_world: String) -> void:
 	var ok := await _ensure_world_available(target_world)
 	if ok and registered_worlds.has(target_world):
+		if world_process_manager and world_process_manager.has_method("reserve_world_join"):
+			world_process_manager.reserve_world_join(target_world, sender_id)
 		approve_transfer.rpc_id(sender_id, target_world, registered_worlds[target_world])
 	else:
 		deny_transfer.rpc_id(sender_id, target_world)

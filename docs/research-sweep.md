@@ -46,7 +46,7 @@ Date: 2026-06-05
 - Godot CLI validation used:
   - `--check-only --script res://launcher/launcher.gd`
   - `--check-only --script res://client/client_main.gd`
-  - `--check-only --script res://server/world/world_server.gd`
+  - `--check-only --script res://server/world/world.gd`
   - `--headless --path . --quit-after 2`
 
 ## Current Implementation Summary

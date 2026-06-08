@@ -13,8 +13,8 @@ Answer: yes, in the current small-scale spike shape.
 ## Current Roles
 
 - `client`: visible or headless game client.
-- `master_server`: world process orchestration, world registry, route snapshot, transfer approval, and chat host.
-- `world_server`: temporary gameplay process for one active world key.
+- `master`: world process orchestration, world registry, route snapshot, transfer approval, and chat host.
+- `world`: temporary gameplay process for one active world key.
 
 There is no standalone gateway, chat process, auth server, database, persistence layer, Docker layer, or external fleet service in this refactor.
 
@@ -23,7 +23,7 @@ There is no standalone gateway, chat process, auth server, database, persistence
 Editor-binary smoke and CI launch direct scenes:
 
 ```text
-res://master_server/master_server.tscn
+res://server/master/master.tscn
 res://client/client.tscn -- smoke_test
 ```
 
@@ -75,6 +75,7 @@ hub -> left_world -> hub -> right_world -> hub -> top_world -> hub
 
 Chat stayed connected across the active `WorldNet` swaps.
 The smoke harness also starts a fresh master, lets it launch `hub`, kills the master process, parses the child world PID, and verifies the hub process exits.
+Route and transfer approvals now emit pending-join reservations before clients connect to the target world, preventing the idle shutdown timer from firing during the approval-to-connect window.
 
 ## Argument Validation
 
@@ -93,12 +94,12 @@ The following scenes and scripts passed `--check-only`:
 
 - `res://shared/main/main.tscn`
 - `res://client/client.tscn`
-- `res://master_server/master_server.tscn`
-- `res://world_server/world_server.tscn`
+- `res://server/master/master.tscn`
+- `res://server/world/world.tscn`
 - `res://shared/main/main.gd`
 - `res://client/client.gd`
-- `res://master_server/master_server.gd`
-- `res://world_server/world_server.gd`
+- `res://server/master/master.gd`
+- `res://server/world/world.gd`
 - `res://shared/net/master_endpoint.gd`
 - `res://shared/net/chat_endpoint.gd`
 - `res://shared/net/world_endpoint.gd`

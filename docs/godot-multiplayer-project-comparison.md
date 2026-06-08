@@ -23,7 +23,7 @@ live in:
 | Project count | One Godot project | One Godot project | One Godot .NET project | Four separate Godot projects in one repo |
 | Main entry | `shared/main/main.tscn` | `source/common/main.tscn` | `scenes/main/Main.tscn` | Each project uses `scenes/main.tscn` |
 | Role selection | Feature tags for normal workflow; smoke/CI launches direct scenes. World scenes accept one bare world key. | `--mode` or feature tags | UI buttons in development; `--gateway` / `--server` in deployment | Separate project per role |
-| Server roles | master_server, world_server | gateway, master, world | gateway, game server | authentication, gateway, world |
+| Server roles | master, world | gateway, master, world | gateway, game server | authentication, gateway, world |
 | Client role | Tiny playable client | MMO client with login/world/character/game UI | MORPG client with login/create-account/game UI | Login UI plus replicated 3D player client |
 | Transport | Godot `WebSocketMultiplayerPeer` | Godot `WebSocketMultiplayerPeer` | Godot `WebSocketMultiplayerPeer` | Godot `ENetMultiplayerPeer` plus DTLS |
 | Multiple multiplayer contexts | Yes: master, chat, world sibling branches | Yes: endpoint abstraction supports branch/root APIs | Yes: each connection node assigns its own branch `MultiplayerAPI` | Yes: branch-local `SceneMultiplayer` for gateway/auth/world branches |

@@ -127,7 +127,7 @@ if (-not ($worldKeys -contains "hub")) {
 $servers = @()
 $clients = @()
 try {
-    $servers += Start-Scene "master" "res://master_server/master_server.tscn" @() -Headless
+    $servers += Start-Scene "master" "res://server/master/master.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
 
     for ($i = 1; $i -le $ClientCount; $i++) {
@@ -190,7 +190,7 @@ try {
         $masterProcess.WaitForExit(5000) | Out-Null
     }
 
-    $cleanupMaster = Start-Scene "master_cleanup" "res://master_server/master_server.tscn" @() -Headless
+    $cleanupMaster = Start-Scene "master_cleanup" "res://server/master/master.tscn" @() -Headless
     $servers += $cleanupMaster
     Wait-LogMarker "master_cleanup" "MASTER_READY"
     $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" @("smoke_test") -Headless

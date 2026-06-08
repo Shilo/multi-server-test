@@ -11,6 +11,7 @@ The current custom Godot branch now uses master-owned child process orchestratio
 - Master is the only process expected to stay online all the time.
 - World servers are temporary child processes started by master when a route or transfer needs that world.
 - A world with `0` connected gameplay peers is stopped by master after the idle window.
+- Route and transfer approvals create short pending-join reservations, so an empty world is not stopped while an approved client is still connecting.
 - Master records the child PID and kills it if graceful shutdown does not complete.
 - World servers still self-exit if they were launched by master and then lose the master connection for the cleanup window.
 - World servers only become registered after master ACKs their launch token. A rejected or unacknowledged registration exits instead of holding a port forever.
