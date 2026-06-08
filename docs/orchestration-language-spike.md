@@ -1,5 +1,10 @@
 # Lightweight Orchestration Spike
 
+Historical Nakama-branch note: this document compared a separate local orchestrator
+for the Nakama architecture. The current custom Godot branch intentionally uses
+`master_server/world_process_manager.gd` instead, so the Godot master owns
+small-scale on-demand world process allocation directly.
+
 ## Question
 
 What should own the small on-demand world-server lifecycle between Nakama and

@@ -2,16 +2,11 @@ const HOST := "127.0.0.1"
 const MASTER_PORT := 19080
 const FIRST_WORLD_PORT := MASTER_PORT + 1
 const DEFAULT_WORLD_KEY := "hub"
-const WORLD_REGISTRATION_SECRET := "local_dev_world_secret"
 const WORLD_SCENE_DIR := "res://shared/worlds"
 
 
 static func master_url() -> String:
 	return "ws://%s:%d" % [HOST, MASTER_PORT]
-
-
-static func world_registration_secret() -> String:
-	return WORLD_REGISTRATION_SECRET
 
 
 static func world_keys() -> Array[String]:

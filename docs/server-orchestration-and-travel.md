@@ -4,6 +4,29 @@ Historical note: this research note captures decisions from an earlier spike che
 
 Date: 2026-06-05
 
+## 2026-06-08 On-Demand World Orchestration Update
+
+The current custom Godot branch now uses master-owned child process orchestration:
+
+- Master is the only process expected to stay online all the time.
+- World servers are temporary child processes started by master when a route or transfer needs that world.
+- A world with `0` connected gameplay peers is stopped by master after the idle window.
+- Master records the child PID and kills it if graceful shutdown does not complete.
+- World servers still self-exit if they were launched by master and then lose the master connection for the cleanup window.
+
+This hybrid is intentional. If worlds decide their own lifetime, lifecycle policy gets scattered across every gameplay process. If only master handles shutdown, `OS.create_process()` children can survive a master crash because Godot starts them independently. The combined design keeps allocation policy centralized in master while still cleaning up orphaned worlds during local testing and simple VPS operation.
+
+The old `WORLD_REGISTRATION_SECRET` was removed. A shared secret in `shared/net/net_config.gd` is not a real trust boundary because shared scripts are included in client exports. Master now generates a per-launch token and passes it only to the child world process. Registration is accepted only if the world key and token match a process master actually started.
+
+Relevant Godot constraints:
+
+- Godot custom feature tags are export-time tags; they are not injected by normal editor CLI launches. Editor/smoke world children therefore launch with the current Godot executable plus `--path`, `--scene`, and `-- <world_key> <launch_token>`.
+- Exported master builds launch a sibling `world_server` executable with `-- <world_key> <launch_token>`.
+- `OS.create_process()` returns a PID and launches independently; it does not create a child that automatically dies with the parent.
+- `OS.kill()` and `OS.is_process_running()` are the practical minimal tools for local child supervision.
+
+For production, the next hardening step is not a separate allocator yet. Run the master under a normal service supervisor such as systemd, keep world allocation in master, and add remote-host configuration plus server-side transfer tickets before public testing.
+
 ## What Was Researched
 
 - How Godot projects commonly split client, master/lobby/matchmaking, and dedicated world/session servers.

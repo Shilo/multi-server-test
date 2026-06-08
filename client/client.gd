@@ -123,12 +123,13 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 		return false
 	master_endpoint.request_routes.rpc_id(1)
 	var route_predicate := func() -> bool:
-		return _has_all_world_routes() if require_all_worlds else _has_initial_world_route()
+		return _has_initial_world_route()
 	ok = await _wait_until(route_predicate, 5.0, "master routes")
 	if not ok:
 		return false
 	print("SMOKE_STEP client connected to master" if require_all_worlds else "[CLIENT] connected to master")
-	print("[CLIENT] registered worlds=%s" % str(_available_world_keys()))
+	print("[CLIENT] available worlds=%s" % str(_available_world_keys()))
+	print("[CLIENT] live worlds=%s" % str(_registered_world_keys()))
 
 	chat_connected = true
 	_set_chat_connected(true)
@@ -155,18 +156,11 @@ func _has_initial_world_route() -> bool:
 	return worlds.has(routes["initial_world"])
 
 
-func _has_all_world_routes() -> bool:
-	if routes.is_empty() or not routes.has("worlds"):
-		return false
-
-	var worlds: Dictionary = routes["worlds"]
-	for world_key in NET_CONFIG.world_keys():
-		if not worlds.has(world_key):
-			return false
-	return true
-
-
 func _available_world_keys() -> Array[String]:
+	return NET_CONFIG.world_keys()
+
+
+func _registered_world_keys() -> Array[String]:
 	var keys: Array[String] = []
 	if routes.has("worlds"):
 		var worlds: Dictionary = routes["worlds"]
@@ -316,8 +310,8 @@ func _load_world_scene(world_key: String) -> void:
 
 
 func _on_portal_requested(target_world: String) -> void:
-	if not _has_world_route(target_world):
-		print("[CLIENT] portal target %s is not registered; ignoring" % target_world)
+	if not NET_CONFIG.is_valid_world_key(target_world):
+		print("[CLIENT] portal target %s is invalid; ignoring" % target_world)
 		return
 
 	print("[CLIENT] requesting transfer from %s to %s" % [active_world_key, target_world])
@@ -325,6 +319,11 @@ func _on_portal_requested(target_world: String) -> void:
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
+	if not routes.has("worlds"):
+		routes["worlds"] = {}
+	var worlds: Dictionary = routes["worlds"]
+	worlds[target_world] = endpoint
+	routes["worlds"] = worlds
 	pending_transfer = {"target_world": target_world, "endpoint": endpoint}
 	if not smoke_test:
 		call_deferred("_complete_manual_transfer", target_world)

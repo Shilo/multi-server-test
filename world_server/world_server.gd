@@ -1,15 +1,19 @@
 extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
+const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
 var heartbeat_timer: Timer
 var reconnect_timer: Timer
+var master_loss_timer: Timer
 var world_key := NET_CONFIG.initial_world()
+var launch_token := ""
 var registered_with_master := false
 var master_connection_started := false
 var world_scene: Node
+var connected_players := {}
 
 
 func _ready() -> void:
@@ -26,16 +30,21 @@ func _ready() -> void:
 	get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
 	$MasterNet/MasterEndpoint.world_registered.connect(_on_world_registered)
+	$MasterNet/MasterEndpoint.world_shutdown_requested.connect(_on_world_shutdown_requested)
 
 	$WorldNet/WorldEndpoint.configure_server(world_key)
 	_load_world_scene()
 	world_api.peer_connected.connect(func(peer_id: int) -> void:
+		connected_players[peer_id] = true
 		print("[WORLD %s] peer connected: %s" % [world_key, peer_id])
 		_spawn_player(peer_id)
+		_send_heartbeat()
 	)
 	world_api.peer_disconnected.connect(func(peer_id: int) -> void:
+		connected_players.erase(peer_id)
 		print("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
 		_remove_player(peer_id)
+		_send_heartbeat()
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
@@ -55,10 +64,12 @@ func _parse_world_key() -> String:
 	var args := OS.get_cmdline_user_args()
 	if args.size() == 0:
 		return NET_CONFIG.initial_world()
-	if args.size() > 1:
-		push_error("[WORLD] expected zero or one bare world key argument, got: %s" % str(args))
+	if args.size() > 2:
+		push_error("[WORLD] expected world key plus optional master launch token, got: %s" % str(args))
 		get_tree().quit(14)
 		return ""
+	if args.size() == 2:
+		launch_token = str(args[1])
 	return str(args[0])
 
 
@@ -82,21 +93,28 @@ func _remove_player(peer_id: int) -> void:
 func _connect_to_master() -> void:
 	if master_connection_started:
 		return
+	if launch_token.is_empty():
+		print("[WORLD %s] no master launch token; running without master registration" % world_key)
+		return
+
 	master_connection_started = true
 	master_api.connected_to_server.connect(func() -> void:
 		print("[WORLD %s] connected to master registry" % world_key)
+		_stop_master_loss_timer()
 		_register_with_master()
 	)
 	master_api.connection_failed.connect(func() -> void:
 		push_error("[WORLD %s] failed to connect to master registry" % world_key)
 		master_connection_started = false
 		_schedule_master_reconnect()
+		_start_master_loss_timer()
 	)
 	master_api.server_disconnected.connect(func() -> void:
 		print("[WORLD %s] master registry disconnected" % world_key)
 		registered_with_master = false
 		master_connection_started = false
 		_schedule_master_reconnect()
+		_start_master_loss_timer()
 	)
 
 	_try_connect_to_master()
@@ -136,9 +154,10 @@ func _register_with_master() -> void:
 	$MasterNet/MasterEndpoint.register_world.rpc_id(
 		1,
 		world_key,
-		NET_CONFIG.world_registration_secret()
+		launch_token
 	)
 	_start_heartbeat()
+	_send_heartbeat()
 
 
 func _start_heartbeat() -> void:
@@ -149,9 +168,7 @@ func _start_heartbeat() -> void:
 	heartbeat_timer.name = "MasterHeartbeatTimer"
 	heartbeat_timer.wait_time = 1.0
 	heartbeat_timer.autostart = true
-	heartbeat_timer.timeout.connect(func() -> void:
-		$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key)
-	)
+	heartbeat_timer.timeout.connect(_send_heartbeat)
 	add_child(heartbeat_timer)
 
 
@@ -178,3 +195,40 @@ func _on_world_registered(registered_world_key: String) -> void:
 	if registered_world_key != world_key:
 		return
 	print("WORLD_REGISTERED key=%s" % world_key)
+
+
+func _send_heartbeat() -> void:
+	if not registered_with_master:
+		return
+
+	$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key, connected_players.size())
+
+
+func _start_master_loss_timer() -> void:
+	if launch_token.is_empty() or master_loss_timer:
+		return
+
+	master_loss_timer = Timer.new()
+	master_loss_timer.name = "MasterLossShutdownTimer"
+	master_loss_timer.one_shot = true
+	master_loss_timer.wait_time = MASTER_LOSS_SHUTDOWN_SECONDS
+	master_loss_timer.timeout.connect(func() -> void:
+		print("WORLD_STOPPING key=%s reason=master_lost" % world_key)
+		get_tree().quit(20)
+	)
+	add_child(master_loss_timer)
+	master_loss_timer.start()
+
+
+func _stop_master_loss_timer() -> void:
+	if not master_loss_timer:
+		return
+
+	master_loss_timer.stop()
+	master_loss_timer.queue_free()
+	master_loss_timer = null
+
+
+func _on_world_shutdown_requested(reason: String) -> void:
+	print("WORLD_STOPPING key=%s reason=%s" % [world_key, reason])
+	get_tree().quit(0)

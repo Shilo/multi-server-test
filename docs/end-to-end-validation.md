@@ -6,17 +6,17 @@ This document records the current validation state after the three-role refactor
 
 ## Question
 
-Can real Godot clients connect to a master server, master-hosted chat endpoint, and multiple Godot headless world servers, then transfer between world servers while chat remains connected?
+Can real Godot clients connect to a master server, cause Godot headless world servers to start on demand, transfer between them while chat remains connected, and let empty worlds shut down?
 
 Answer: yes, in the current small-scale spike shape.
 
 ## Current Roles
 
 - `client`: visible or headless game client.
-- `master_server`: world registry, route snapshot, transfer approval, and chat host.
-- `world_server`: gameplay process for one world key.
+- `master_server`: world process orchestration, world registry, route snapshot, transfer approval, and chat host.
+- `world_server`: temporary gameplay process for one active world key.
 
-There is no standalone gateway, chat process, auth server, database, persistence layer, or orchestration layer in this refactor.
+There is no standalone gateway, chat process, auth server, database, persistence layer, Docker layer, or external fleet service in this refactor.
 
 ## Current Launch Shape
 
@@ -24,33 +24,40 @@ Editor-binary smoke and CI launch direct scenes:
 
 ```text
 res://master_server/master_server.tscn
-res://world_server/world_server.tscn -- hub
-res://world_server/world_server.tscn -- left_world
-res://world_server/world_server.tscn -- right_world
-res://world_server/world_server.tscn -- top_world
 res://client/client.tscn -- smoke_test
 ```
 
-Normal/editor/export workflow uses feature tags through `res://shared/main/main.tscn`. Exported smoke runs the role-tagged artifacts directly.
+Normal/editor/export workflow uses feature tags through `res://shared/main/main.tscn`. Exported smoke runs the role-tagged master/client artifacts directly, then master launches the sibling world artifact on demand.
 
 ## Validated Markers
 
-The automated editor-binary smoke test passed with:
+The automated editor-binary smoke test passed with one client:
 
 ```text
 MASTER_READY
-WORLD_READY key=hub
-WORLD_REGISTERED key=hub
-WORLD_READY key=left_world
-WORLD_REGISTERED key=left_world
-WORLD_READY key=right_world
-WORLD_REGISTERED key=right_world
-WORLD_READY key=top_world
-WORLD_REGISTERED key=top_world
+MASTER_WORLD_STARTED key=hub
 MASTER_WORLD_REGISTERED key=hub
+MASTER_WORLD_STOP_REQUESTED key=hub reason=idle
+MASTER_WORLD_STOPPED key=hub
+MASTER_WORLD_STARTED key=left_world
 MASTER_WORLD_REGISTERED key=left_world
+MASTER_WORLD_STOP_REQUESTED key=left_world reason=idle
+MASTER_WORLD_STOPPED key=left_world
+MASTER_WORLD_STARTED key=right_world
 MASTER_WORLD_REGISTERED key=right_world
+MASTER_WORLD_STOP_REQUESTED key=right_world reason=idle
+MASTER_WORLD_STOPPED key=right_world
+MASTER_WORLD_STARTED key=top_world
 MASTER_WORLD_REGISTERED key=top_world
+MASTER_WORLD_STOP_REQUESTED key=top_world reason=idle
+MASTER_WORLD_STOPPED key=top_world
+SMOKE_PROCESS_GONE hub_after_master_kill
+SMOKE_PASS clients=1 chat_messages=7
+```
+
+Two-client editor-binary smoke also passed with:
+
+```text
 SMOKE_PASS clients=2 chat_messages=14
 ```
 
@@ -67,6 +74,7 @@ hub -> left_world -> hub -> right_world -> hub -> top_world -> hub
 ```
 
 Chat stayed connected across the active `WorldNet` swaps.
+The smoke harness also starts a fresh master, lets it launch `hub`, kills the master process, parses the child world PID, and verifies the hub process exits.
 
 ## Argument Validation
 
@@ -74,9 +82,9 @@ World startup argument behavior was checked directly:
 
 - no user argument starts `hub`;
 - invalid world key exits with code `12`;
-- more than one user argument exits with code `14`.
+- more than two user arguments exit with code `14`.
 
-The only supported world selection syntax is a bare positional world key after Godot's `--`.
+The world key remains a bare positional argument after Godot's `--`. Master-owned launches append a private launch token after that key so the world can register.
 
 ## Godot Checks
 

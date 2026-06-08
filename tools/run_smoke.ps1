@@ -20,7 +20,7 @@ function Get-Executable($name) {
     if ($name -like "client*") {
         return Join-Path $BuildRoot "client\client.exe"
     }
-    if ($name -eq "master") {
+    if ($name -like "master*") {
         return Join-Path $BuildRoot "master_server\master_server.exe"
     }
     return Join-Path $BuildRoot "world_server\world_server.exe"
@@ -72,6 +72,41 @@ function Wait-LogMarker($name, $marker, $timeoutSeconds = 10) {
     throw "Timed out waiting for marker '$marker' in $name logs"
 }
 
+function Wait-WorldProcessId($masterName, $worldKey, $timeoutSeconds = 10) {
+    $out = Join-Path $LogRoot "$masterName.out.log"
+    $escapedKey = [regex]::Escape($worldKey)
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $out) {
+            $worldPid = $null
+            foreach ($line in Get-Content $out) {
+                if ($line -match "MASTER_WORLD_STARTED key=$escapedKey pid=(\d+)") {
+                    $worldPid = [int]$Matches[1]
+                }
+            }
+            if ($worldPid) {
+                Write-Host "SMOKE_WORLD_PID $worldKey $worldPid"
+                return $worldPid
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "Timed out waiting for launched world pid for '$worldKey'"
+}
+
+function Wait-ProcessGone($processId, $label, $timeoutSeconds = 10) {
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if (-not $process) {
+            Write-Host "SMOKE_PROCESS_GONE $label pid=$processId"
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "Timed out waiting for process to exit: $label pid=$processId"
+}
+
 function Get-WorldKeys {
     $worldRoot = Join-Path $ProjectRoot "shared\worlds"
     $keys = @()
@@ -97,13 +132,6 @@ $clients = @()
 try {
     $servers += Start-Scene "master" "res://master_server/master_server.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
-
-    foreach ($worldKey in $worldKeys) {
-        $servers += Start-Scene $worldKey "res://world_server/world_server.tscn" @($worldKey) -Headless
-        Wait-LogMarker $worldKey "WORLD_READY key=$worldKey"
-        Wait-LogMarker $worldKey "WORLD_REGISTERED key=$worldKey"
-        Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=$worldKey"
-    }
 
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
@@ -136,9 +164,9 @@ try {
 
     $requiredMarkers = @("MASTER_READY")
     foreach ($worldKey in $worldKeys) {
-        $requiredMarkers += "WORLD_READY key=$worldKey"
-        $requiredMarkers += "WORLD_REGISTERED key=$worldKey"
+        $requiredMarkers += "MASTER_WORLD_STARTED key=$worldKey"
         $requiredMarkers += "MASTER_WORLD_REGISTERED key=$worldKey"
+        $requiredMarkers += "MASTER_WORLD_RUNNING key=$worldKey"
     }
     foreach ($marker in $requiredMarkers) {
         $found = Get-ChildItem $LogRoot -Filter "*.out.log" | Select-String -SimpleMatch $marker -Quiet
@@ -153,6 +181,35 @@ try {
         Write-Host (Get-Content (Join-Path $LogRoot "master.out.log") -Raw)
         throw "Expected at least $expectedChatMessages chat messages, found $chatMessages"
     }
+
+    foreach ($worldKey in $worldKeys) {
+        Wait-LogMarker "master" "MASTER_WORLD_STOP_REQUESTED key=$worldKey reason=idle" 15
+        Wait-LogMarker "master" "MASTER_WORLD_STOPPED key=$worldKey" 15
+    }
+
+    $masterProcess = $servers[0]
+    if ($masterProcess -and -not $masterProcess.HasExited) {
+        Stop-Process -Id $masterProcess.Id -Force
+        $masterProcess.WaitForExit(5000) | Out-Null
+    }
+
+    $cleanupMaster = Start-Scene "master_cleanup" "res://master_server/master_server.tscn" @() -Headless
+    $servers += $cleanupMaster
+    Wait-LogMarker "master_cleanup" "MASTER_READY"
+    $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" @("smoke_test") -Headless
+    $clients += @{
+        Name = "client_cleanup"
+        Process = $cleanupClient
+    }
+    Wait-LogMarker "master_cleanup" "MASTER_WORLD_REGISTERED key=hub" 10
+    $cleanupWorldPid = Wait-WorldProcessId "master_cleanup" "hub" 10
+    Stop-Process -Id $cleanupMaster.Id -Force
+    $cleanupMaster.WaitForExit(5000) | Out-Null
+    if (-not $cleanupClient.HasExited) {
+        Stop-Process -Id $cleanupClient.Id -Force
+        $cleanupClient.WaitForExit(5000) | Out-Null
+    }
+    Wait-ProcessGone $cleanupWorldPid "hub_after_master_kill" 10
 
     Write-Host "SMOKE_PASS clients=$ClientCount chat_messages=$chatMessages logs=$LogRoot"
 }
