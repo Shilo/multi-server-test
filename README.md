@@ -6,6 +6,8 @@ This is a one-project Godot 4.6 spike proving a small online-world topology with
 - One master server role.
 - One world server role, started once per world key.
 - Chat hosted by the master server on a separate `ChatNet` branch.
+- Configurable bind/public hosts through environment variables.
+- Shared-secret world registration for local/small-deploy guardrails.
 - Native Godot high-level multiplayer over `WebSocketMultiplayerPeer`.
 - Separate client multiplayer contexts for master, chat, and the active world.
 - A persistent chat connection while the active world connection is replaced.
@@ -149,8 +151,11 @@ Successful logs include:
 - `MASTER_READY`
 - `CHAT_READY`
 - `WORLD_READY key=hub`
+- `WORLD_REGISTERED key=hub`
 - `WORLD_READY key=left_world`
+- `WORLD_REGISTERED key=left_world`
 - `WORLD_READY key=right_world`
+- `WORLD_REGISTERED key=right_world`
 - `MASTER_WORLD_REGISTERED key=hub`
 - `MASTER_WORLD_REGISTERED key=left_world`
 - `MASTER_WORLD_REGISTERED key=right_world`
@@ -187,15 +192,30 @@ The export script uses three Windows Desktop presets:
 
 Smoke/CI launches scenes directly when testing from the editor binary. Exported smoke runs the role-tagged artifacts directly.
 
+## Environment Overrides
+
+Local defaults bind and advertise `127.0.0.1`. For a small remote deployment, set:
+
+- `VIRTUCADE_BIND_HOST`: default bind host for servers.
+- `VIRTUCADE_PUBLIC_HOST`: default advertised host sent to clients.
+- `VIRTUCADE_MASTER_PUBLIC_HOST`: advertised master host.
+- `VIRTUCADE_CHAT_PUBLIC_HOST`: advertised chat host.
+- `VIRTUCADE_WORLD_PUBLIC_HOST`: advertised world host.
+- `VIRTUCADE_<WORLD_KEY>_PUBLIC_URL`: full advertised URL for one world, such as `VIRTUCADE_HUB_PUBLIC_URL`.
+- `VIRTUCADE_WORLD_REGISTRATION_SECRET`: shared secret required for world registration.
+
+The built-in registration secret is only for local development. Set `VIRTUCADE_WORLD_REGISTRATION_SECRET` before any public test.
+
 ## Current Limits
 
 - No auth.
 - No database.
 - No persistence.
 - No transfer tickets.
+- No authenticated client identity.
 - No standalone gateway.
 - No standalone chat process.
 - No production orchestration.
 - No server-side movement validation.
 
-The purpose of this branch is to keep the workflow small while preserving the important production-shaped boundary: master owns control/chat approval, world servers own gameplay simulation, and clients keep separate master/chat/world multiplayer branches.
+Minimum guardrails already present: configurable advertised hosts, world registration secret, heartbeat expiry, master-tracked client world state for transfer approval, and chat length/rate caps. Missing before public testing: authenticated sessions, transfer tickets validated by target worlds, persistence, and stronger movement validation.

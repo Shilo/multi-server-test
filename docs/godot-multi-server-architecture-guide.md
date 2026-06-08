@@ -5,6 +5,8 @@ This document explains the current Godot setup after the three-role refactor. Th
 - `client`: visible game client.
 - `master_server`: control-plane server plus chat host.
 - `world_server`: gameplay server process, one instance per world key.
+- world registration uses a shared secret.
+- routes use configurable bind/public host helpers.
 
 There is no gateway process, standalone chat process, auth server, database, persistence layer, or orchestration layer in this refactor.
 
@@ -197,9 +199,9 @@ Startup behavior:
 World registration behavior:
 
 1. A world connects to `MasterNet`.
-2. The world calls `register_world(world_key, endpoint, allowed_targets)`.
-3. Master validates the key against `NetConfig`.
-4. Master stores the live endpoint by world key.
+2. The world calls `register_world(world_key, registration_secret)`.
+3. Master validates the key and registration secret against `NetConfig`.
+4. Master computes and stores the live endpoint by world key.
 5. Master prints `MASTER_WORLD_REGISTERED key=<world_key>`.
 6. Master acknowledges the world.
 
@@ -208,7 +210,7 @@ Transfer approval behavior:
 1. Client keeps `MasterNet` connected.
 2. A portal emits a target world key.
 3. Client asks master for transfer approval.
-4. Master checks that the target is allowed from the current world.
+4. Master checks its tracked current world for that client.
 5. Master checks that the target world is registered.
 6. Master sends either approval with endpoint data or a denial.
 7. Client swaps only `WorldNet` after approval.
@@ -245,9 +247,10 @@ Startup behavior:
 2. Defaults to `hub` if no key is present.
 3. Loads the keyed world scene into `WorldNet/WorldSceneRoot`.
 4. Starts a `WorldNet` WebSocket server on the keyed port.
-5. Connects to master on `MasterNet`.
-6. Registers the world key, endpoint, and allowed targets.
-7. Prints `WORLD_READY key=<world_key>`.
+5. Prints `WORLD_READY key=<world_key>`.
+6. Connects to master on `MasterNet`.
+7. Registers the world key with the shared world-registration secret.
+8. Prints `WORLD_REGISTERED key=<world_key>` after master acknowledges registration.
 
 World servers still own:
 
@@ -257,6 +260,8 @@ World servers still own:
 - World state replies.
 
 They do not own transfer approval. That belongs to master.
+
+Worlds send heartbeats to master. Master stores heartbeat timestamps and expires stale world registrations if updates stop.
 
 ## World Scenes
 
@@ -348,8 +353,11 @@ Expected markers:
 MASTER_READY
 CHAT_READY
 WORLD_READY key=hub
+WORLD_REGISTERED key=hub
 WORLD_READY key=left_world
+WORLD_REGISTERED key=left_world
 WORLD_READY key=right_world
+WORLD_REGISTERED key=right_world
 MASTER_WORLD_REGISTERED key=hub
 MASTER_WORLD_REGISTERED key=left_world
 MASTER_WORLD_REGISTERED key=right_world
@@ -376,6 +384,20 @@ The export presets are:
 - `Windows Master Server`: `master_server` feature tag.
 - `Windows World Server`: `world_server` feature tag.
 
+## Deployment Knobs
+
+`shared/net/net_config.gd` defaults to local loopback, but supports environment overrides:
+
+- `VIRTUCADE_BIND_HOST`
+- `VIRTUCADE_PUBLIC_HOST`
+- `VIRTUCADE_MASTER_PUBLIC_HOST`
+- `VIRTUCADE_CHAT_PUBLIC_HOST`
+- `VIRTUCADE_WORLD_PUBLIC_HOST`
+- `VIRTUCADE_<WORLD_KEY>_PUBLIC_URL`
+- `VIRTUCADE_WORLD_REGISTRATION_SECRET`
+
+The default registration secret exists only to keep local smoke friction low. Set `VIRTUCADE_WORLD_REGISTRATION_SECRET` before any public test.
+
 ## Known Limits
 
 - No login.
@@ -387,4 +409,4 @@ The export presets are:
 - No server-side movement validation.
 - No world population balancing.
 
-The important boundary is now sharper than the previous spike: master handles control/chat approval, world servers handle gameplay, and the client keeps long-lived `MasterNet` and `ChatNet` branches while swapping `WorldNet`.
+Current guardrails are still deliberately small: configurable advertised hosts, shared-secret world registration, heartbeat expiry, master-tracked client world state for transfer checks, and chat length/rate caps. Before public testing, add authenticated sessions and target-world transfer ticket validation.

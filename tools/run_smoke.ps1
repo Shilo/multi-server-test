@@ -81,14 +81,17 @@ try {
 
     $servers += Start-Scene "hub" "res://world_server/world_server.tscn" @("hub") -Headless
     Wait-LogMarker "hub" "WORLD_READY key=hub"
+    Wait-LogMarker "hub" "WORLD_REGISTERED key=hub"
     Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=hub"
 
     $servers += Start-Scene "left_world" "res://world_server/world_server.tscn" @("left_world") -Headless
     Wait-LogMarker "left_world" "WORLD_READY key=left_world"
+    Wait-LogMarker "left_world" "WORLD_REGISTERED key=left_world"
     Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=left_world"
 
     $servers += Start-Scene "right_world" "res://world_server/world_server.tscn" @("right_world") -Headless
     Wait-LogMarker "right_world" "WORLD_READY key=right_world"
+    Wait-LogMarker "right_world" "WORLD_REGISTERED key=right_world"
     Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=right_world"
 
     for ($i = 1; $i -le $ClientCount; $i++) {
@@ -124,8 +127,11 @@ try {
         "MASTER_READY",
         "CHAT_READY",
         "WORLD_READY key=hub",
+        "WORLD_REGISTERED key=hub",
         "WORLD_READY key=left_world",
+        "WORLD_REGISTERED key=left_world",
         "WORLD_READY key=right_world",
+        "WORLD_REGISTERED key=right_world",
         "MASTER_WORLD_REGISTERED key=hub",
         "MASTER_WORLD_REGISTERED key=left_world",
         "MASTER_WORLD_REGISTERED key=right_world"

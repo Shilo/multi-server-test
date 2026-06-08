@@ -43,6 +43,7 @@ func _ready() -> void:
 	)
 	world_endpoint.world_state_received.connect(func(world_key: String, _allowed_targets: Array[String]) -> void:
 		active_world_key = world_key
+		master_endpoint.set_client_world.rpc_id(1, active_world_key)
 		_set_status("In %s; chat echoes=%d" % [active_world_key, chat_echoes.size()])
 	)
 
@@ -319,7 +320,7 @@ func _on_portal_requested(target_world: String) -> void:
 		return
 
 	print("[CLIENT] requesting transfer from %s to %s" % [active_world_key, target_world])
-	master_endpoint.request_transfer.rpc_id(1, active_world_key, target_world)
+	master_endpoint.request_transfer.rpc_id(1, target_world)
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:

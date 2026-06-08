@@ -40,8 +40,11 @@ The automated editor-binary smoke test passed with:
 MASTER_READY
 CHAT_READY
 WORLD_READY key=hub
+WORLD_REGISTERED key=hub
 WORLD_READY key=left_world
+WORLD_REGISTERED key=left_world
 WORLD_READY key=right_world
+WORLD_REGISTERED key=right_world
 MASTER_WORLD_REGISTERED key=hub
 MASTER_WORLD_REGISTERED key=left_world
 MASTER_WORLD_REGISTERED key=right_world

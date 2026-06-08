@@ -23,14 +23,15 @@ func _start_master_server() -> void:
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
-	var err := peer.create_server(NET_CONFIG.MASTER_PORT, NET_CONFIG.HOST)
+	var bind_host := NET_CONFIG.master_bind_host()
+	var err := peer.create_server(NET_CONFIG.MASTER_PORT, bind_host)
 	if err != OK:
-		push_error("[MASTER] failed to listen on %s:%d err=%s" % [NET_CONFIG.HOST, NET_CONFIG.MASTER_PORT, err])
+		push_error("[MASTER] failed to listen on %s:%d err=%s" % [bind_host, NET_CONFIG.MASTER_PORT, err])
 		get_tree().quit(10)
 		return
 
 	master_api.multiplayer_peer = peer
-	print("MASTER_READY port=%d" % NET_CONFIG.MASTER_PORT)
+	print("MASTER_READY bind=%s port=%d" % [bind_host, NET_CONFIG.MASTER_PORT])
 
 
 func _start_chat_server() -> void:
@@ -44,11 +45,12 @@ func _start_chat_server() -> void:
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
-	var err := peer.create_server(NET_CONFIG.CHAT_PORT, NET_CONFIG.HOST)
+	var bind_host := NET_CONFIG.chat_bind_host()
+	var err := peer.create_server(NET_CONFIG.CHAT_PORT, bind_host)
 	if err != OK:
-		push_error("[CHAT] failed to listen on %s:%d err=%s" % [NET_CONFIG.HOST, NET_CONFIG.CHAT_PORT, err])
+		push_error("[CHAT] failed to listen on %s:%d err=%s" % [bind_host, NET_CONFIG.CHAT_PORT, err])
 		get_tree().quit(11)
 		return
 
 	chat_api.multiplayer_peer = peer
-	print("CHAT_READY port=%d" % NET_CONFIG.CHAT_PORT)
+	print("CHAT_READY bind=%s port=%d" % [bind_host, NET_CONFIG.CHAT_PORT])

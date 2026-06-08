@@ -5,8 +5,10 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
 var heartbeat_timer: Timer
+var reconnect_timer: Timer
 var world_key := NET_CONFIG.initial_world()
 var registered_with_master := false
+var master_connection_started := false
 var world_scene: Node
 
 
@@ -23,6 +25,7 @@ func _ready() -> void:
 	master_api = MultiplayerAPI.create_default_interface()
 	get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
+	$MasterNet/MasterEndpoint.world_registered.connect(_on_world_registered)
 
 	$WorldNet/WorldEndpoint.configure_server(world_key)
 	_load_world_scene()
@@ -37,14 +40,15 @@ func _ready() -> void:
 
 	var peer := WebSocketMultiplayerPeer.new()
 	var port := NET_CONFIG.world_port(world_key)
-	var err := peer.create_server(port, NET_CONFIG.HOST)
+	var bind_host := NET_CONFIG.world_bind_host(world_key)
+	var err := peer.create_server(port, bind_host)
 	if err != OK:
-		push_error("[WORLD %s] failed to listen on %s:%d err=%s" % [world_key, NET_CONFIG.HOST, port, err])
+		push_error("[WORLD %s] failed to listen on %s:%d err=%s" % [world_key, bind_host, port, err])
 		get_tree().quit(13)
 		return
 
 	world_api.multiplayer_peer = peer
-	print("WORLD_READY key=%s port=%d scene=%s" % [world_key, port, NET_CONFIG.world_scene_path(world_key)])
+	print("WORLD_READY key=%s bind=%s port=%d scene=%s" % [world_key, bind_host, port, NET_CONFIG.world_scene_path(world_key)])
 	_connect_to_master()
 
 
@@ -77,21 +81,37 @@ func _remove_player(peer_id: int) -> void:
 
 
 func _connect_to_master() -> void:
+	if master_connection_started:
+		return
+	master_connection_started = true
 	master_api.connected_to_server.connect(func() -> void:
 		print("[WORLD %s] connected to master registry" % world_key)
 		_register_with_master()
-	, CONNECT_ONE_SHOT)
+	)
 	master_api.connection_failed.connect(func() -> void:
 		push_error("[WORLD %s] failed to connect to master registry" % world_key)
-	, CONNECT_ONE_SHOT)
+		master_connection_started = false
+		_schedule_master_reconnect()
+	)
 	master_api.server_disconnected.connect(func() -> void:
 		print("[WORLD %s] master registry disconnected" % world_key)
+		registered_with_master = false
+		master_connection_started = false
+		_schedule_master_reconnect()
 	)
+
+	_try_connect_to_master()
+
+
+func _try_connect_to_master() -> void:
+	master_connection_started = true
 
 	var peer := WebSocketMultiplayerPeer.new()
 	var err := peer.create_client(NET_CONFIG.master_url())
 	if err != OK:
 		push_error("[WORLD %s] create_client failed for master registry err=%s" % [world_key, err])
+		master_connection_started = false
+		_schedule_master_reconnect()
 		return
 
 	master_api.multiplayer_peer = peer
@@ -117,8 +137,7 @@ func _register_with_master() -> void:
 	$MasterNet/MasterEndpoint.register_world.rpc_id(
 		1,
 		world_key,
-		NET_CONFIG.world_endpoint(world_key),
-		NET_CONFIG.allowed_targets(world_key)
+		NET_CONFIG.world_registration_secret()
 	)
 	_start_heartbeat()
 
@@ -135,3 +154,28 @@ func _start_heartbeat() -> void:
 		$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key)
 	)
 	add_child(heartbeat_timer)
+
+
+func _schedule_master_reconnect() -> void:
+	if registered_with_master:
+		return
+	if reconnect_timer:
+		return
+
+	reconnect_timer = Timer.new()
+	reconnect_timer.name = "MasterReconnectTimer"
+	reconnect_timer.one_shot = true
+	reconnect_timer.wait_time = 1.0
+	reconnect_timer.timeout.connect(func() -> void:
+		reconnect_timer.queue_free()
+		reconnect_timer = null
+		_try_connect_to_master()
+	)
+	add_child(reconnect_timer)
+	reconnect_timer.start()
+
+
+func _on_world_registered(registered_world_key: String) -> void:
+	if registered_world_key != world_key:
+		return
+	print("WORLD_REGISTERED key=%s" % world_key)
