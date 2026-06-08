@@ -49,6 +49,8 @@ func _broadcast_chat(sender_id: int, message: String) -> void:
 	for peer_id in multiplayer.get_peers():
 		if _is_world_peer(peer_id):
 			continue
+		if not _is_peer_open(peer_id):
+			continue
 		receive_chat.rpc_id(peer_id, sender_id, message)
 
 
@@ -56,6 +58,18 @@ func _is_world_peer(peer_id: int) -> bool:
 	if not master_endpoint or not master_endpoint.has_method("is_registered_world_peer"):
 		return false
 	return master_endpoint.is_registered_world_peer(peer_id)
+
+
+func _is_peer_open(peer_id: int) -> bool:
+	var peer := multiplayer.multiplayer_peer
+	if not peer or not peer.has_method("get_peer"):
+		return peer_id in multiplayer.get_peers()
+
+	var socket = peer.get_peer(peer_id)
+	if not socket or not socket.has_method("get_ready_state"):
+		return peer_id in multiplayer.get_peers()
+
+	return socket.get_ready_state() == WebSocketPeer.STATE_OPEN
 
 
 func _allow_message(sender_id: int) -> bool:

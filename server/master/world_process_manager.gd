@@ -84,7 +84,7 @@ func mark_world_registered(world_key: String) -> void:
 	print("MASTER_WORLD_RUNNING key=%s pid=%d" % [world_key, int(state.get("pid", -1))])
 
 
-func reserve_world_join(world_key: String, peer_id: int) -> Dictionary:
+func reserve_world_join(world_key: String, peer_id: int, source_world := "") -> Dictionary:
 	if not worlds.has(world_key):
 		return {}
 
@@ -96,6 +96,7 @@ func reserve_world_join(world_key: String, peer_id: int) -> Dictionary:
 	var reservation := {
 		"expires_at": Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS,
 		"ticket": _new_join_ticket(),
+		"source_world": source_world,
 	}
 	reservations[str(peer_id)] = reservation
 	state["join_reservations"] = reservations
@@ -274,6 +275,13 @@ func _poll_world_processes() -> void:
 
 		_refresh_idle_state(world_key, state, now)
 		worlds[world_key] = state
+		if str(state.get("state", "")) == "stopping":
+			var stop_requested_at := float(state.get("stop_requested_at", -1.0))
+			if stop_requested_at >= 0.0 and now - stop_requested_at >= WORLD_STOP_KILL_SECONDS:
+				var err := OS.kill(pid)
+				print("MASTER_WORLD_KILLED key=%s pid=%d err=%s" % [world_key, pid, err])
+			continue
+
 		var player_count := int(state.get("player_count", 0))
 		var pending_joins := _join_reservation_count(state)
 		var idle_since := float(state.get("idle_since", -1.0))
@@ -281,14 +289,6 @@ func _poll_world_processes() -> void:
 			if pending_joins == 0 and now - idle_since >= WORLD_IDLE_SHUTDOWN_SECONDS:
 				request_world_stop(world_key, "idle")
 				continue
-
-		if str(state.get("state", "")) != "stopping":
-			continue
-
-		var stop_requested_at := float(state.get("stop_requested_at", -1.0))
-		if stop_requested_at >= 0.0 and now - stop_requested_at >= WORLD_STOP_KILL_SECONDS:
-			var err := OS.kill(pid)
-			print("MASTER_WORLD_KILLED key=%s pid=%d err=%s" % [world_key, pid, err])
 
 
 func _on_world_process_exited(world_key: String, state: Dictionary) -> void:

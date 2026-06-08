@@ -1,9 +1,18 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="PackedScene" path="res://shared/world/world.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://shared/world/npc.tscn" id="2"]
 
 [node name="RightWorld" instance=ExtResource("1")]
 world_key = "right_world"
 world_name = "Right World"
 world_color = Color(0.95, 0.25, 0.35, 1)
 portal_targets_csv = "hub"
+
+[node name="RedMechanic" parent="." instance=ExtResource("2")]
+position = Vector2(500, 260)
+npc_name = "Red Mechanic"
+npc_color = Color(1, 0.25, 0.28, 1)
+patrol_radius = Vector2(54, 54)
+patrol_speed = 1.3
+phase_offset = 2.6

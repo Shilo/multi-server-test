@@ -1,9 +1,18 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="PackedScene" path="res://shared/world/world.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://shared/world/npc.tscn" id="2"]
 
 [node name="LeftWorld" instance=ExtResource("1")]
 world_key = "left_world"
 world_name = "Left World"
 world_color = Color(0.2, 0.45, 1, 1)
 portal_targets_csv = "hub"
+
+[node name="BlueQuartermaster" parent="." instance=ExtResource("2")]
+position = Vector2(310, 250)
+npc_name = "Blue Quartermaster"
+npc_color = Color(0.25, 0.5, 1, 1)
+patrol_radius = Vector2(48, 70)
+patrol_speed = 1.15
+phase_offset = 1.8

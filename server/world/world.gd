@@ -20,6 +20,8 @@ var world_scene: Node
 var connected_players := {}
 var pending_players := {}
 var expected_join_tickets := {}
+var authorized_join_metadata := {}
+var peer_master_ids := {}
 
 
 func _ready() -> void:
@@ -39,6 +41,7 @@ func _ready() -> void:
 	$MasterNet/MasterEndpoint.world_shutdown_requested.connect(_on_world_shutdown_requested)
 	$MasterNet/MasterEndpoint.world_join_expected.connect(_on_world_join_expected)
 	$WorldNet/WorldEndpoint.world_join_authorized.connect(_on_world_join_authorized)
+	$WorldNet/WorldEndpoint.portal_use_requested.connect(_on_portal_use_requested)
 
 	$WorldNet/WorldEndpoint.configure_server(world_key, _authorize_join)
 	_load_world_scene()
@@ -50,6 +53,8 @@ func _ready() -> void:
 		var was_connected := connected_players.has(peer_id)
 		pending_players.erase(peer_id)
 		connected_players.erase(peer_id)
+		authorized_join_metadata.erase(peer_id)
+		peer_master_ids.erase(peer_id)
 		print("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
 		_remove_player(peer_id)
 		if was_connected:
@@ -90,9 +95,9 @@ func _load_world_scene() -> void:
 	$WorldNet/WorldSceneRoot.add_child(world_scene)
 
 
-func _spawn_player(peer_id: int) -> void:
+func _spawn_player(peer_id: int, source_world := "") -> void:
 	if world_scene and world_scene.has_method("spawn_player"):
-		world_scene.spawn_player(peer_id)
+		world_scene.spawn_player(peer_id, source_world)
 		print("[WORLD %s] spawned player for peer %s" % [world_key, peer_id])
 
 
@@ -223,21 +228,31 @@ func _on_world_registered(registered_world_key: String) -> void:
 	print("WORLD_REGISTERED key=%s" % world_key)
 
 
-func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float) -> void:
+func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String) -> void:
 	if expected_world_key != world_key or join_ticket.is_empty():
 		return
 
-	expected_join_tickets[join_ticket] = expires_at
+	expected_join_tickets[join_ticket] = {
+		"expires_at": expires_at,
+		"master_peer_id": master_peer_id,
+		"source_world": source_world,
+	}
 	_expire_join_tickets()
 
 
 func _authorize_join(peer_id: int, join_ticket: String) -> bool:
 	if launch_token.is_empty():
+		authorized_join_metadata[peer_id] = {
+			"master_peer_id": peer_id,
+			"source_world": "",
+		}
 		return true
 
 	var elapsed := 0.0
 	while elapsed < JOIN_TICKET_WAIT_SECONDS:
-		if _consume_join_ticket(join_ticket):
+		var metadata := _consume_join_ticket(join_ticket)
+		if not metadata.is_empty():
+			authorized_join_metadata[peer_id] = metadata
 			return true
 		await get_tree().create_timer(0.05).timeout
 		elapsed += 0.05
@@ -246,19 +261,21 @@ func _authorize_join(peer_id: int, join_ticket: String) -> bool:
 	return false
 
 
-func _consume_join_ticket(join_ticket: String) -> bool:
+func _consume_join_ticket(join_ticket: String) -> Dictionary:
 	_expire_join_tickets()
 	if join_ticket.is_empty() or not expected_join_tickets.has(join_ticket):
-		return false
+		return {}
 
+	var metadata: Dictionary = expected_join_tickets[join_ticket]
 	expected_join_tickets.erase(join_ticket)
-	return true
+	return metadata
 
 
 func _expire_join_tickets() -> void:
 	var now := Time.get_unix_time_from_system()
 	for join_ticket in expected_join_tickets.keys():
-		if float(expected_join_tickets[join_ticket]) <= now:
+		var metadata: Dictionary = expected_join_tickets[join_ticket]
+		if float(metadata.get("expires_at", 0.0)) <= now:
 			expected_join_tickets.erase(join_ticket)
 
 
@@ -268,8 +285,33 @@ func _on_world_join_authorized(peer_id: int) -> void:
 
 	pending_players.erase(peer_id)
 	connected_players[peer_id] = true
-	_spawn_player(peer_id)
+	var metadata: Dictionary = authorized_join_metadata.get(peer_id, {})
+	peer_master_ids[peer_id] = int(metadata.get("master_peer_id", peer_id))
+	_spawn_player(peer_id, str(metadata.get("source_world", "")))
 	_send_heartbeat()
+
+
+func _on_portal_use_requested(peer_id: int, target_world: String) -> void:
+	if not connected_players.has(peer_id):
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "not_joined")
+		return
+	if not NET_CONFIG.is_valid_world_key(target_world):
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "invalid_target")
+		return
+	if not world_scene or not world_scene.has_method("player_can_use_portal"):
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "world_has_no_portals")
+		return
+	if not world_scene.player_can_use_portal(peer_id, target_world):
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "not_at_portal")
+		return
+
+	var master_peer_id := int(peer_master_ids.get(peer_id, 0))
+	if master_peer_id <= 0:
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "missing_master_peer")
+		return
+
+	print("[WORLD %s] server-approved portal peer=%s master_peer=%s target=%s" % [world_key, peer_id, master_peer_id, target_world])
+	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world)
 
 
 func _send_heartbeat() -> void:

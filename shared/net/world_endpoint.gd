@@ -3,6 +3,8 @@ extends Node
 signal world_state_received(world_key: String)
 signal world_join_authorized(peer_id: int)
 signal world_join_rejected(world_key: String, reason: String)
+signal portal_use_requested(peer_id: int, target_world: String)
+signal portal_use_denied(target_world: String, reason: String)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 
@@ -48,6 +50,24 @@ func reject_world_join(world_key: String, reason: String) -> void:
 
 	print("[CLIENT] world join rejected key=%s reason=%s" % [world_key, reason])
 	world_join_rejected.emit(world_key, reason)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_portal_use(target_world: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	portal_use_requested.emit(sender_id, target_world)
+
+
+@rpc("authority", "call_remote", "reliable")
+func deny_portal_use(target_world: String, reason: String) -> void:
+	if multiplayer.is_server():
+		return
+
+	print("[CLIENT] portal use denied key=%s reason=%s" % [target_world, reason])
+	portal_use_denied.emit(target_world, reason)
 
 
 func _is_join_admitted(sender_id: int, join_ticket: String) -> bool:

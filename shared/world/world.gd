@@ -15,6 +15,7 @@ const SPAWNER_PATH := "MultiplayerSpawner"
 @export var player_spawn_position := Vector2(400, 260)
 
 var available_world_keys: Array[String] = []
+var portal_positions := {}
 
 
 func _ready() -> void:
@@ -49,7 +50,7 @@ func _build_label() -> void:
 	add_child(label)
 
 
-func spawn_player(peer_id: int) -> Node:
+func spawn_player(peer_id: int, source_world := "") -> Node:
 	var spawn_root := get_node(SPAWN_ROOT_PATH)
 	var player_name := "Player_%d" % peer_id
 	if spawn_root.has_node(player_name):
@@ -58,7 +59,8 @@ func spawn_player(peer_id: int) -> Node:
 	var spawner := get_node(SPAWNER_PATH) as MultiplayerSpawner
 	return spawner.spawn({
 		"peer_id": peer_id,
-		"position": player_spawn_position,
+		"position": spawn_position_from_source(source_world),
+		"source_world": source_world,
 	})
 
 
@@ -84,6 +86,7 @@ func remove_player(peer_id: int) -> void:
 
 
 func _build_portals() -> void:
+	portal_positions.clear()
 	var targets := _portal_targets()
 	for i in range(targets.size()):
 		var target := str(targets[i])
@@ -94,7 +97,8 @@ func _build_portals() -> void:
 		var portal = PORTAL_SCRIPT.new()
 		var color := Color(1.0, 0.85 - (0.25 * i), 0.15 + (0.35 * i), 1.0)
 		portal.setup(target, color)
-		portal.position = Vector2(180 + (i * 310), 420)
+		portal.position = _portal_position(target, i, targets.size())
+		portal_positions[target] = portal.position
 		portal.portal_entered.connect(func(target_world: String) -> void:
 			portal_requested.emit(target_world)
 		)
@@ -109,6 +113,43 @@ func activate_portal_to(target_world: String) -> void:
 	push_error("No portal from %s to %s" % [world_key, target_world])
 
 
+func move_local_player_to_portal(target_world: String) -> bool:
+	if not portal_positions.has(target_world):
+		return false
+
+	var spawn_root := get_node(SPAWN_ROOT_PATH)
+	for child in spawn_root.get_children():
+		if child is CharacterBody2D and child.is_multiplayer_authority():
+			child.position = portal_positions[target_world]
+			return true
+	return false
+
+
+func player_can_use_portal(peer_id: int, target_world: String) -> bool:
+	if not portal_positions.has(target_world):
+		return false
+
+	var spawn_root := get_node(SPAWN_ROOT_PATH)
+	var player_name := "Player_%d" % peer_id
+	if not spawn_root.has_node(player_name):
+		return false
+
+	var player := spawn_root.get_node(player_name) as Node2D
+	var portal_position: Vector2 = portal_positions[target_world]
+	return player.position.distance_to(portal_position) <= 72.0
+
+
+func spawn_position_from_source(source_world: String) -> Vector2:
+	if source_world.is_empty() or not portal_positions.has(source_world):
+		return player_spawn_position
+
+	var portal_position: Vector2 = portal_positions[source_world]
+	var away_from_portal := player_spawn_position - portal_position
+	if away_from_portal.length() < 1.0:
+		away_from_portal = Vector2.DOWN
+	return portal_position + away_from_portal.normalized() * 84.0
+
+
 func _portal_targets() -> Array[String]:
 	var targets: Array[String] = []
 	for raw_part in portal_targets_csv.split(",", false):
@@ -116,3 +157,26 @@ func _portal_targets() -> Array[String]:
 		if not part.is_empty():
 			targets.append(part)
 	return targets
+
+
+func _portal_position(target_world: String, index: int, count: int) -> Vector2:
+	if world_key == "hub":
+		match target_world:
+			"left_world":
+				return Vector2(170, 260)
+			"right_world":
+				return Vector2(630, 260)
+			"top_world":
+				return Vector2(400, 130)
+
+	if target_world == "hub":
+		match world_key:
+			"left_world":
+				return Vector2(630, 260)
+			"right_world":
+				return Vector2(170, 260)
+			"top_world":
+				return Vector2(400, 410)
+
+	var spacing := 560.0 / float(max(count, 1))
+	return Vector2(120 + (spacing * (index + 0.5)), 400)

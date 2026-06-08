@@ -55,6 +55,11 @@ func _ready() -> void:
 	world_endpoint.world_join_rejected.connect(func(world_key: String, _reason: String) -> void:
 		rejected_world_join = world_key
 	)
+	world_endpoint.portal_use_denied.connect(func(target_world: String, _reason: String) -> void:
+		if requested_transfer_target == target_world:
+			denied_transfer = target_world
+			requested_transfer_target = ""
+	)
 
 	if smoke_test:
 		run_smoke_test()
@@ -223,6 +228,9 @@ func _transfer_via_portal(target_world: String) -> bool:
 	denied_transfer = ""
 	requested_transfer_target = ""
 	if current_world_scene and current_world_scene.has_method("activate_portal_to"):
+		if current_world_scene.has_method("move_local_player_to_portal"):
+			current_world_scene.move_local_player_to_portal(target_world)
+			await get_tree().create_timer(0.5).timeout
 		current_world_scene.activate_portal_to(target_world)
 	else:
 		return false
@@ -256,6 +264,9 @@ func _run_manual_portal_test() -> void:
 		get_tree().quit(1)
 		return
 
+	if current_world_scene.has_method("move_local_player_to_portal"):
+		current_world_scene.move_local_player_to_portal("left_world")
+		await get_tree().create_timer(0.5).timeout
 	current_world_scene.activate_portal_to("left_world")
 	var ok := await _wait_until(func() -> bool: return active_world_key == "left_world", 5.0, "manual portal transfer to left_world")
 	if ok:
@@ -379,7 +390,7 @@ func _on_portal_requested(target_world: String) -> void:
 
 	requested_transfer_target = target_world
 	print("[CLIENT] requesting transfer from %s to %s" % [active_world_key, target_world])
-	master_endpoint.request_transfer.rpc_id(1, target_world)
+	world_endpoint.request_portal_use.rpc_id(1, target_world)
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:

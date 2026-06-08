@@ -1,9 +1,18 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="PackedScene" path="res://shared/world/world.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://shared/world/npc.tscn" id="2"]
 
 [node name="TopWorld" instance=ExtResource("1")]
 world_key = "top_world"
 world_name = "Top World"
 world_color = Color(0.75, 0.35, 0.95, 1)
 portal_targets_csv = "hub"
+
+[node name="VioletComposer" parent="." instance=ExtResource("2")]
+position = Vector2(400, 235)
+npc_name = "Violet Composer"
+npc_color = Color(0.78, 0.35, 1, 1)
+patrol_radius = Vector2(110, 36)
+patrol_speed = 0.7
+phase_offset = 3.2

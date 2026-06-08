@@ -5,7 +5,7 @@ signal transfer_approved(target_world: String, endpoint: Dictionary)
 signal transfer_denied(target_world: String)
 signal world_registered(world_key: String)
 signal world_shutdown_requested(reason: String)
-signal world_join_expected(world_key: String, join_ticket: String, expires_at: float)
+signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
@@ -113,12 +113,27 @@ func request_transfer(target_world: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	print("[MASTER] transfer request from peer %s to %s" % [sender_id, target_world])
-	if not NET_CONFIG.is_valid_world_key(target_world):
-		deny_transfer.rpc_id(sender_id, target_world)
+	print("[MASTER] rejected client-side transfer request from peer %s to %s" % [sender_id, target_world])
+	deny_transfer.rpc_id(sender_id, target_world)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_world_transfer(source_world: String, master_peer_id: int, target_world: String) -> void:
+	if not multiplayer.is_server():
 		return
 
-	call_deferred("_approve_transfer_when_available", sender_id, target_world)
+	var sender_id := multiplayer.get_remote_sender_id()
+	if peer_worlds.get(sender_id, "") != source_world:
+		push_error("[MASTER] rejected transfer from untrusted world peer=%s source=%s target=%s" % [sender_id, source_world, target_world])
+		return
+	if not NET_CONFIG.is_valid_world_key(source_world) or not NET_CONFIG.is_valid_world_key(target_world):
+		deny_transfer.rpc_id(master_peer_id, target_world)
+		return
+	if not _is_peer_open(master_peer_id):
+		return
+
+	print("[MASTER] world-approved transfer peer=%s from=%s to=%s" % [master_peer_id, source_world, target_world])
+	call_deferred("_approve_transfer_when_available", master_peer_id, target_world, source_world)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -152,7 +167,7 @@ func shutdown_registered_world(world_key: String, reason: String) -> void:
 	var found_peer := false
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			if _is_peer_open(int(peer_id)):
+			if reason != "idle" and _is_peer_open(int(peer_id)):
 				shutdown_world.rpc_id(int(peer_id), reason)
 			found_peer = true
 			break
@@ -219,11 +234,11 @@ func shutdown_world(reason: String) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func expect_world_join(world_key: String, join_ticket: String, expires_at: float) -> void:
+func expect_world_join(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	world_join_expected.emit(world_key, join_ticket, expires_at)
+	world_join_expected.emit(world_key, join_ticket, expires_at, master_peer_id, source_world)
 
 
 func _send_routes_when_available(sender_id: int, world_key: String) -> void:
@@ -235,15 +250,15 @@ func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 
 	var routes := live_routes()
 	var worlds: Dictionary = routes["worlds"]
-	worlds[world_key] = _endpoint_with_join_ticket(sender_id, world_key)
+	worlds[world_key] = _endpoint_with_join_ticket(sender_id, world_key, "")
 	routes["worlds"] = worlds
 	receive_routes.rpc_id(sender_id, routes)
 
 
-func _approve_transfer_when_available(sender_id: int, target_world: String) -> void:
+func _approve_transfer_when_available(sender_id: int, target_world: String, source_world: String) -> void:
 	var ok := await _ensure_world_available(target_world)
 	if ok and registered_worlds.has(target_world):
-		approve_transfer.rpc_id(sender_id, target_world, _endpoint_with_join_ticket(sender_id, target_world))
+		approve_transfer.rpc_id(sender_id, target_world, _endpoint_with_join_ticket(sender_id, target_world, source_world))
 	else:
 		deny_transfer.rpc_id(sender_id, target_world)
 
@@ -294,12 +309,12 @@ func _wait_for_world_stop(world_key: String) -> bool:
 	return not world_process_manager.is_world_stopping(world_key)
 
 
-func _endpoint_with_join_ticket(sender_id: int, world_key: String) -> Dictionary:
+func _endpoint_with_join_ticket(sender_id: int, world_key: String, source_world: String) -> Dictionary:
 	var endpoint: Dictionary = registered_worlds[world_key].duplicate(true)
 	if not world_process_manager or not world_process_manager.has_method("reserve_world_join"):
 		return endpoint
 
-	var reservation: Dictionary = world_process_manager.reserve_world_join(world_key, sender_id)
+	var reservation: Dictionary = world_process_manager.reserve_world_join(world_key, sender_id, source_world)
 	var join_ticket := str(reservation.get("ticket", ""))
 	if join_ticket.is_empty():
 		return endpoint
@@ -307,14 +322,15 @@ func _endpoint_with_join_ticket(sender_id: int, world_key: String) -> Dictionary
 	var expires_at := float(reservation.get("expires_at", 0.0))
 	endpoint["join_ticket"] = join_ticket
 	endpoint["join_ticket_expires_at"] = expires_at
-	_send_join_ticket_to_world(world_key, join_ticket, expires_at)
+	endpoint["source_world"] = source_world
+	_send_join_ticket_to_world(world_key, join_ticket, expires_at, sender_id, source_world)
 	return endpoint
 
 
-func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float) -> void:
+func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String) -> void:
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at)
+			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at, master_peer_id, source_world)
 			return
 
 
