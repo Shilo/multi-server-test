@@ -100,6 +100,48 @@ func reserve_world_join(world_key: String, peer_id: int) -> void:
 	print("MASTER_WORLD_JOIN_RESERVED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
 
 
+func refresh_world_join(world_key: String, peer_id: int) -> bool:
+	if not worlds.has(world_key):
+		return false
+
+	var state: Dictionary = worlds[world_key]
+	if str(state.get("state", "")) == "stopping":
+		return false
+
+	var reservations: Dictionary = state.get("join_reservations", {})
+	var reservation_key := str(peer_id)
+	if not reservations.has(reservation_key):
+		return false
+
+	reservations[reservation_key] = Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS
+	state["join_reservations"] = reservations
+	state["idle_since"] = -1.0
+	worlds[world_key] = state
+	return true
+
+
+func release_world_join(world_key: String, peer_id: int) -> void:
+	if not worlds.has(world_key):
+		return
+
+	var state: Dictionary = worlds[world_key]
+	var reservations: Dictionary = state.get("join_reservations", {})
+	var reservation_key := str(peer_id)
+	if not reservations.has(reservation_key):
+		return
+
+	reservations.erase(reservation_key)
+	state["join_reservations"] = reservations
+	_refresh_idle_state(world_key, state, Time.get_unix_time_from_system())
+	worlds[world_key] = state
+	print("MASTER_WORLD_JOIN_RELEASED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
+
+
+func release_join_reservations_for_peer(peer_id: int) -> void:
+	for world_key in worlds.keys():
+		release_world_join(str(world_key), peer_id)
+
+
 func update_world_player_count(world_key: String, player_count: int) -> void:
 	if not worlds.has(world_key):
 		return

@@ -15,6 +15,8 @@ var current_world_scene: Node
 var pending_transfer := {}
 var denied_transfer := ""
 var requested_transfer_target := ""
+var join_keepalive_world := ""
+var join_keepalive_active := false
 var smoke_test := false
 var chat_connected := false
 var chat: Node
@@ -176,15 +178,19 @@ func _connect_world(world_key: String) -> bool:
 		push_error("[CLIENT] no registered route for world %s" % world_key)
 		return false
 
+	_start_join_keepalive(world_key)
 	world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
 	active_world_key = ""
 	_load_world_scene(world_key)
 	var endpoint: Dictionary = routes["worlds"][world_key]
 	var ok := await _connect_api(world_api, endpoint["url"], "world-%s" % world_key)
 	if not ok:
+		_stop_join_keepalive(world_key, false)
 		return false
 	world_endpoint.request_world_state.rpc_id(1)
-	return await _wait_until(func() -> bool: return active_world_key == world_key, 5.0, "world %s state" % world_key)
+	ok = await _wait_until(func() -> bool: return active_world_key == world_key, 5.0, "world %s state" % world_key)
+	_stop_join_keepalive(world_key, ok)
+	return ok
 
 
 func _has_world_route(world_key: String) -> bool:
@@ -293,6 +299,31 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_secon
 		return false
 	print("[CLIENT] connected to %s" % label)
 	return true
+
+
+func _start_join_keepalive(world_key: String) -> void:
+	join_keepalive_world = world_key
+	master_endpoint.refresh_world_join.rpc_id(1, world_key)
+	if join_keepalive_active:
+		return
+
+	join_keepalive_active = true
+	call_deferred("_run_join_keepalive", world_key)
+
+
+func _stop_join_keepalive(world_key: String, _completed: bool) -> void:
+	if join_keepalive_world != world_key:
+		return
+
+	join_keepalive_active = false
+	join_keepalive_world = ""
+	master_endpoint.release_world_join.rpc_id(1, world_key)
+
+
+func _run_join_keepalive(world_key: String) -> void:
+	while join_keepalive_active and join_keepalive_world == world_key:
+		master_endpoint.refresh_world_join.rpc_id(1, world_key)
+		await get_tree().create_timer(2.0).timeout
 
 
 func _wait_until(predicate: Callable, timeout_seconds: float, label: String, report_error := true) -> bool:

@@ -31,6 +31,8 @@ func configure_world_process_manager(manager: Node) -> void:
 func unregister_peer(peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
+	if world_process_manager and world_process_manager.has_method("release_join_reservations_for_peer"):
+		world_process_manager.release_join_reservations_for_peer(peer_id)
 	if not peer_worlds.has(peer_id):
 		return
 
@@ -112,6 +114,30 @@ func request_transfer(target_world: String) -> void:
 		return
 
 	call_deferred("_approve_transfer_when_available", sender_id, target_world)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func refresh_world_join(world_key: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		return
+	if world_process_manager and world_process_manager.has_method("refresh_world_join"):
+		world_process_manager.refresh_world_join(world_key, sender_id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func release_world_join(world_key: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		return
+	if world_process_manager and world_process_manager.has_method("release_world_join"):
+		world_process_manager.release_world_join(world_key, sender_id)
 
 
 func shutdown_registered_world(world_key: String, reason: String) -> void:

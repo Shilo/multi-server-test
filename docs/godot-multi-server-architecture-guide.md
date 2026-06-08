@@ -218,11 +218,12 @@ World orchestration behavior:
 3. Editor/smoke launches create another instance of the current Godot executable plus `--path`, `--scene`, `--`, world key, and launch token.
 4. Exported launches create another instance of the same standalone server executable plus `--`, world key, and launch token.
 5. Master records the PID, launch token, state, player count, idle timestamp, and pending join reservations.
-6. When master sends a route or transfer approval, it records a short pending-join reservation for that peer and world.
-7. A world is eligible for idle shutdown only when it has `0` connected gameplay peers and `0` pending join reservations.
-8. Pending join reservations expire automatically if the client never connects.
-9. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
-10. If the world does not exit after the stop grace window, master kills the recorded PID.
+6. When master sends a route or transfer approval, it records a pending-join reservation for that peer and world.
+7. While the client is connecting to the approved world, it refreshes that reservation over `MasterNet`.
+8. A world is eligible for idle shutdown only when it has `0` connected gameplay peers and `0` pending join reservations.
+9. Pending join reservations are released when the client completes or cancels the join, and expire automatically if the client stops refreshing.
+10. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
+11. If the world does not exit after the stop grace window, master kills the recorded PID.
 
 World registration behavior:
 
@@ -245,7 +246,7 @@ Transfer approval behavior:
 7. Master sends either approval with endpoint data or a denial.
 8. Client swaps only `WorldNet` after approval.
 
-The pending join reservation is the race guard between transfer approval and idle shutdown. It prevents an empty world from shutting down while the approved client is still opening its world connection. If the client connects, the world's heartbeat reports a nonzero player count and master clears pending joins. If the client never connects, the reservation expires and the normal empty-world idle timer starts again. If a world is already in the `stopping` state, master does not approve a transfer into it.
+The pending join reservation is the race guard between transfer approval and idle shutdown. It prevents an empty world from shutting down while the approved client is still opening its world connection. The client refreshes the reservation over the persistent master connection while it connects to the target world, then releases it after receiving world state or after a failed join. If the client disappears, master releases that peer's reservations on disconnect; if the client stalls without refreshing, the reservation expires and the normal empty-world idle timer starts again. If a world is already in the `stopping` state, master does not approve a transfer into it.
 
 ## Chat Responsibilities
 

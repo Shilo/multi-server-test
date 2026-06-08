@@ -75,7 +75,7 @@ hub -> left_world -> hub -> right_world -> hub -> top_world -> hub
 
 Chat stayed connected across the active `WorldNet` swaps.
 The smoke harness also starts a fresh master, lets it launch `hub`, kills the master process, parses the child world PID, and verifies the hub process exits.
-Route and transfer approvals now emit pending-join reservations before clients connect to the target world, preventing the idle shutdown timer from firing during the approval-to-connect window.
+Route and transfer approvals now emit pending-join reservations before clients connect to the target world. Clients refresh the reservation over `MasterNet` until world state is received or the join fails, preventing the idle shutdown timer from firing during a live approval-to-connect window.
 
 ## Argument Validation
 
