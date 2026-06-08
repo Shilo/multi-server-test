@@ -14,6 +14,10 @@ func _ready() -> void:
 		else:
 			scene_path = WORLD_SCENE
 
+	call_deferred("_change_scene", scene_path)
+
+
+func _change_scene(scene_path: String) -> void:
 	var err := get_tree().change_scene_to_file(scene_path)
 	if err != OK:
 		push_error("[MAIN] failed to load scene: %s err=%s" % [scene_path, err])

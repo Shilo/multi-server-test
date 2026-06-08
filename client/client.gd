@@ -266,9 +266,9 @@ func _on_chat_message_submitted(message: String) -> void:
 	chat_endpoint.send_chat.rpc_id(1, message)
 
 
-func _set_chat_connected(is_connected: bool) -> void:
+func _set_chat_connected(connected: bool) -> void:
 	if chat and chat.has_method("set_connected"):
-		chat.set_connected(is_connected)
+		chat.set_connected(connected)
 
 
 func _add_chat_system_line(message: String) -> void:

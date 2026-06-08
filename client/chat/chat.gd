@@ -10,9 +10,9 @@ func _ready() -> void:
 	set_connected(false)
 
 
-func set_connected(is_connected: bool) -> void:
-	input.editable = is_connected
-	input.placeholder_text = "chat" if is_connected else "chat unavailable"
+func set_connected(connected: bool) -> void:
+	input.editable = connected
+	input.placeholder_text = "chat" if connected else "chat unavailable"
 
 
 func add_system_line(message: String) -> void:
