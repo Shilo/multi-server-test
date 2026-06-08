@@ -138,16 +138,11 @@ func world_start_timeout_seconds() -> float:
 
 
 func _launch_world(world_key: String) -> bool:
-	var executable_path := _world_server_executable_path()
-	if executable_path.is_empty() or not FileAccess.file_exists(executable_path):
-		push_error("[MASTER] world server executable not found: %s" % executable_path)
-		return false
-
 	var launch_token := _new_launch_token()
 	var arguments := _world_server_arguments(world_key, launch_token)
-	var pid := OS.create_process(executable_path, arguments)
+	var pid := OS.create_instance(arguments)
 	if pid == -1:
-		push_error("[MASTER] failed to launch world %s with executable %s" % [world_key, executable_path])
+		push_error("[MASTER] failed to launch world %s" % world_key)
 		return false
 
 	worlds[world_key] = {
@@ -163,30 +158,6 @@ func _launch_world(world_key: String) -> bool:
 	}
 	print("MASTER_WORLD_STARTED key=%s pid=%d" % [world_key, pid])
 	return true
-
-
-func _world_server_executable_path() -> String:
-	if not OS.has_feature("template"):
-		return OS.get_executable_path()
-
-	var master_dir := OS.get_executable_path().get_base_dir()
-	for executable_name in _world_server_executable_names():
-		var sibling_path := master_dir.get_base_dir().path_join("world_server").path_join(executable_name)
-		if FileAccess.file_exists(sibling_path):
-			return sibling_path
-
-		var same_dir_path := master_dir.path_join(executable_name)
-		if FileAccess.file_exists(same_dir_path):
-			return same_dir_path
-
-	return master_dir.get_base_dir().path_join("world_server").path_join(_world_server_executable_names()[0])
-
-
-func _world_server_executable_names() -> Array[String]:
-	if OS.has_feature("windows"):
-		return ["world_server.exe", "world_server.console.exe"]
-
-	return ["world_server.x86_64", "world_server"]
 
 
 func _world_server_arguments(world_key: String, launch_token: String) -> PackedStringArray:

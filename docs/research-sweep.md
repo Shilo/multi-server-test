@@ -134,7 +134,7 @@ The final structure should remain:
 - `shared/`
 - `tools/`
 
-The final export workflow should export separate runnable artifacts by using the same project/preset with different output filenames and simple role arguments or wrappers. That gives clear client/master/chat/world artifacts without multiplying Godot scenes or projects.
+The current export workflow should export a client artifact plus one standalone server artifact. The server starts master with no user args and starts worlds by creating another instance of itself with a bare world key plus launch token.
 
 ## Audit Findings
 

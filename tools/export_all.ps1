@@ -8,12 +8,12 @@ $BuildRoot = Join-Path $ProjectRoot "builds"
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
 
 $targets = @(
-    @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe" },
-    @{ Name = "master_server"; Preset = "Windows Master Server"; Path = "master_server\master_server.exe" },
-    @{ Name = "world_server"; Preset = "Windows World Server"; Path = "world_server\world_server.exe" }
+    @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe"; PckRequired = $true },
+    @{ Name = "server"; Preset = "Windows Server"; Path = "server\server.exe"; PckRequired = $false }
 )
 
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
+Remove-Item -Recurse -Force -Path (Join-Path $BuildRoot "master_server"), (Join-Path $BuildRoot "world_server") -ErrorAction SilentlyContinue
 
 function Remove-EditorAutoloadForExport() {
     $content = Get-Content -LiteralPath $ProjectFile
@@ -62,7 +62,9 @@ try {
         }
 
         Wait-FileStable $output
-        Wait-FileStable $pckOutput
+        if ($target.PckRequired) {
+            Wait-FileStable $pckOutput
+        }
         Write-Host "EXPORT_DONE $($target.Name)"
     }
 }

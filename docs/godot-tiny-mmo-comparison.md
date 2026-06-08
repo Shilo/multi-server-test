@@ -15,10 +15,11 @@ systems, SQLite-backed world persistence, chat, dashboard tooling, manual
 instance management, and a custom byte-packed synchronization layer.
 
 This project is intentionally smaller. It proves one shared Godot project with
-one client, one master server, one separate chat server, three world servers,
-WebSocket-based Godot high-level multiplayer, separate client multiplayer
-contexts, high-level RPCs, branch-local portal travel, and server-authority
-spawning through `MultiplayerSpawner`. It also includes a
+one client, one master server that hosts chat/control, on-demand world server
+processes keyed by discovered world scenes, WebSocket-based Godot high-level
+multiplayer, separate client multiplayer contexts, high-level RPCs,
+branch-local portal travel, and server-authority spawning through
+`MultiplayerSpawner`. It also includes a
 `MultiplayerSynchronizer` for player `position`, but live movement
 synchronization is still best validated manually with two visible clients rather
 than by the current smoke test.
@@ -78,17 +79,17 @@ history, run-instance guidance, and export intent.
 | --- | --- | --- |
 | Goal | Minimal multi-server proof-of-concept | Experimental MMORPG framework |
 | Godot project count | One | One |
-| Entry point | `launcher/Launcher.tscn` selects `--role` | `source/common/main.tscn` selects `--mode` or feature tags |
+| Entry point | `shared/main/main.tscn` selects client/server by feature tag, then master/world by server args | `source/common/main.tscn` selects `--mode` or feature tags |
 | Client | One simple playable client | Login UI, gateway flow, character/world selection, gameplay UI |
 | Master | Minimal route and world registry server | Gateway bridge, account orchestration, world registry, dashboard control |
-| Chat | Separate chat server process | Chat service inside world server |
-| Worlds | Three explicit world server processes | World server with instance manager and multiple map resources |
+| Chat | Chat endpoint hosted by master | Chat service inside world server |
+| Worlds | On-demand world server processes, one per active discovered world key | World server with instance manager and multiple map resources |
 | Travel | Client disconnects active world peer and connects to another world server | Client switches instances/maps inside world infrastructure through a server-driven transition, optionally gated by instance rules |
 | Networking | Godot WebSocket high-level multiplayer, RPCs, branch-local `MultiplayerAPI` | Godot WebSocket high-level multiplayer plus custom RPC request and byte-packed sync |
 | Replication | `MultiplayerSpawner` plus optional `MultiplayerSynchronizer` for `position` | Manual spawn/despawn RPC and custom `PackedByteArray` state deltas |
 | Persistence | None | SQLite for world data and chat, resource-backed accounts on master |
 | Auth | None | Gateway login, guest login, world-entry auth tokens |
-| Export | Simple shared artifact copied to role folders | Export intent documented, no local `export_presets.cfg` found |
+| Export | Client artifact plus one standalone server artifact | Export intent documented, no local `export_presets.cfg` found |
 | Automated tests | Log-driven smoke test scripts | No formal test suite found during research |
 | Scope | Small, explicit, disposable | Broad, framework-like, gameplay-heavy |
 
@@ -103,11 +104,10 @@ which compares this project, Godot Tiny MMO, and JDungeon in one place.
 This project is a narrow validation spike. It proves the following shape:
 
 - A single Godot project.
-- One role-selecting launcher scene.
-- Separate role folders for client, master, chat, world, shared code, and tools.
-- A master route server.
-- A separate chat server.
-- Three separate world server processes.
+- One feature-tagged main scene.
+- Separate role folders for client, master, world, shared code, and tools.
+- A master route/orchestration server that also hosts chat.
+- On-demand world server processes keyed by discovered world folders.
 - One client with independent networking branches.
 - Portal travel that replaces only the active world connection.
 - Chat that stays connected while world connections change.
@@ -115,7 +115,7 @@ This project is a narrow validation spike. It proves the following shape:
 The important scene branches on the client are:
 
 - `MasterNet/MasterEndpoint`
-- `ChatNet/ChatEndpoint`
+- `MasterNet/ChatEndpoint`
 - `WorldNet/WorldEndpoint`
 
 Each branch receives its own `MultiplayerAPI` with `SceneTree.set_multiplayer`.
@@ -277,9 +277,9 @@ Recommended future spike:
 
 ## Chat Comparison
 
-This project intentionally runs chat as a separate server process. That is a
-clean fit for the original goal: prove chat can stay connected while world
-connections are replaced.
+This project intentionally hosts chat on the master server socket. That is a
+clean fit for the current goal: prove chat can stay connected while world
+connections are replaced, without adding a standalone chat process.
 
 Godot Tiny MMO currently runs chat inside the world server. That makes sense for
 its framework because chat is integrated with accounts, blocks, moderation,
@@ -287,17 +287,16 @@ world channels, guild/team channels, database persistence, and dashboard logs.
 
 Both approaches are valid for different goals.
 
-This project's separate chat server is better for proving independent
-multiplayer contexts.
+This project's master-hosted chat is better for keeping the control plane small
+while gameplay traffic stays isolated on world sockets.
 
 Godot Tiny MMO's world-local chat service is better for a gameplay framework
 where chat needs player resources, account data, moderation tools, and
 persistence.
 
-For this spike, keep the separate chat server. For a future MMO, consider a
-hybrid:
+For this spike, keep chat on master. For a future MMO, consider a hybrid:
 
-- Keep a separate chat connection if persistent cross-world chat is a hard requirement.
+- Add a separate chat connection only if measured chat volume delays routing or transfer messages.
 - Let world servers publish player presence and instance channel membership to chat.
 - Add persistence only after the message model is stable.
 
@@ -306,13 +305,13 @@ hybrid:
 This project demonstrates server travel between separate world server processes:
 
 1. Local player enters a portal.
-2. Client asks the active world server for transfer approval.
-3. Active world validates the target world against its allowed topology.
+2. Client asks master for transfer approval.
+3. Master starts the target world on demand if needed.
 4. Client disconnects from the current world peer.
 5. Client replaces only `WorldNet`'s multiplayer peer.
 6. Client connects to the target world server.
 7. Target world spawns the player under `SpawnRoot`.
-8. Chat remains connected through `ChatNet`.
+8. Chat remains connected through `MasterNet`.
 
 Godot Tiny MMO primarily demonstrates instance and map switching within a world
 server architecture:
@@ -406,32 +405,25 @@ tags:
 The current source also supports `--mode=client`, `--mode=gateway-server`,
 `--mode=master-server`, and `--mode=world-server`.
 
-This project uses command-line role arguments:
+This project uses feature tags for client/server selection and one strict world
+argument form inside the server executable:
 
-- `--role client`
-- `--role master`
-- `--role chat`
-- `--role world --world 1`
-- `--role world --world 2`
-- `--role world --world 3`
+- no server feature tag: client
+- `server` or `dedicated_server` with no user args: master
+- `server` or `dedicated_server` with `-- <world_key>`: standalone world debug
+- master-owned launch: `-- <world_key> <launch_token>`
 
-This project's approach is more explicit for the spike, especially because the
-world role needs a world ID. Godot Tiny MMO's feature-tag approach is useful for
-editor convenience and export presets. A future small improvement would be to
-support both forms:
-
-- keep `--role` and `--world` for scripts and smoke tests
-- optionally accept feature tags or `--mode` for editor ergonomics
-
-Do not change the MVP unless run-instance setup becomes painful.
+This project's approach is explicit where it matters: worlds always require a
+world key, while the exported deployment stays to one client artifact and one
+server artifact.
 
 ## Export Strategy
 
 This project has a working simple export story:
 
-- one shared exported Windows build
-- copied into role-labeled folders
-- role behavior selected by CLI arguments
+- one exported Windows client build
+- one standalone exported Windows server build
+- server behavior selected by no args for master or a bare world key for world
 - automated smoke test can run exported artifacts
 
 Godot Tiny MMO's docs describe separate client and dedicated-server exports and
@@ -440,9 +432,9 @@ that keeps autoloads registered and lets scripts self-free depending on role.
 However, no local `export_presets.cfg` was found during this research pass.
 
 For this spike, the current export strategy is correct. It proves the shared
-project can produce independently launched role artifacts without multiplying
-Godot projects. More precise role-specific export presets would be useful later
-when assets, server-only scripts, or platform differences become expensive.
+project can produce a self-contained server artifact without multiplying Godot
+projects or role-specific server exports. More precise resource stripping would
+be useful later when server package size becomes expensive.
 
 ## Current Project Pros
 

@@ -27,7 +27,7 @@ res://master_server/master_server.tscn
 res://client/client.tscn -- smoke_test
 ```
 
-Normal/editor/export workflow uses feature tags through `res://shared/main/main.tscn`. Exported smoke runs the role-tagged master/client artifacts directly, then master launches the sibling world artifact on demand.
+Normal/editor/export workflow uses feature tags through `res://shared/main/main.tscn`. Exported smoke runs the client artifact plus one standalone server artifact, then the master creates additional instances of that same server artifact for worlds on demand.
 
 ## Validated Markers
 
@@ -80,7 +80,8 @@ The smoke harness also starts a fresh master, lets it launch `hub`, kills the ma
 
 World startup argument behavior was checked directly:
 
-- no user argument starts `hub`;
+- no user argument on the standalone server starts master;
+- no user argument on the world scene fails because worlds require explicit keys;
 - invalid world key exits with code `12`;
 - more than two user arguments exit with code `14`.
 

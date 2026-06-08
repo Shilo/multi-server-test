@@ -20,10 +20,7 @@ function Get-Executable($name) {
     if ($name -like "client*") {
         return Join-Path $BuildRoot "client\client.exe"
     }
-    if ($name -like "master*") {
-        return Join-Path $BuildRoot "master_server\master_server.exe"
-    }
-    return Join-Path $BuildRoot "world_server\world_server.exe"
+    return Join-Path $BuildRoot "server\server.exe"
 }
 
 function Start-Scene($name, $scenePath, $userArgs = @(), [switch]$Headless) {

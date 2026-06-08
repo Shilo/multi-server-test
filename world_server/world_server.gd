@@ -66,7 +66,9 @@ func _ready() -> void:
 func _parse_world_key() -> String:
 	var args := OS.get_cmdline_user_args()
 	if args.size() == 0:
-		return NET_CONFIG.initial_world()
+		push_error("[WORLD] expected explicit world key, got no user args")
+		get_tree().quit(14)
+		return ""
 	if args.size() > 2:
 		push_error("[WORLD] expected world key plus optional master launch token, got: %s" % str(args))
 		get_tree().quit(14)

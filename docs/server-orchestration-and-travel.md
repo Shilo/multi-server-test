@@ -16,7 +16,7 @@ The current custom Godot branch now uses master-owned child process orchestratio
 - World servers only become registered after master ACKs their launch token. A rejected or unacknowledged registration exits instead of holding a port forever.
 - Repeated route or transfer interest does not extend an empty world's idle lifetime; only a real gameplay peer connection cancels the idle countdown.
 
-This hybrid is intentional. If worlds decide their own lifetime, lifecycle policy gets scattered across every gameplay process. If only master handles shutdown, `OS.create_process()` children can survive a master crash because Godot starts them independently. The combined design keeps allocation policy centralized in master while still cleaning up orphaned worlds during local testing and simple VPS operation.
+This hybrid is intentional. If worlds decide their own lifetime, lifecycle policy gets scattered across every gameplay process. If only master handles shutdown, additional Godot instances can survive a master crash because Godot starts them independently. The combined design keeps allocation policy centralized in master while still cleaning up orphaned worlds during local testing and simple VPS operation.
 
 The old `WORLD_REGISTRATION_SECRET` was removed. A shared secret in `shared/net/net_config.gd` is not a real trust boundary because shared scripts are included in client exports. Master now generates a per-launch token and passes it only to the child world process. Registration is accepted only if the world key and token match a process master actually started.
 
@@ -25,8 +25,8 @@ The launch token is still passed as a process argument. That is acceptable for t
 Relevant Godot constraints:
 
 - Godot custom feature tags are export-time tags; they are not injected by normal editor CLI launches. Editor/smoke world children therefore launch with the current Godot executable plus `--path`, `--scene`, and `-- <world_key> <launch_token>`.
-- Exported master builds launch a sibling `world_server` executable with `-- <world_key> <launch_token>`.
-- `OS.create_process()` returns a PID and launches independently; it does not create a child that automatically dies with the parent.
+- Exported server builds launch another instance of the same standalone server executable with `-- <world_key> <launch_token>`.
+- `OS.create_instance()` returns a PID and launches another Godot instance independently; it does not create a child that automatically dies with the parent.
 - `OS.kill()` and `OS.is_process_running()` are the practical minimal tools for local child supervision.
 
 For production, the next hardening step is not a separate allocator yet. Run the master under a normal service supervisor such as systemd, keep world allocation in master, and add remote-host configuration plus server-side transfer tickets before public testing.

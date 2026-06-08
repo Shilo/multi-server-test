@@ -54,11 +54,11 @@ Main documentation:
 
 ## Role Selection
 
-Normal/editor/export workflow uses Godot feature tags:
+The exported client uses the default client main scene. The exported server uses one server feature tag and command-line user args:
 
-- `master_server`: starts `res://master_server/master_server.tscn`
-- `world_server`: starts `res://world_server/world_server.tscn`
-- no role feature tag: starts `res://client/client.tscn`
+- `server` or `dedicated_server` with no user args: starts `res://master_server/master_server.tscn`
+- `server` or `dedicated_server` with a world key after `--`: starts `res://world_server/world_server.tscn`
+- no server feature tag: starts `res://client/client.tscn`
 
 The main scene is:
 
@@ -66,9 +66,7 @@ The main scene is:
 res://shared/main/main.tscn
 ```
 
-If both `master_server` and `world_server` feature tags are present, startup fails clearly. The app does not support role or mode command-line flags.
-
-For smoke tests and CI, launch the master and client scenes directly with Godot's built-in `--scene` option. The master starts world scenes itself.
+For smoke tests and CI with the editor binary, launch the master and client scenes directly with Godot's built-in `--scene` option. The master starts world scenes itself. Exported smoke runs one standalone server executable; that server creates additional instances of itself for worlds.
 
 ## World Keys
 
@@ -83,7 +81,7 @@ Examples:
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- top_world
 ```
 
-These direct commands are useful for isolated world-scene debugging, but they do not register with master because they do not have a master-issued launch token. If no world key is provided, the world server starts `hub`. If the key is unknown, startup fails clearly.
+These direct commands are useful for isolated world-scene debugging, but they do not register with master because they do not have a master-issued launch token. A world key is required. If the key is missing or unknown, startup fails clearly.
 
 ## Manual CLI Run
 
@@ -121,7 +119,7 @@ Recommended setup for two visible clients:
 
 - Main editor run: visible client with no launch arguments.
 - Extra instance 1: visible client with no launch arguments.
-- Extra instance 2: headless master using the `master_server` feature tag.
+- Extra instance 2: headless master using the `server` feature tag and no user args.
 
 Stop the previous run before starting another one so old processes do not keep ports `19080` through `19084` bound. World instances are spawned by the master and should shut down automatically after they are empty.
 
@@ -173,7 +171,7 @@ Logs are written under `.logs/` and ignored by git.
 
 Install Godot export templates for `4.6.3.stable` first if needed.
 
-Export all role-labeled artifacts:
+Export the client and standalone server artifacts:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\export_all.ps1
@@ -183,20 +181,16 @@ Outputs:
 
 - `builds/client/client.exe`
 - `builds/client/client.pck`
-- `builds/master_server/master_server.exe`
-- `builds/master_server/master_server.pck`
-- `builds/world_server/world_server.exe`
-- `builds/world_server/world_server.pck`
+- `builds/server/server.exe`
 
-There is only one world server executable. It contains all discovered world scenes. The master starts one process per active world key and passes the world key plus a private launch token.
+The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token.
 
-The export script uses three Windows Desktop presets:
+The export script uses two Windows Desktop presets:
 
 - `Windows Client`: no role feature tag.
-- `Windows Master Server`: `master_server` feature tag.
-- `Windows World Server`: `world_server` feature tag.
+- `Windows Server`: dedicated server export with the `server` feature tag.
 
-Smoke/CI launches master and client scenes directly when testing from the editor binary. Exported smoke runs the role-tagged master and client artifacts directly; the master launches the world artifact on demand.
+Smoke/CI launches master and client scenes directly when testing from the editor binary. Exported smoke runs the client artifact and the standalone server artifact directly; the master launches world instances from the same server artifact on demand.
 
 ## Network Constants
 

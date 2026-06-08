@@ -19,15 +19,13 @@ Normal editor/export startup uses the main scene:
 res://shared/main/main.tscn
 ```
 
-`shared/main/main.gd` selects a role from Godot feature tags:
+`shared/main/main.gd` selects a role from export feature tags plus user args:
 
-- `master_server` starts `res://master_server/master_server.tscn`
-- `world_server` starts `res://world_server/world_server.tscn`
-- no role feature tag starts `res://client/client.tscn`
+- `server` or `dedicated_server` with no user args starts `res://master_server/master_server.tscn`
+- `server` or `dedicated_server` with a world key after `--` starts `res://world_server/world_server.tscn`
+- no server feature tag starts `res://client/client.tscn`
 
-If both `master_server` and `world_server` are present, startup fails clearly.
-
-Editor-binary smoke tests and CI launch the master and client scenes directly with Godot's built-in `--scene`, because Godot CLI does not provide a clean way to inject custom feature tags at launch time. The master launches world scenes itself. Exported smoke runs the role-tagged master/client artifacts directly, and the exported master launches the sibling world-server artifact.
+Editor-binary smoke tests and CI launch the master and client scenes directly with Godot's built-in `--scene`, because Godot CLI does not provide a clean way to inject custom feature tags at launch time. The master launches world scenes itself. Exported smoke runs the client artifact plus one standalone server artifact. The exported master launches worlds by creating additional instances of that same server executable.
 
 ## Topology
 
@@ -216,9 +214,9 @@ Startup behavior:
 World orchestration behavior:
 
 1. A route or transfer request calls `ensure_world_started(world_key)`.
-2. Master launches the world server with `OS.create_process()`.
-3. Editor/smoke launches use the current Godot executable plus `--path`, `--scene`, `--`, world key, and launch token.
-4. Exported launches use the sibling `world_server` executable plus `--`, world key, and launch token.
+2. Master launches the world server with `OS.create_instance()`.
+3. Editor/smoke launches create another instance of the current Godot executable plus `--path`, `--scene`, `--`, world key, and launch token.
+4. Exported launches create another instance of the same standalone server executable plus `--`, world key, and launch token.
 5. Master records the PID, launch token, state, player count, and idle timestamp.
 6. When a registered world reports `0` players for the idle window, currently `5` seconds, master requests shutdown.
 7. Repeated route or transfer requests do not extend an empty world's idle lifetime.
@@ -286,8 +284,8 @@ Each world server process owns gameplay for exactly one world key. World servers
 
 Startup behavior:
 
-1. Reads zero, one, or two user arguments.
-2. Defaults to `hub` if no key is present.
+1. Reads one or two user arguments.
+2. Requires an explicit world key.
 3. Stores the optional master launch token.
 4. Loads the keyed world scene into `WorldNet/WorldSceneRoot`.
 5. Starts a `WorldNet` WebSocket server on the keyed port.
@@ -391,7 +389,7 @@ res://master_server/master_server.tscn
 res://client/client.tscn -- smoke_test
 ```
 
-With `-UseExported`, the smoke script runs `builds/client/client.exe` and `builds/master_server/master_server.exe` directly. The exported master launches `builds/world_server/world_server.exe` on demand.
+With `-UseExported`, the smoke script runs `builds/client/client.exe` and `builds/server/server.exe` directly. The exported master launches additional instances of `builds/server/server.exe` on demand.
 
 Expected markers:
 
@@ -421,21 +419,33 @@ The smoke sequence validates route lookup, on-demand world startup, chat round-t
 
 ## Exporting
 
-`tools/export_all.ps1` outputs three role-labeled artifacts:
+`tools/export_all.ps1` outputs a client artifact and one standalone server artifact:
 
 ```text
 builds/client/client.exe
-builds/master_server/master_server.exe
-builds/world_server/world_server.exe
+builds/server/server.exe
 ```
 
-Each `.exe` has a sibling `.pck`. Keep each pair together.
+The client has a sibling `.pck`. The server export embeds its PCK so the server is a single executable containing the master role, world role, and all discovered world scenes.
 
 The export presets are:
 
 - `Windows Client`: no role feature tag.
-- `Windows Master Server`: `master_server` feature tag.
-- `Windows World Server`: `world_server` feature tag.
+- `Windows Server`: dedicated server export with the `server` feature tag.
+
+### Single Server Export Rationale
+
+The standalone server export intentionally contains both server roles and all world scenes. That increases package contents, but it does not make inactive roles or worlds run.
+
+Godot scenes are resources. They are loaded through `load()`/`ResourceLoader.load()` or `preload()`, then instantiated as nodes. Godot's resource docs describe resources as data containers and note that loaded resources are cached and reference-counted; the `ResourceLoader` docs describe loading a resource from the filesystem into memory on demand. In this project, master preloads only small scripts/config and does not load or instantiate world scenes. A world process loads exactly one keyed world scene after startup.
+
+The expected runtime cost difference between separate master/world server exports and one server export is therefore startup/package scanning and disk size, not steady-state gameplay CPU. Steady-state RAM should be governed by the scene actually loaded in that process, plus the shared Godot runtime and small always-loaded scripts. Dedicated-server export mode can still strip visuals later if package size becomes expensive.
+
+References:
+
+- [Godot dedicated server export docs](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_dedicated_servers.html)
+- [Godot Resource docs](https://docs.godotengine.org/en/4.4/classes/class_resource.html)
+- [Godot ResourceLoader docs](https://docs.godotengine.org/en/4.4/classes/class_resourceloader.html)
 
 ## Network Constants
 
