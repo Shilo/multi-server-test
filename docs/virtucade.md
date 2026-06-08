@@ -15,6 +15,12 @@ current runtime shape is `client + master server + on-demand world servers`;
 Gateway and Social remain conceptual future split points, not processes to add
 to the present spike.
 
+The latest experience-focused research is in
+[`virtucade-experience-architecture-research.md`](virtucade-experience-architecture-research.md).
+It frames VirtuCade as a Roblox-like `experience/place` model: hub first,
+one scene per mini-game world server, durable truth in the master, and
+world-session state allowed to die when the temporary world process shuts down.
+
 ## High-Level Overview
 
 VirtuCade should keep four conceptual server roles:

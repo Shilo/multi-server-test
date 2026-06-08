@@ -11,6 +11,8 @@ This document explains the current Godot setup after the three-role refactor. Th
 
 There is no gateway process, standalone chat process, auth server, database, persistence layer, Docker layer, or external fleet service in this refactor.
 
+For the broader VirtuCade direction, see [VirtuCade Experience Architecture Research](virtucade-experience-architecture-research.md). That spike treats the current shape as a Roblox-like `experience/place` model: the master is the durable control plane, and each world process is a temporary mini-game/experience runtime.
+
 ## Runtime Shape
 
 Normal editor/export startup uses the main scene:
@@ -179,6 +181,19 @@ Important helpers:
 - `world_endpoint(world_key)`
 - `world_scene_path(world_key)`
 - `initial_world()`
+
+## Future State Ownership
+
+The current spike has no database. When persistence is added, the intended ownership split is:
+
+```text
+global_profile      master-owned durable state
+world_session       world-owned ephemeral process state
+world_player_state  master-owned durable per-world save data
+world_result        idempotent world-to-master reward/result event
+```
+
+World servers should not directly write global player, inventory, currency, or account data. They should report save/load requests or final results to the master, which becomes the single SQLite writer for durable state.
 
 ## World Startup Arguments
 
