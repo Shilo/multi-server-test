@@ -27,6 +27,7 @@ Relevant Godot constraints:
 
 - Godot custom feature tags are export-time tags; they are not injected by normal editor CLI launches. Editor/smoke world children therefore launch with the current Godot executable plus `--path`, `--scene`, and `-- <world_key> <launch_token>`.
 - Exported server builds launch another instance of the same standalone server executable with `-- <world_key> <launch_token>`.
+- Master-owned world launches inherit the master's display mode. A visible editor/debug master spawns visible world windows; a headless master spawns headless world processes.
 - `OS.create_instance()` returns a PID and launches another Godot instance independently; it does not create a child that automatically dies with the parent.
 - `OS.kill()` and `OS.is_process_running()` are the practical minimal tools for local child supervision.
 

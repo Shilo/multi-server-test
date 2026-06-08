@@ -6,7 +6,7 @@ This document records the current validation state after the three-role refactor
 
 ## Question
 
-Can real Godot clients connect to a master server, cause Godot headless world servers to start on demand, transfer between them while chat remains connected, and let empty worlds shut down?
+Can real Godot clients connect to a master server, cause Godot world servers to start on demand, transfer between them while chat remains connected, and let empty worlds shut down?
 
 Answer: yes, in the current small-scale spike shape.
 

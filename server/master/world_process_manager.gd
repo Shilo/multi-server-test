@@ -218,7 +218,9 @@ func _launch_world(world_key: String) -> bool:
 
 
 func _world_server_arguments(world_key: String, launch_token: String) -> PackedStringArray:
-	var arguments := PackedStringArray(["--headless"])
+	var arguments := PackedStringArray()
+	if _should_launch_world_headless():
+		arguments.append("--headless")
 	if not OS.has_feature("template"):
 		arguments.append_array(PackedStringArray([
 			"--path",
@@ -228,6 +230,10 @@ func _world_server_arguments(world_key: String, launch_token: String) -> PackedS
 		]))
 	arguments.append_array(PackedStringArray(["--", world_key, launch_token]))
 	return arguments
+
+
+func _should_launch_world_headless() -> bool:
+	return DisplayServer.get_name() == "headless"
 
 
 func _new_launch_token() -> String:

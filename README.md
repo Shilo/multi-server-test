@@ -107,7 +107,7 @@ Manual client mode requires only the master at startup. The master starts the in
 
 ## Editor Run Instances
 
-Use Godot's editor launcher when you want visible local clients and headless local servers.
+Use Godot's editor launcher when you want visible local clients and visible local servers.
 
 Open:
 
@@ -119,9 +119,9 @@ Recommended setup for two visible clients:
 
 - Main editor run: visible client with no launch arguments.
 - Extra instance 1: visible client with no launch arguments.
-- Extra instance 2: headless master using the `server` feature tag and no user args.
+- Extra instance 2: master using the `server` feature tag and no user args.
 
-Stop the previous run before starting another one so old processes do not keep ports `19080` through `19084` bound. World instances are spawned by the master and should shut down automatically after they are empty.
+Stop the previous run before starting another one so old processes do not keep ports `19080` through `19084` bound. World instances are spawned by the master and inherit the master's display mode: visible masters spawn visible worlds, while headless masters spawn headless worlds. Empty worlds should shut down automatically after they are empty.
 
 ## Automated Smoke Test
 
