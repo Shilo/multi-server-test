@@ -37,16 +37,19 @@ flowchart LR
     Hub["hub world<br/>WorldNet 19081"]
     Left["left_world<br/>WorldNet 19082"]
     Right["right_world<br/>WorldNet 19083"]
+    Top["top_world<br/>WorldNet 19084"]
 
     Hub -- "register + heartbeat" --> Master
     Left -- "register + heartbeat" --> Master
     Right -- "register + heartbeat" --> Master
+    Top -- "register + heartbeat" --> Master
 
     Client -- "routes + transfer requests" --> Master
     Client -- "chat" --> Master
     Client -- "active gameplay" --> Hub
     Client -. "approved travel swaps WorldNet" .-> Left
     Client -. "approved travel swaps WorldNet" .-> Right
+    Client -. "approved travel swaps WorldNet" .-> Top
 ```
 
 The key Godot technique is separate sibling multiplayer branches. The client has one `MultiplayerAPI` per branch:
@@ -111,6 +114,8 @@ shared/
       left_world.tscn
     right_world/
       right_world.tscn
+    top_world/
+      top_world.tscn
 
 client/
   client.tscn
@@ -141,6 +146,7 @@ master:      19080
 hub:         19081
 left_world: 19082
 right_world: 19083
+top_world:  19084
 ```
 
 Current world keys:
@@ -149,6 +155,7 @@ Current world keys:
 hub
 left_world
 right_world
+top_world
 ```
 
 Derived rules:
@@ -175,6 +182,7 @@ The world role accepts exactly one world-selection syntax: a bare positional key
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- hub
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- left_world
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- right_world
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- top_world
 ```
 
 If no user argument is provided, the world server starts `hub`. If more than one user argument is provided, or if the key is invalid, startup fails.
@@ -289,6 +297,7 @@ The inherited scenes are:
 - `shared/worlds/hub/hub.tscn`
 - `shared/worlds/left_world/left_world.tscn`
 - `shared/worlds/right_world/right_world.tscn`
+- `shared/worlds/top_world/top_world.tscn`
 
 They override:
 
@@ -346,13 +355,14 @@ The smoke script launches direct scenes when using the editor binary:
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1
 ```
 
-The expected server launches are:
+The smoke script discovers strict world folders and launches one world server per discovered world. With the current test worlds, the launches are:
 
 ```text
 res://master_server/master_server.tscn
 res://world_server/world_server.tscn -- hub
 res://world_server/world_server.tscn -- left_world
 res://world_server/world_server.tscn -- right_world
+res://world_server/world_server.tscn -- top_world
 res://client/client.tscn -- smoke_test
 ```
 
@@ -368,13 +378,16 @@ WORLD_READY key=left_world
 WORLD_REGISTERED key=left_world
 WORLD_READY key=right_world
 WORLD_REGISTERED key=right_world
+WORLD_READY key=top_world
+WORLD_REGISTERED key=top_world
 MASTER_WORLD_REGISTERED key=hub
 MASTER_WORLD_REGISTERED key=left_world
 MASTER_WORLD_REGISTERED key=right_world
+MASTER_WORLD_REGISTERED key=top_world
 SMOKE_PASS
 ```
 
-The smoke sequence validates route lookup, chat round-trips, transfers through `hub`, `left_world`, and `right_world`, and world branch reconnection. Manual two-client testing is still the better way to inspect live movement replication visually.
+The smoke sequence validates route lookup, chat round-trips, transfers from `hub` through every discovered non-hub world, and world branch reconnection. Manual two-client testing is still the better way to inspect live movement replication visually.
 
 ## Exporting
 

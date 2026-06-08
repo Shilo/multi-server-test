@@ -27,6 +27,7 @@ res://master_server/master_server.tscn
 res://world_server/world_server.tscn -- hub
 res://world_server/world_server.tscn -- left_world
 res://world_server/world_server.tscn -- right_world
+res://world_server/world_server.tscn -- top_world
 res://client/client.tscn -- smoke_test
 ```
 
@@ -44,22 +45,25 @@ WORLD_READY key=left_world
 WORLD_REGISTERED key=left_world
 WORLD_READY key=right_world
 WORLD_REGISTERED key=right_world
+WORLD_READY key=top_world
+WORLD_REGISTERED key=top_world
 MASTER_WORLD_REGISTERED key=hub
 MASTER_WORLD_REGISTERED key=left_world
 MASTER_WORLD_REGISTERED key=right_world
-SMOKE_PASS clients=2 chat_messages=10
+MASTER_WORLD_REGISTERED key=top_world
+SMOKE_PASS clients=2 chat_messages=14
 ```
 
 Exported smoke also passed with:
 
 ```text
-SMOKE_PASS clients=1 chat_messages=5
+SMOKE_PASS clients=1 chat_messages=7
 ```
 
 The smoke sequence transferred:
 
 ```text
-hub -> left_world -> hub -> right_world -> hub
+hub -> left_world -> hub -> right_world -> hub -> top_world -> hub
 ```
 
 Chat stayed connected across the active `WorldNet` swaps.

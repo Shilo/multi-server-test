@@ -6,4 +6,4 @@
 world_key = "hub"
 world_name = "Hub"
 world_color = Color(0.1, 0.75, 0.45, 1)
-portal_targets_csv = "left_world,right_world"
+portal_targets_csv = "left_world,right_world,top_world"

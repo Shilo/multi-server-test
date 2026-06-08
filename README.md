@@ -12,17 +12,20 @@ This is a one-project Godot 4.6 spike proving a small online-world topology with
 - Separate client multiplayer contexts for master/control/chat and the active world.
 - A persistent master/chat connection while the active world connection is replaced.
 - Server-authority player spawn/despawn with client-authority movement.
-- Three visibly distinct worlds:
+- Four visibly distinct worlds:
   - `hub`
   - `left_world`
   - `right_world`
+  - `top_world`
 
 Portal topology:
 
 - `hub -> left_world`
 - `hub -> right_world`
+- `hub -> top_world`
 - `left_world -> hub`
 - `right_world -> hub`
+- `top_world -> hub`
 
 For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md).
 
@@ -77,6 +80,7 @@ Examples:
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- hub
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- left_world
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- right_world
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- top_world
 ```
 
 If no world key is provided, the world server starts `hub`. If more than one user argument is provided, or if the key is unknown, startup fails clearly.
@@ -96,6 +100,7 @@ Start servers in separate terminals:
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- hub
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- left_world
 & $godot --headless --path . --scene res://world_server/world_server.tscn -- right_world
+& $godot --headless --path . --scene res://world_server/world_server.tscn -- top_world
 ```
 
 Launch a manual client:
@@ -124,8 +129,9 @@ Recommended setup for two visible clients plus the full server topology:
 - Extra instance 3: headless world using the `world_server` feature tag and `-- hub`.
 - Extra instance 4: headless world using the `world_server` feature tag and `-- left_world`.
 - Extra instance 5: headless world using the `world_server` feature tag and `-- right_world`.
+- Extra instance 6: headless world using the `world_server` feature tag and `-- top_world`.
 
-Stop the previous run before starting another one so old processes do not keep ports `19080` through `19083` bound.
+Stop the previous run before starting another one so old processes do not keep ports `19080` through `19084` bound.
 
 ## Automated Smoke Test
 
@@ -156,9 +162,12 @@ Successful logs include:
 - `WORLD_REGISTERED key=left_world`
 - `WORLD_READY key=right_world`
 - `WORLD_REGISTERED key=right_world`
+- `WORLD_READY key=top_world`
+- `WORLD_REGISTERED key=top_world`
 - `MASTER_WORLD_REGISTERED key=hub`
 - `MASTER_WORLD_REGISTERED key=left_world`
 - `MASTER_WORLD_REGISTERED key=right_world`
+- `MASTER_WORLD_REGISTERED key=top_world`
 - `SMOKE_PASS`
 
 Logs are written under `.logs/` and ignored by git.
@@ -182,7 +191,7 @@ Outputs:
 - `builds/world_server/world_server.exe`
 - `builds/world_server/world_server.pck`
 
-There is only one world server executable. It contains all world scenes, and each process selects `hub`, `left_world`, or `right_world` with the bare world key argument.
+There is only one world server executable. It contains all discovered world scenes, and each process selects a world with the bare world key argument.
 
 The export script uses three Windows Desktop presets:
 

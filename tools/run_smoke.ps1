@@ -72,26 +72,38 @@ function Wait-LogMarker($name, $marker, $timeoutSeconds = 10) {
     throw "Timed out waiting for marker '$marker' in $name logs"
 }
 
+function Get-WorldKeys {
+    $worldRoot = Join-Path $ProjectRoot "shared\worlds"
+    $keys = @()
+    foreach ($directory in Get-ChildItem -Path $worldRoot -Directory | Sort-Object Name) {
+        $scenePath = Join-Path $directory.FullName "$($directory.Name).tscn"
+        if (Test-Path $scenePath) {
+            $keys += $directory.Name
+        }
+        else {
+            throw "World folder '$($directory.Name)' must contain $($directory.Name).tscn"
+        }
+    }
+    return $keys
+}
+
+$worldKeys = Get-WorldKeys
+if (-not ($worldKeys -contains "hub")) {
+    throw "Smoke test requires discovered hub world"
+}
+
 $servers = @()
 $clients = @()
 try {
     $servers += Start-Scene "master" "res://master_server/master_server.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
 
-    $servers += Start-Scene "hub" "res://world_server/world_server.tscn" @("hub") -Headless
-    Wait-LogMarker "hub" "WORLD_READY key=hub"
-    Wait-LogMarker "hub" "WORLD_REGISTERED key=hub"
-    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=hub"
-
-    $servers += Start-Scene "left_world" "res://world_server/world_server.tscn" @("left_world") -Headless
-    Wait-LogMarker "left_world" "WORLD_READY key=left_world"
-    Wait-LogMarker "left_world" "WORLD_REGISTERED key=left_world"
-    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=left_world"
-
-    $servers += Start-Scene "right_world" "res://world_server/world_server.tscn" @("right_world") -Headless
-    Wait-LogMarker "right_world" "WORLD_READY key=right_world"
-    Wait-LogMarker "right_world" "WORLD_REGISTERED key=right_world"
-    Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=right_world"
+    foreach ($worldKey in $worldKeys) {
+        $servers += Start-Scene $worldKey "res://world_server/world_server.tscn" @($worldKey) -Headless
+        Wait-LogMarker $worldKey "WORLD_READY key=$worldKey"
+        Wait-LogMarker $worldKey "WORLD_REGISTERED key=$worldKey"
+        Wait-LogMarker "master" "MASTER_WORLD_REGISTERED key=$worldKey"
+    }
 
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
@@ -122,18 +134,12 @@ try {
         }
     }
 
-    $requiredMarkers = @(
-        "MASTER_READY",
-        "WORLD_READY key=hub",
-        "WORLD_REGISTERED key=hub",
-        "WORLD_READY key=left_world",
-        "WORLD_REGISTERED key=left_world",
-        "WORLD_READY key=right_world",
-        "WORLD_REGISTERED key=right_world",
-        "MASTER_WORLD_REGISTERED key=hub",
-        "MASTER_WORLD_REGISTERED key=left_world",
-        "MASTER_WORLD_REGISTERED key=right_world"
-    )
+    $requiredMarkers = @("MASTER_READY")
+    foreach ($worldKey in $worldKeys) {
+        $requiredMarkers += "WORLD_READY key=$worldKey"
+        $requiredMarkers += "WORLD_REGISTERED key=$worldKey"
+        $requiredMarkers += "MASTER_WORLD_REGISTERED key=$worldKey"
+    }
     foreach ($marker in $requiredMarkers) {
         $found = Get-ChildItem $LogRoot -Filter "*.out.log" | Select-String -SimpleMatch $marker -Quiet
         if (-not $found) {
@@ -141,7 +147,7 @@ try {
         }
     }
 
-    $expectedChatMessages = 5 * $ClientCount
+    $expectedChatMessages = (1 + (2 * ($worldKeys.Count - 1))) * $ClientCount
     $chatMessages = (Select-String -Path (Join-Path $LogRoot "master.out.log") -SimpleMatch "[CHAT] received from peer").Count
     if ($chatMessages -lt $expectedChatMessages) {
         Write-Host (Get-Content (Join-Path $LogRoot "master.out.log") -Raw)

@@ -4,7 +4,7 @@ signal chat_received(sender_id: int, message: String)
 
 const MAX_MESSAGE_LENGTH := 200
 const RATE_WINDOW_SECONDS := 3.0
-const MAX_MESSAGES_PER_WINDOW := 5
+const MAX_MESSAGES_PER_WINDOW := 10
 
 var peer_message_times := {}
 

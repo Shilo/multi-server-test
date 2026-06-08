@@ -88,7 +88,7 @@ func run_smoke_test() -> void:
 		_smoke_fail("bootstrap failed")
 		return
 
-	var sequence := ["left_world", "hub", "right_world", "hub"]
+	var sequence := _smoke_transfer_sequence()
 	for i in range(sequence.size()):
 		var target_world := str(sequence[i])
 		print("SMOKE_STEP transfer %s_to_%s" % [active_world_key, target_world])
@@ -104,6 +104,17 @@ func run_smoke_test() -> void:
 
 	print("SMOKE_PASS")
 	get_tree().quit(0)
+
+
+func _smoke_transfer_sequence() -> Array[String]:
+	var sequence: Array[String] = []
+	var initial_world := NET_CONFIG.initial_world()
+	for world_key in NET_CONFIG.world_keys():
+		if world_key == initial_world:
+			continue
+		sequence.append(world_key)
+		sequence.append(initial_world)
+	return sequence
 
 
 func _bootstrap_connections(require_all_worlds: bool) -> bool:
