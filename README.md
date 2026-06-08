@@ -193,7 +193,7 @@ Smoke/CI launches scenes directly when testing from the editor binary. Exported 
 
 ## Network Constants
 
-This MVP keeps host, ports, and the local world-registration secret in `shared/net/net_config.gd`. It currently targets local testing on `127.0.0.1`.
+This MVP keeps the advertised URL host, ports, and local world-registration secret in `shared/net/net_config.gd`. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Current Limits
 

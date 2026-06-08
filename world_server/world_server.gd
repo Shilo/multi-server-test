@@ -40,14 +40,14 @@ func _ready() -> void:
 
 	var peer := WebSocketMultiplayerPeer.new()
 	var port := NET_CONFIG.world_port(world_key)
-	var err := peer.create_server(port, NET_CONFIG.HOST)
+	var err := peer.create_server(port)
 	if err != OK:
-		push_error("[WORLD %s] failed to listen on %s:%d err=%s" % [world_key, NET_CONFIG.HOST, port, err])
+		push_error("[WORLD %s] failed to listen on port %d err=%s" % [world_key, port, err])
 		get_tree().quit(13)
 		return
 
 	world_api.multiplayer_peer = peer
-	print("WORLD_READY key=%s host=%s port=%d scene=%s" % [world_key, NET_CONFIG.HOST, port, NET_CONFIG.world_scene_path(world_key)])
+	print("WORLD_READY key=%s port=%d scene=%s" % [world_key, port, NET_CONFIG.world_scene_path(world_key)])
 	_connect_to_master()
 
 

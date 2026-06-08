@@ -21,11 +21,11 @@ func _start_master_server() -> void:
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
-	var err := peer.create_server(NET_CONFIG.MASTER_PORT, NET_CONFIG.HOST)
+	var err := peer.create_server(NET_CONFIG.MASTER_PORT)
 	if err != OK:
-		push_error("[MASTER] failed to listen on %s:%d err=%s" % [NET_CONFIG.HOST, NET_CONFIG.MASTER_PORT, err])
+		push_error("[MASTER] failed to listen on port %d err=%s" % [NET_CONFIG.MASTER_PORT, err])
 		get_tree().quit(10)
 		return
 
 	master_api.multiplayer_peer = peer
-	print("MASTER_READY host=%s port=%d" % [NET_CONFIG.HOST, NET_CONFIG.MASTER_PORT])
+	print("MASTER_READY port=%d" % NET_CONFIG.MASTER_PORT)

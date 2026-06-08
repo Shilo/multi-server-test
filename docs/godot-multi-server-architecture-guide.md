@@ -188,7 +188,7 @@ The master process owns:
 Startup behavior:
 
 1. Creates a `MultiplayerAPI` for `MasterNet`.
-2. Starts a `WebSocketMultiplayerPeer` server on `127.0.0.1:19080`.
+2. Starts a `WebSocketMultiplayerPeer` server on port `19080` using Godot's default bind address.
 3. Hosts `MasterEndpoint` and `ChatEndpoint` under the same branch.
 4. Prints `MASTER_READY`.
 
@@ -394,7 +394,7 @@ The export presets are:
 
 ## Network Constants
 
-`shared/net/net_config.gd` owns the host, ports, world scene paths, travel graph, and local world-registration secret. The current MVP uses `127.0.0.1` for local testing.
+`shared/net/net_config.gd` owns the advertised URL host, ports, world scene paths, travel graph, and local world-registration secret. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Known Limits
 
