@@ -31,12 +31,36 @@ func ensure_world_started(world_key: String) -> bool:
 	if worlds.has(world_key):
 		var state: Dictionary = worlds[world_key]
 		var pid := int(state.get("pid", -1))
-		if pid > 0 and OS.is_process_running(pid) and str(state.get("state", "")) != "stopping":
-			state["last_interest"] = Time.get_unix_time_from_system()
-			worlds[world_key] = state
+		if pid > 0 and not OS.is_process_running(pid):
+			_on_world_process_exited(world_key, state)
+		elif str(state.get("state", "")) == "stopping":
+			return false
+		elif pid > 0:
 			return true
 
 	return _launch_world(world_key)
+
+
+func is_world_available(world_key: String) -> bool:
+	if not worlds.has(world_key):
+		return false
+
+	var state: Dictionary = worlds[world_key]
+	var pid := int(state.get("pid", -1))
+	return (
+		str(state.get("state", "")) == "running"
+		and bool(state.get("registered", false))
+		and pid > 0
+		and OS.is_process_running(pid)
+	)
+
+
+func is_world_stopping(world_key: String) -> bool:
+	if not worlds.has(world_key):
+		return false
+
+	var state: Dictionary = worlds[world_key]
+	return str(state.get("state", "")) == "stopping"
 
 
 func expects_registration(world_key: String, launch_token: String) -> bool:
@@ -55,7 +79,6 @@ func mark_world_registered(world_key: String) -> void:
 	state["registered"] = true
 	state["state"] = "running"
 	state["idle_since"] = Time.get_unix_time_from_system()
-	state["last_interest"] = Time.get_unix_time_from_system()
 	worlds[world_key] = state
 	print("MASTER_WORLD_RUNNING key=%s pid=%d" % [world_key, int(state.get("pid", -1))])
 
@@ -132,6 +155,7 @@ func _launch_world(world_key: String) -> bool:
 		"launch_token": launch_token,
 		"state": "starting",
 		"registered": false,
+		"started_at": Time.get_unix_time_from_system(),
 		"player_count": 0,
 		"idle_since": -1.0,
 		"stop_requested_at": -1.0,
@@ -197,10 +221,14 @@ func _poll_world_processes() -> void:
 		var is_registered := bool(state.get("registered", false))
 		var player_count := int(state.get("player_count", 0))
 		var idle_since := float(state.get("idle_since", -1.0))
-		var last_interest := float(state.get("last_interest", -1.0))
+		if not is_registered:
+			var started_at := float(state.get("started_at", now))
+			if now - started_at >= WORLD_START_TIMEOUT_SECONDS:
+				request_world_stop(world_key, "start_timeout")
+				continue
+
 		if is_registered and player_count == 0 and idle_since >= 0.0:
-			var idle_reference = max(idle_since, last_interest)
-			if now - idle_reference >= WORLD_IDLE_SHUTDOWN_SECONDS:
+			if now - idle_since >= WORLD_IDLE_SHUTDOWN_SECONDS:
 				request_world_stop(world_key, "idle")
 				continue
 

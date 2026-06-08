@@ -14,6 +14,7 @@ var active_world_key := ""
 var current_world_scene: Node
 var pending_transfer := {}
 var denied_transfer := ""
+var requested_transfer_target := ""
 var smoke_test := false
 var chat_connected := false
 var chat: Node
@@ -197,21 +198,31 @@ func _has_world_route(world_key: String) -> bool:
 func _transfer_via_portal(target_world: String) -> bool:
 	pending_transfer = {}
 	denied_transfer = ""
+	requested_transfer_target = ""
 	if current_world_scene and current_world_scene.has_method("activate_portal_to"):
 		current_world_scene.activate_portal_to(target_world)
 	else:
 		return false
+	if requested_transfer_target != target_world:
+		return false
 
 	var ok := await _wait_until(
-		func() -> bool: return not pending_transfer.is_empty() or denied_transfer == target_world,
+		func() -> bool:
+			return (
+				str(pending_transfer.get("target_world", "")) == target_world
+				or denied_transfer == target_world
+			),
 		5.0,
 		"transfer approval to %s" % target_world
 	)
 	if not ok or denied_transfer == target_world:
+		requested_transfer_target = ""
 		return false
 
 	var approved_world := str(pending_transfer["target_world"])
-	return await _connect_world(approved_world)
+	var connected := await _connect_world(approved_world)
+	requested_transfer_target = ""
+	return connected
 
 
 func _run_manual_portal_test() -> void:
@@ -313,12 +324,20 @@ func _on_portal_requested(target_world: String) -> void:
 	if not NET_CONFIG.is_valid_world_key(target_world):
 		print("[CLIENT] portal target %s is invalid; ignoring" % target_world)
 		return
+	if not requested_transfer_target.is_empty():
+		print("[CLIENT] transfer already pending to %s; ignoring %s" % [requested_transfer_target, target_world])
+		return
 
+	requested_transfer_target = target_world
 	print("[CLIENT] requesting transfer from %s to %s" % [active_world_key, target_world])
 	master_endpoint.request_transfer.rpc_id(1, target_world)
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
+	if requested_transfer_target != target_world:
+		print("[CLIENT] ignoring stale transfer approval to %s" % target_world)
+		return
+
 	if not routes.has("worlds"):
 		routes["worlds"] = {}
 	var worlds: Dictionary = routes["worlds"]
@@ -330,7 +349,12 @@ func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
 
 
 func _on_transfer_denied(target_world: String) -> void:
+	if requested_transfer_target != target_world:
+		print("[CLIENT] ignoring stale transfer denial to %s" % target_world)
+		return
+
 	denied_transfer = target_world
+	requested_transfer_target = ""
 
 
 func _complete_manual_transfer(target_world: String) -> void:
@@ -343,6 +367,7 @@ func _complete_manual_transfer(target_world: String) -> void:
 		print("[CLIENT] manual transfer complete: %s" % active_world_key)
 	else:
 		push_error("[CLIENT] manual transfer failed to %s" % target_world)
+	requested_transfer_target = ""
 
 
 func _set_status(text: String) -> void:

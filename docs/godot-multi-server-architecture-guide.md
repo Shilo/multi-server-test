@@ -221,7 +221,9 @@ World orchestration behavior:
 4. Exported launches use the sibling `world_server` executable plus `--`, world key, and launch token.
 5. Master records the PID, launch token, state, player count, and idle timestamp.
 6. When a registered world reports `0` players for the idle window, currently `5` seconds, master requests shutdown.
-7. If the world does not exit after the stop grace window, master kills the recorded PID.
+7. Repeated route or transfer requests do not extend an empty world's idle lifetime.
+8. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
+9. If the world does not exit after the stop grace window, master kills the recorded PID.
 
 World registration behavior:
 
@@ -231,6 +233,7 @@ World registration behavior:
 4. Master computes and stores the live endpoint by world key.
 5. Master prints `MASTER_WORLD_REGISTERED key=<world_key>`.
 6. Master acknowledges the world.
+7. The world treats itself as registered only after that acknowledgement. If registration is rejected or not acknowledged, the world exits.
 
 Transfer approval behavior:
 
@@ -302,6 +305,7 @@ World servers still own:
 - Player-count heartbeats.
 - Shutdown on master request.
 - Self-exit if an orchestrated world loses master for the cleanup window.
+- Self-exit if master never acknowledges registration.
 
 They do not own transfer approval. That belongs to master.
 
@@ -448,4 +452,4 @@ The export presets are:
 - No server-side movement validation.
 - No world population balancing.
 
-Current guardrails are still deliberately small: master-owned child launch, per-launch world registration tokens, heartbeat expiry, player-count idle shutdown, target-world startup checks for transfer approval, and chat length/rate caps. Before public testing, add authenticated sessions, server-side portal/travel authority, remote host configuration, persistence, and systemd/service hardening around the master.
+Current guardrails are still deliberately small: master-owned child launch, per-launch world registration tokens, ACK-gated registration, start-timeout reaping, heartbeat expiry, player-count idle shutdown, target-world startup checks for transfer approval, and chat length/rate caps. The launch token is still passed as a process argument, which is fine for local validation but should be replaced before shared-host deployment. Before public testing, add authenticated sessions, server-side portal/travel authority, remote host configuration, persistence, and systemd/service hardening around the master.

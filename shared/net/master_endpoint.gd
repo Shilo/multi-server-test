@@ -36,6 +36,8 @@ func unregister_peer(peer_id: int) -> void:
 
 	var world_key := str(peer_worlds[peer_id])
 	unregister_world_by_key(world_key, "peer_disconnected")
+	if world_process_manager and not world_process_manager.is_world_stopping(world_key):
+		world_process_manager.request_world_stop(world_key, "master_peer_disconnected")
 
 
 func unregister_world_by_key(world_key: String, reason: String) -> void:
@@ -119,7 +121,9 @@ func shutdown_registered_world(world_key: String, reason: String) -> void:
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
 			shutdown_world.rpc_id(int(peer_id), reason)
-			return
+			break
+
+	unregister_world_by_key(world_key, reason)
 
 
 @rpc("any_peer", "call_remote", "unreliable")
@@ -195,7 +199,13 @@ func _approve_transfer_when_available(sender_id: int, target_world: String) -> v
 
 
 func _ensure_world_available(world_key: String) -> bool:
+	if world_process_manager and world_process_manager.is_world_stopping(world_key):
+		return false
+
 	if registered_worlds.has(world_key):
+		if world_process_manager and not world_process_manager.is_world_available(world_key):
+			unregister_world_by_key(world_key, "route_unavailable")
+			return false
 		if world_process_manager:
 			world_process_manager.ensure_world_started(world_key)
 		return true
@@ -206,7 +216,7 @@ func _ensure_world_available(world_key: String) -> bool:
 	var elapsed := 0.0
 	var timeout_seconds := float(world_process_manager.world_start_timeout_seconds())
 	while elapsed < timeout_seconds:
-		if registered_worlds.has(world_key):
+		if registered_worlds.has(world_key) and world_process_manager.is_world_available(world_key):
 			return true
 		await get_tree().create_timer(0.05).timeout
 		elapsed += 0.05
@@ -224,5 +234,6 @@ func _expire_stale_worlds() -> void:
 			continue
 		if world_process_manager:
 			world_process_manager.request_world_stop(str(world_key), "heartbeat_timeout")
-		unregister_world_by_key(str(world_key), "heartbeat_timeout")
+		else:
+			unregister_world_by_key(str(world_key), "heartbeat_timeout")
 		print("MASTER_WORLD_EXPIRED key=%s" % world_key)

@@ -2,15 +2,18 @@ extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
+const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
 var heartbeat_timer: Timer
 var reconnect_timer: Timer
 var master_loss_timer: Timer
+var registration_timer: Timer
 var world_key := NET_CONFIG.initial_world()
 var launch_token := ""
 var registered_with_master := false
+var registration_pending := false
 var master_connection_started := false
 var world_scene: Node
 var connected_players := {}
@@ -100,19 +103,22 @@ func _connect_to_master() -> void:
 	master_connection_started = true
 	master_api.connected_to_server.connect(func() -> void:
 		print("[WORLD %s] connected to master registry" % world_key)
-		_stop_master_loss_timer()
 		_register_with_master()
 	)
 	master_api.connection_failed.connect(func() -> void:
 		push_error("[WORLD %s] failed to connect to master registry" % world_key)
 		master_connection_started = false
+		registration_pending = false
+		_stop_registration_timer()
 		_schedule_master_reconnect()
 		_start_master_loss_timer()
 	)
 	master_api.server_disconnected.connect(func() -> void:
 		print("[WORLD %s] master registry disconnected" % world_key)
 		registered_with_master = false
+		registration_pending = false
 		master_connection_started = false
+		_stop_registration_timer()
 		_schedule_master_reconnect()
 		_start_master_loss_timer()
 	)
@@ -129,6 +135,7 @@ func _try_connect_to_master() -> void:
 		push_error("[WORLD %s] create_client failed for master registry err=%s" % [world_key, err])
 		master_connection_started = false
 		_schedule_master_reconnect()
+		_start_master_loss_timer()
 		return
 
 	master_api.multiplayer_peer = peer
@@ -145,19 +152,24 @@ func _wait_for_master_connection(peer: WebSocketMultiplayerPeer) -> void:
 		await get_tree().create_timer(0.05).timeout
 		elapsed += 0.05
 
+	master_connection_started = false
+	registration_pending = false
+	_stop_registration_timer()
+	_schedule_master_reconnect()
+	_start_master_loss_timer()
+
 
 func _register_with_master() -> void:
-	if registered_with_master:
+	if registered_with_master or registration_pending:
 		return
 
-	registered_with_master = true
+	registration_pending = true
 	$MasterNet/MasterEndpoint.register_world.rpc_id(
 		1,
 		world_key,
 		launch_token
 	)
-	_start_heartbeat()
-	_send_heartbeat()
+	_start_registration_timer()
 
 
 func _start_heartbeat() -> void:
@@ -194,6 +206,12 @@ func _schedule_master_reconnect() -> void:
 func _on_world_registered(registered_world_key: String) -> void:
 	if registered_world_key != world_key:
 		return
+	registration_pending = false
+	registered_with_master = true
+	_stop_registration_timer()
+	_stop_master_loss_timer()
+	_start_heartbeat()
+	_send_heartbeat()
 	print("WORLD_REGISTERED key=%s" % world_key)
 
 
@@ -227,6 +245,31 @@ func _stop_master_loss_timer() -> void:
 	master_loss_timer.stop()
 	master_loss_timer.queue_free()
 	master_loss_timer = null
+
+
+func _start_registration_timer() -> void:
+	if registration_timer:
+		return
+
+	registration_timer = Timer.new()
+	registration_timer.name = "MasterRegistrationTimeoutTimer"
+	registration_timer.one_shot = true
+	registration_timer.wait_time = MASTER_REGISTRATION_TIMEOUT_SECONDS
+	registration_timer.timeout.connect(func() -> void:
+		print("WORLD_STOPPING key=%s reason=registration_timeout" % world_key)
+		get_tree().quit(21)
+	)
+	add_child(registration_timer)
+	registration_timer.start()
+
+
+func _stop_registration_timer() -> void:
+	if not registration_timer:
+		return
+
+	registration_timer.stop()
+	registration_timer.queue_free()
+	registration_timer = null
 
 
 func _on_world_shutdown_requested(reason: String) -> void:
