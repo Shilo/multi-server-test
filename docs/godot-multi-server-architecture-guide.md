@@ -6,7 +6,7 @@ This document explains the current Godot setup after the three-role refactor. Th
 - `master_server`: control-plane server plus chat host.
 - `world_server`: gameplay server process, one instance per world key.
 - world registration uses a shared secret.
-- routes use configurable bind/public host helpers.
+- host and ports are fixed in `shared/net/net_config.gd`.
 
 There is no gateway process, standalone chat process, auth server, database, persistence layer, or orchestration layer in this refactor.
 
@@ -392,18 +392,9 @@ The export presets are:
 - `Windows Master Server`: `master_server` feature tag.
 - `Windows World Server`: `world_server` feature tag.
 
-## Deployment Knobs
+## Network Constants
 
-`shared/net/net_config.gd` defaults to local loopback, but supports environment overrides:
-
-- `VIRTUCADE_BIND_HOST`
-- `VIRTUCADE_PUBLIC_HOST`
-- `VIRTUCADE_MASTER_PUBLIC_HOST`
-- `VIRTUCADE_WORLD_PUBLIC_HOST`
-- `VIRTUCADE_<WORLD_KEY>_PUBLIC_URL`
-- `VIRTUCADE_WORLD_REGISTRATION_SECRET`
-
-The default registration secret exists only to keep local smoke friction low. Set `VIRTUCADE_WORLD_REGISTRATION_SECRET` before any public test.
+`shared/net/net_config.gd` owns the host, ports, world scene paths, travel graph, and local world-registration secret. The current MVP uses `127.0.0.1` for local testing.
 
 ## Known Limits
 
@@ -416,4 +407,4 @@ The default registration secret exists only to keep local smoke friction low. Se
 - No server-side movement validation.
 - No world population balancing.
 
-Current guardrails are still deliberately small: configurable advertised hosts, shared-secret world registration, heartbeat expiry, master-tracked client world state for transfer checks, and chat length/rate caps. Before public testing, add authenticated sessions and target-world transfer ticket validation.
+Current guardrails are still deliberately small: shared-secret world registration, heartbeat expiry, master-tracked client world state for transfer checks, and chat length/rate caps. Before public testing, add authenticated sessions, target-world transfer ticket validation, and remote host configuration.

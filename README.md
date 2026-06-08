@@ -6,7 +6,7 @@ This is a one-project Godot 4.6 spike proving a small online-world topology with
 - One master server role.
 - One world server role, started once per world key.
 - Chat hosted by the master server on the same `MasterNet` socket.
-- Configurable bind/public hosts through environment variables.
+- Fixed local host and ports in `shared/net/net_config.gd`.
 - Shared-secret world registration for local/small-deploy guardrails.
 - Native Godot high-level multiplayer over `WebSocketMultiplayerPeer`.
 - Separate client multiplayer contexts for master/control/chat and the active world.
@@ -191,18 +191,9 @@ The export script uses three Windows Desktop presets:
 
 Smoke/CI launches scenes directly when testing from the editor binary. Exported smoke runs the role-tagged artifacts directly.
 
-## Environment Overrides
+## Network Constants
 
-Local defaults bind and advertise `127.0.0.1`. For a small remote deployment, set:
-
-- `VIRTUCADE_BIND_HOST`: default bind host for servers.
-- `VIRTUCADE_PUBLIC_HOST`: default advertised host sent to clients.
-- `VIRTUCADE_MASTER_PUBLIC_HOST`: advertised master host.
-- `VIRTUCADE_WORLD_PUBLIC_HOST`: advertised world host.
-- `VIRTUCADE_<WORLD_KEY>_PUBLIC_URL`: full advertised URL for one world, such as `VIRTUCADE_HUB_PUBLIC_URL`.
-- `VIRTUCADE_WORLD_REGISTRATION_SECRET`: shared secret required for world registration.
-
-The built-in registration secret is only for local development. Set `VIRTUCADE_WORLD_REGISTRATION_SECRET` before any public test.
+This MVP keeps host, ports, and the local world-registration secret in `shared/net/net_config.gd`. It currently targets local testing on `127.0.0.1`.
 
 ## Current Limits
 
@@ -216,4 +207,4 @@ The built-in registration secret is only for local development. Set `VIRTUCADE_W
 - No production orchestration.
 - No server-side movement validation.
 
-Minimum guardrails already present: configurable advertised hosts, world registration secret, heartbeat expiry, master-tracked client world state for transfer approval, and chat length/rate caps. Missing before public testing: authenticated sessions, transfer tickets validated by target worlds, persistence, and stronger movement validation.
+Minimum guardrails already present: world registration secret, heartbeat expiry, master-tracked client world state for transfer approval, and chat length/rate caps. Missing before public testing: authenticated sessions, transfer tickets validated by target worlds, persistence, remote host configuration, and stronger movement validation.
