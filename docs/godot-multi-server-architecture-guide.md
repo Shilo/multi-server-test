@@ -33,10 +33,10 @@ Editor-binary smoke tests and CI launch scenes directly with Godot's built-in `-
 ```mermaid
 flowchart LR
     Client["Client process"]
-    Master["Master server<br/>MasterNet 19080<br/>ChatNet 19081"]
-    Hub["hub world<br/>WorldNet 19082"]
-    Left["left_world<br/>WorldNet 19083"]
-    Right["right_world<br/>WorldNet 19084"]
+    Master["Master server<br/>MasterNet 19080"]
+    Hub["hub world<br/>WorldNet 19081"]
+    Left["left_world<br/>WorldNet 19082"]
+    Right["right_world<br/>WorldNet 19083"]
 
     Hub -- "register + heartbeat" --> Master
     Left -- "register + heartbeat" --> Master
@@ -55,7 +55,6 @@ The key Godot technique is separate sibling multiplayer branches. The client has
 ClientRoot
   MasterNet
     MasterEndpoint
-  ChatNet
     ChatEndpoint
   WorldNet
     WorldEndpoint
@@ -64,13 +63,12 @@ ClientRoot
     StatusLabel
 ```
 
-The master server mirrors two of those branches:
+The master server mirrors the master branch:
 
 ```text
 MasterServer
   MasterNet
     MasterEndpoint
-  ChatNet
     ChatEndpoint
 ```
 
@@ -85,7 +83,7 @@ WorldServer
     MasterEndpoint
 ```
 
-`ChatNet` remains a separate multiplayer branch, but it is hosted inside the master process.
+Chat is logically separate code, but it shares the master socket. The active gameplay world still uses its own socket.
 
 ## Directory Map
 
@@ -136,10 +134,9 @@ Current ports:
 
 ```text
 master:      19080
-chat:        19081
-hub:         19082
-left_world:  19083
-right_world: 19084
+hub:         19081
+left_world: 19082
+right_world: 19083
 ```
 
 Current world keys:
@@ -186,15 +183,14 @@ The master process owns:
 - World registry.
 - Route snapshots.
 - Transfer approval.
-- Chat server branch.
+- Chat.
 
 Startup behavior:
 
 1. Creates a `MultiplayerAPI` for `MasterNet`.
 2. Starts a `WebSocketMultiplayerPeer` server on `127.0.0.1:19080`.
-3. Creates a second `MultiplayerAPI` for `ChatNet`.
-4. Starts a `WebSocketMultiplayerPeer` server on `127.0.0.1:19081`.
-5. Prints `MASTER_READY` and `CHAT_READY`.
+3. Hosts `MasterEndpoint` and `ChatEndpoint` under the same branch.
+4. Prints `MASTER_READY`.
 
 World registration behavior:
 
@@ -217,25 +213,38 @@ Transfer approval behavior:
 
 ## Chat Responsibilities
 
-Chat is still logically separate from gameplay and route control, but it is no longer a standalone process.
+Chat is still logically separate from gameplay and route control, but it is no longer a standalone process or socket.
 
-The chat branch lives at:
+The chat endpoint lives at:
 
 ```text
-MasterServer/ChatNet/ChatEndpoint
-ClientRoot/ChatNet/ChatEndpoint
+MasterServer/MasterNet/ChatEndpoint
+ClientRoot/MasterNet/ChatEndpoint
 ```
 
 Chat flow:
 
-1. Client receives the chat endpoint from master routes.
-2. Client connects `ChatNet`.
-3. User presses Enter in the chat panel.
-4. Client calls `send_chat.rpc_id(1, message)`.
-5. Master reads the sender peer id.
+1. Client connects `MasterNet`.
+2. User presses Enter in the chat panel.
+3. Client calls `send_chat.rpc_id(1, message)`.
+4. Master reads the sender peer id.
+5. Master applies length and rate caps.
 6. Master broadcasts `receive_chat(sender_id, message)`.
 
-World travel replaces only the `WorldNet` peer. `ChatNet` stays connected through transfers.
+World travel replaces only the `WorldNet` peer. `MasterNet` stays connected through transfers, so chat remains available.
+
+### Why Chat Shares MasterNet
+
+A separate chat WebSocket can reduce head-of-line blocking between chat and master control messages, because each WebSocket is its own reliable TCP stream. That protection is only useful if chat can become large or bursty enough to delay route and transfer messages.
+
+For this project, gameplay traffic is already isolated on the active world socket. Master traffic is slow and durable, and chat now has message-size and rate caps. A second chat socket adds another port, another client connection, another `MultiplayerAPI`, another export/deploy surface, and more local smoke complexity while protecting only low-frequency control messages.
+
+The current recommendation is therefore:
+
+- Keep gameplay on its own world socket.
+- Keep route, transfer, registry, heartbeat, and chat on one master socket.
+- Reconsider a separate chat socket only after measured chat volume causes transfer or route latency.
+- Do not move transfer/routing to HTTP yet; that would add a second protocol layer without solving a measured problem.
 
 ## World Responsibilities
 
@@ -316,14 +325,14 @@ Portal flow:
 1. Local authority player enters a portal.
 2. `portal_area.gd` emits `portal_entered(target_world)`.
 3. `world.gd` emits `portal_requested(target_world)`.
-4. `client.gd` sends a transfer request to master with current and target world keys.
+4. `client.gd` sends a transfer request to master with the target world key.
 5. Master validates the target against `NetConfig.allowed_targets(current_world)` and the live registry.
 6. On approval, client disconnects the old world peer.
 7. Client unloads the old world scene.
 8. Client loads the target world scene.
 9. Client connects `WorldNet` to the target world endpoint.
 10. Client requests world state.
-11. Chat remains connected.
+11. Master/chat remains connected.
 
 Only local authority player bodies can activate portals, so remote synchronized bodies should not trigger travel for another client.
 
@@ -351,7 +360,6 @@ Expected markers:
 
 ```text
 MASTER_READY
-CHAT_READY
 WORLD_READY key=hub
 WORLD_REGISTERED key=hub
 WORLD_READY key=left_world
@@ -391,7 +399,6 @@ The export presets are:
 - `VIRTUCADE_BIND_HOST`
 - `VIRTUCADE_PUBLIC_HOST`
 - `VIRTUCADE_MASTER_PUBLIC_HOST`
-- `VIRTUCADE_CHAT_PUBLIC_HOST`
 - `VIRTUCADE_WORLD_PUBLIC_HOST`
 - `VIRTUCADE_<WORLD_KEY>_PUBLIC_URL`
 - `VIRTUCADE_WORLD_REGISTRATION_SECRET`

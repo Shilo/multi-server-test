@@ -6,7 +6,6 @@ const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 
 var master_api: MultiplayerAPI
-var chat_api: MultiplayerAPI
 var world_api: MultiplayerAPI
 
 var routes := {}
@@ -20,7 +19,7 @@ var chat_connected := false
 var chat: Node
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
-@onready var chat_endpoint: Node = $ChatNet/ChatEndpoint
+@onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
 @onready var world_endpoint: Node = $WorldNet/WorldEndpoint
 @onready var world_view: Node2D = $WorldNet/WorldSceneRoot
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
@@ -55,19 +54,14 @@ func _ready() -> void:
 
 func _setup_multiplayer_branches() -> void:
 	master_api = MultiplayerAPI.create_default_interface()
-	chat_api = MultiplayerAPI.create_default_interface()
 	world_api = MultiplayerAPI.create_default_interface()
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
-	get_tree().set_multiplayer(chat_api, get_node("ChatNet").get_path())
 	get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
 	master_api.server_disconnected.connect(func() -> void:
 		print("[CLIENT] master server disconnected")
-	)
-	chat_api.server_disconnected.connect(func() -> void:
-		print("[CLIENT] chat server disconnected")
 		chat_connected = false
 		_set_chat_connected(false)
-		_add_chat_system_line("chat disconnected")
+		_add_chat_system_line("master disconnected")
 	)
 	world_api.server_disconnected.connect(func() -> void:
 		print("[CLIENT] world server disconnected")
@@ -126,14 +120,11 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 	print("SMOKE_STEP client connected to master" if require_all_worlds else "[CLIENT] connected to master")
 	print("[CLIENT] registered worlds=%s" % str(_available_world_keys()))
 
-	ok = await _connect_api(chat_api, routes["chat"]["url"], "chat", 5.0 if require_all_worlds else 1.0, require_all_worlds)
-	chat_connected = ok
-	_set_chat_connected(ok)
-	_add_chat_system_line("chat connected" if ok else "chat unavailable")
+	chat_connected = true
+	_set_chat_connected(true)
+	_add_chat_system_line("chat connected")
 	if require_all_worlds:
-		if not ok:
-			return false
-		print("SMOKE_STEP client connected to chat")
+		print("SMOKE_STEP client chat ready")
 		ok = await _send_chat_ping("initial")
 		if not ok:
 			return false

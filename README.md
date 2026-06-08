@@ -5,12 +5,12 @@ This is a one-project Godot 4.6 spike proving a small online-world topology with
 - One client role.
 - One master server role.
 - One world server role, started once per world key.
-- Chat hosted by the master server on a separate `ChatNet` branch.
+- Chat hosted by the master server on the same `MasterNet` socket.
 - Configurable bind/public hosts through environment variables.
 - Shared-secret world registration for local/small-deploy guardrails.
 - Native Godot high-level multiplayer over `WebSocketMultiplayerPeer`.
-- Separate client multiplayer contexts for master, chat, and the active world.
-- A persistent chat connection while the active world connection is replaced.
+- Separate client multiplayer contexts for master/control/chat and the active world.
+- A persistent master/chat connection while the active world connection is replaced.
 - Server-authority player spawn/despawn with client-authority movement.
 - Three visibly distinct worlds:
   - `hub`
@@ -30,7 +30,7 @@ For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godo
 
 - `shared/main/`: feature-tag bootstrap scene.
 - `client/`: playable client root and UI.
-- `master_server/`: master server scene and script. Hosts `MasterNet` and `ChatNet`.
+- `master_server/`: master server scene and script. Hosts `MasterNet`.
 - `world_server/`: world server scene and script.
 - `shared/net/`: endpoint scripts and keyed network config.
 - `shared/world/`: world scenes and portal logic.
@@ -124,7 +124,7 @@ Recommended setup for two visible clients plus the full server topology:
 - Extra instance 4: headless world using the `world_server` feature tag and `-- left_world`.
 - Extra instance 5: headless world using the `world_server` feature tag and `-- right_world`.
 
-Stop the previous run before starting another one so old processes do not keep ports `19080` through `19084` bound.
+Stop the previous run before starting another one so old processes do not keep ports `19080` through `19083` bound.
 
 ## Automated Smoke Test
 
@@ -149,7 +149,6 @@ powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UseExported
 Successful logs include:
 
 - `MASTER_READY`
-- `CHAT_READY`
 - `WORLD_READY key=hub`
 - `WORLD_REGISTERED key=hub`
 - `WORLD_READY key=left_world`
@@ -199,7 +198,6 @@ Local defaults bind and advertise `127.0.0.1`. For a small remote deployment, se
 - `VIRTUCADE_BIND_HOST`: default bind host for servers.
 - `VIRTUCADE_PUBLIC_HOST`: default advertised host sent to clients.
 - `VIRTUCADE_MASTER_PUBLIC_HOST`: advertised master host.
-- `VIRTUCADE_CHAT_PUBLIC_HOST`: advertised chat host.
 - `VIRTUCADE_WORLD_PUBLIC_HOST`: advertised world host.
 - `VIRTUCADE_<WORLD_KEY>_PUBLIC_URL`: full advertised URL for one world, such as `VIRTUCADE_HUB_PUBLIC_URL`.
 - `VIRTUCADE_WORLD_REGISTRATION_SECRET`: shared secret required for world registration.

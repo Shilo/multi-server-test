@@ -1,25 +1,24 @@
 const DEFAULT_BIND_HOST := "127.0.0.1"
 const DEFAULT_PUBLIC_HOST := "127.0.0.1"
 const MASTER_PORT := 19080
-const CHAT_PORT := 19081
 const DEFAULT_WORLD_KEY := "hub"
 const DEFAULT_WORLD_REGISTRATION_SECRET := "local_dev_world_secret"
 const WORLD_CONFIGS := {
 	"hub": {
 		"name": "Hub",
-		"port": 19082,
+		"port": 19081,
 		"scene": "res://shared/world/hub.tscn",
 		"allowed_targets": ["left_world", "right_world"],
 	},
 	"left_world": {
 		"name": "Left World",
-		"port": 19083,
+		"port": 19082,
 		"scene": "res://shared/world/left_world.tscn",
 		"allowed_targets": ["hub"],
 	},
 	"right_world": {
 		"name": "Right World",
-		"port": 19084,
+		"port": 19083,
 		"scene": "res://shared/world/right_world.tscn",
 		"allowed_targets": ["hub"],
 	},
@@ -44,14 +43,6 @@ static func master_url() -> String:
 
 static func master_bind_host() -> String:
 	return _env("VIRTUCADE_MASTER_BIND_HOST", bind_host())
-
-
-static func chat_url() -> String:
-	return "ws://%s:%d" % [_env("VIRTUCADE_CHAT_PUBLIC_HOST", public_host()), CHAT_PORT]
-
-
-static func chat_bind_host() -> String:
-	return _env("VIRTUCADE_CHAT_BIND_HOST", bind_host())
 
 
 static func world_keys() -> Array[String]:
@@ -111,10 +102,6 @@ static func world_endpoint(world_key: String) -> Dictionary:
 
 static func routes() -> Dictionary:
 	return {
-		"chat": {
-			"url": chat_url(),
-			"port": CHAT_PORT,
-		},
 		"worlds": {},
 		"initial_world": initial_world(),
 	}

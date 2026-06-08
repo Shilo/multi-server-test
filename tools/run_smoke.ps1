@@ -77,7 +77,6 @@ $clients = @()
 try {
     $servers += Start-Scene "master" "res://master_server/master_server.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
-    Wait-LogMarker "master" "CHAT_READY"
 
     $servers += Start-Scene "hub" "res://world_server/world_server.tscn" @("hub") -Headless
     Wait-LogMarker "hub" "WORLD_READY key=hub"
@@ -125,7 +124,6 @@ try {
 
     $requiredMarkers = @(
         "MASTER_READY",
-        "CHAT_READY",
         "WORLD_READY key=hub",
         "WORLD_REGISTERED key=hub",
         "WORLD_READY key=left_world",

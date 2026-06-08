@@ -6,7 +6,7 @@ This document records the current validation state after the three-role refactor
 
 ## Question
 
-Can real Godot clients connect to a master server, master-hosted chat branch, and multiple Godot headless world servers, then transfer between world servers while chat remains connected?
+Can real Godot clients connect to a master server, master-hosted chat endpoint, and multiple Godot headless world servers, then transfer between world servers while chat remains connected?
 
 Answer: yes, in the current small-scale spike shape.
 
@@ -38,7 +38,6 @@ The automated editor-binary smoke test passed with:
 
 ```text
 MASTER_READY
-CHAT_READY
 WORLD_READY key=hub
 WORLD_REGISTERED key=hub
 WORLD_READY key=left_world
