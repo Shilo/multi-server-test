@@ -17,6 +17,8 @@ var denied_transfer := ""
 var requested_transfer_target := ""
 var join_keepalive_world := ""
 var join_keepalive_active := false
+var connecting_world_key := ""
+var rejected_world_join := ""
 var smoke_test := false
 var chat_connected := false
 var chat: Node
@@ -44,8 +46,14 @@ func _ready() -> void:
 			chat.add_chat_line(sender_id, message)
 	)
 	world_endpoint.world_state_received.connect(func(world_key: String) -> void:
+		if not connecting_world_key.is_empty() and world_key != connecting_world_key:
+			print("[CLIENT] ignoring unexpected world state %s while connecting to %s" % [world_key, connecting_world_key])
+			return
 		active_world_key = world_key
 		_set_status("In %s; chat echoes=%d" % [active_world_key, chat_echoes.size()])
+	)
+	world_endpoint.world_join_rejected.connect(func(world_key: String, _reason: String) -> void:
+		rejected_world_join = world_key
 	)
 
 	if smoke_test:
@@ -181,16 +189,25 @@ func _connect_world(world_key: String) -> bool:
 	_start_join_keepalive(world_key)
 	world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
 	active_world_key = ""
+	connecting_world_key = world_key
+	rejected_world_join = ""
 	_load_world_scene(world_key)
 	var endpoint: Dictionary = routes["worlds"][world_key]
 	var ok := await _connect_api(world_api, endpoint["url"], "world-%s" % world_key)
 	if not ok:
+		connecting_world_key = ""
 		_stop_join_keepalive(world_key, false)
 		return false
-	world_endpoint.request_world_state.rpc_id(1)
-	ok = await _wait_until(func() -> bool: return active_world_key == world_key, 5.0, "world %s state" % world_key)
+	world_endpoint.request_world_state.rpc_id(1, str(endpoint.get("join_ticket", "")))
+	ok = await _wait_until(
+		func() -> bool:
+			return active_world_key == world_key or rejected_world_join == world_key,
+		5.0,
+		"world %s state" % world_key
+	)
+	connecting_world_key = ""
 	_stop_join_keepalive(world_key, ok)
-	return ok
+	return ok and rejected_world_join != world_key
 
 
 func _has_world_route(world_key: String) -> bool:
@@ -210,6 +227,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 	else:
 		return false
 	if requested_transfer_target != target_world:
+		requested_transfer_target = ""
 		return false
 
 	var ok := await _wait_until(

@@ -220,11 +220,12 @@ World orchestration behavior:
 5. Child worlds inherit the master's display mode: visible masters spawn visible worlds, and headless masters spawn headless worlds.
 6. Master records the PID, launch token, state, player count, idle timestamp, and pending join reservations.
 7. When master sends a route or transfer approval, it records a pending-join reservation for that peer and world.
-8. While the client is connecting to the approved world, it refreshes that reservation over `MasterNet`.
-9. A world is eligible for idle shutdown only when it has `0` connected gameplay peers and `0` pending join reservations.
-10. Pending join reservations are released when the client completes or cancels the join, and expire automatically if the client stops refreshing.
-11. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
-12. If the world does not exit after the stop grace window, master kills the recorded PID.
+8. Master issues a short-lived one-use join ticket and sends it to both the client and the target world.
+9. While the client is connecting to the approved world, it refreshes that reservation over `MasterNet`.
+10. A world is eligible for idle shutdown only when it has `0` connected gameplay peers and `0` pending join reservations.
+11. Pending join reservations are released when the client completes or cancels the join, and expire automatically if the client stops refreshing.
+12. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
+13. If the world does not exit after the stop grace window, master kills the recorded PID.
 
 World registration behavior:
 
@@ -244,10 +245,11 @@ Transfer approval behavior:
 4. Master starts the target world if it is not already running.
 5. Master waits briefly for registration.
 6. Master reserves a pending join for the requesting peer.
-7. Master sends either approval with endpoint data or a denial.
-8. Client swaps only `WorldNet` after approval.
+7. Master sends a one-use join ticket to the target world and includes it in the approved endpoint data.
+8. Master sends either approval with endpoint data or a denial.
+9. Client swaps only `WorldNet` after approval and presents the join ticket before requesting world state.
 
-The pending join reservation is the race guard between transfer approval and idle shutdown. It prevents an empty world from shutting down while the approved client is still opening its world connection. The client refreshes the reservation over the persistent master connection while it connects to the target world, then releases it after receiving world state or after a failed join. If the client disappears, master releases that peer's reservations on disconnect; if the client stalls without refreshing, the reservation expires and the normal empty-world idle timer starts again. If a world is already in the `stopping` state, master does not approve a transfer into it.
+The pending join reservation is the race guard between transfer approval and idle shutdown. It prevents an empty world from shutting down while the approved client is still opening its world connection. The client refreshes the reservation over the persistent master connection while it connects to the target world, then releases it after receiving world state or after a failed join. If the client disappears, master releases that peer's reservations on disconnect; if the client stalls without refreshing, the reservation expires and the normal empty-world idle timer starts again. If a target world is already in the `stopping` state, master waits briefly for it to finish stopping and then starts a replacement before approving the transfer.
 
 ## Chat Responsibilities
 
@@ -462,10 +464,10 @@ References:
 - No login.
 - No database.
 - No persistence.
-- No transfer tickets.
+- No authenticated transfer/session tickets.
 - No external supervisor/systemd unit yet.
 - No reconnect UX.
 - No server-side movement validation.
 - No world population balancing.
 
-Current guardrails are still deliberately small: master-owned child launch, per-launch world registration tokens, ACK-gated registration, start-timeout reaping, heartbeat expiry, player-count plus pending-join idle shutdown, target-world startup checks for transfer approval, and chat length/rate caps. The launch token is still passed as a process argument, which is fine for local validation but should be replaced before shared-host deployment. Before public testing, add authenticated sessions, server-side portal/travel authority, remote host configuration, persistence, and systemd/service hardening around the master.
+Current guardrails are still deliberately small: master-owned child launch, per-launch world registration tokens, ACK-gated registration, short-lived world join tickets, start-timeout reaping, heartbeat expiry, player-count plus pending-join idle shutdown, target-world startup checks for transfer approval, and chat length/rate caps. The launch token is still passed as a process argument, which is fine for local validation but should be replaced before shared-host deployment. Before public testing, add authenticated sessions, server-side portal/travel authority, remote host configuration, persistence, and systemd/service hardening around the master.

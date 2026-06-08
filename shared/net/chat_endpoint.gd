@@ -7,6 +7,15 @@ const RATE_WINDOW_SECONDS := 3.0
 const MAX_MESSAGES_PER_WINDOW := 10
 
 var peer_message_times := {}
+var master_endpoint: Node
+
+
+func configure_master_endpoint(endpoint: Node) -> void:
+	master_endpoint = endpoint
+
+
+func unregister_peer(peer_id: int) -> void:
+	peer_message_times.erase(peer_id)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -24,7 +33,7 @@ func send_chat(message: String) -> void:
 		return
 
 	print("[CHAT] received from peer %s: %s" % [sender_id, sanitized_message])
-	receive_chat.rpc(sender_id, sanitized_message)
+	_broadcast_chat(sender_id, sanitized_message)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -34,6 +43,19 @@ func receive_chat(sender_id: int, message: String) -> void:
 
 	print("[CLIENT] chat from %d: %s" % [sender_id, message])
 	chat_received.emit(sender_id, message)
+
+
+func _broadcast_chat(sender_id: int, message: String) -> void:
+	for peer_id in multiplayer.get_peers():
+		if _is_world_peer(peer_id):
+			continue
+		receive_chat.rpc_id(peer_id, sender_id, message)
+
+
+func _is_world_peer(peer_id: int) -> bool:
+	if not master_endpoint or not master_endpoint.has_method("is_registered_world_peer"):
+		return false
+	return master_endpoint.is_registered_world_peer(peer_id)
 
 
 func _allow_message(sender_id: int) -> bool:

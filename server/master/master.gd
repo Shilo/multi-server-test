@@ -5,12 +5,14 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 var master_api: MultiplayerAPI
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
+@onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
 @onready var world_process_manager: Node = $WorldProcessManager
 
 
 func _ready() -> void:
 	world_process_manager.configure_master_endpoint(master_endpoint)
 	master_endpoint.configure_world_process_manager(world_process_manager)
+	chat_endpoint.configure_master_endpoint(master_endpoint)
 	_start_master_server()
 
 
@@ -28,6 +30,7 @@ func _start_master_server() -> void:
 	master_api.peer_disconnected.connect(func(peer_id: int) -> void:
 		print("[MASTER] peer disconnected: %s" % peer_id)
 		master_endpoint.unregister_peer(peer_id)
+		chat_endpoint.unregister_peer(peer_id)
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()

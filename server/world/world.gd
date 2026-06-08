@@ -3,6 +3,7 @@ extends Node
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
+const JOIN_TICKET_WAIT_SECONDS := 1.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
@@ -17,6 +18,8 @@ var registration_pending := false
 var master_connection_started := false
 var world_scene: Node
 var connected_players := {}
+var pending_players := {}
+var expected_join_tickets := {}
 
 
 func _ready() -> void:
@@ -34,20 +37,23 @@ func _ready() -> void:
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
 	$MasterNet/MasterEndpoint.world_registered.connect(_on_world_registered)
 	$MasterNet/MasterEndpoint.world_shutdown_requested.connect(_on_world_shutdown_requested)
+	$MasterNet/MasterEndpoint.world_join_expected.connect(_on_world_join_expected)
+	$WorldNet/WorldEndpoint.world_join_authorized.connect(_on_world_join_authorized)
 
-	$WorldNet/WorldEndpoint.configure_server(world_key)
+	$WorldNet/WorldEndpoint.configure_server(world_key, _authorize_join)
 	_load_world_scene()
 	world_api.peer_connected.connect(func(peer_id: int) -> void:
-		connected_players[peer_id] = true
+		pending_players[peer_id] = true
 		print("[WORLD %s] peer connected: %s" % [world_key, peer_id])
-		_spawn_player(peer_id)
-		_send_heartbeat()
 	)
 	world_api.peer_disconnected.connect(func(peer_id: int) -> void:
+		var was_connected := connected_players.has(peer_id)
+		pending_players.erase(peer_id)
 		connected_players.erase(peer_id)
 		print("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
 		_remove_player(peer_id)
-		_send_heartbeat()
+		if was_connected:
+			_send_heartbeat()
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
@@ -215,6 +221,55 @@ func _on_world_registered(registered_world_key: String) -> void:
 	_start_heartbeat()
 	_send_heartbeat()
 	print("WORLD_REGISTERED key=%s" % world_key)
+
+
+func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float) -> void:
+	if expected_world_key != world_key or join_ticket.is_empty():
+		return
+
+	expected_join_tickets[join_ticket] = expires_at
+	_expire_join_tickets()
+
+
+func _authorize_join(peer_id: int, join_ticket: String) -> bool:
+	if launch_token.is_empty():
+		return true
+
+	var elapsed := 0.0
+	while elapsed < JOIN_TICKET_WAIT_SECONDS:
+		if _consume_join_ticket(join_ticket):
+			return true
+		await get_tree().create_timer(0.05).timeout
+		elapsed += 0.05
+
+	print("[WORLD %s] rejected peer %s without valid join ticket" % [world_key, peer_id])
+	return false
+
+
+func _consume_join_ticket(join_ticket: String) -> bool:
+	_expire_join_tickets()
+	if join_ticket.is_empty() or not expected_join_tickets.has(join_ticket):
+		return false
+
+	expected_join_tickets.erase(join_ticket)
+	return true
+
+
+func _expire_join_tickets() -> void:
+	var now := Time.get_unix_time_from_system()
+	for join_ticket in expected_join_tickets.keys():
+		if float(expected_join_tickets[join_ticket]) <= now:
+			expected_join_tickets.erase(join_ticket)
+
+
+func _on_world_join_authorized(peer_id: int) -> void:
+	if connected_players.has(peer_id):
+		return
+
+	pending_players.erase(peer_id)
+	connected_players[peer_id] = true
+	_spawn_player(peer_id)
+	_send_heartbeat()
 
 
 func _send_heartbeat() -> void:

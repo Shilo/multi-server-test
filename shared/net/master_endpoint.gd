@@ -5,6 +5,7 @@ signal transfer_approved(target_world: String, endpoint: Dictionary)
 signal transfer_denied(target_world: String)
 signal world_registered(world_key: String)
 signal world_shutdown_requested(reason: String)
+signal world_join_expected(world_key: String, join_ticket: String, expires_at: float)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
@@ -68,6 +69,10 @@ func live_routes() -> Dictionary:
 
 func registered_world_count() -> int:
 	return registered_worlds.size()
+
+
+func is_registered_world_peer(peer_id: int) -> bool:
+	return peer_worlds.has(peer_id)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -144,12 +149,16 @@ func shutdown_registered_world(world_key: String, reason: String) -> void:
 	if not multiplayer.is_server():
 		return
 
+	var found_peer := false
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			shutdown_world.rpc_id(int(peer_id), reason)
+			if _is_peer_open(int(peer_id)):
+				shutdown_world.rpc_id(int(peer_id), reason)
+			found_peer = true
 			break
 
-	unregister_world_by_key(world_key, reason)
+	if found_peer or registered_worlds.has(world_key):
+		unregister_world_by_key(world_key, reason)
 
 
 @rpc("any_peer", "call_remote", "unreliable")
@@ -209,21 +218,32 @@ func shutdown_world(reason: String) -> void:
 	world_shutdown_requested.emit(reason)
 
 
+@rpc("authority", "call_remote", "reliable")
+func expect_world_join(world_key: String, join_ticket: String, expires_at: float) -> void:
+	if multiplayer.is_server():
+		return
+
+	world_join_expected.emit(world_key, join_ticket, expires_at)
+
+
 func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 	var ok := await _ensure_world_available(world_key)
 	if not ok:
 		push_error("[MASTER] failed to make initial world available: %s" % world_key)
-	elif world_process_manager and world_process_manager.has_method("reserve_world_join"):
-		world_process_manager.reserve_world_join(world_key, sender_id)
-	receive_routes.rpc_id(sender_id, live_routes())
+		receive_routes.rpc_id(sender_id, live_routes())
+		return
+
+	var routes := live_routes()
+	var worlds: Dictionary = routes["worlds"]
+	worlds[world_key] = _endpoint_with_join_ticket(sender_id, world_key)
+	routes["worlds"] = worlds
+	receive_routes.rpc_id(sender_id, routes)
 
 
 func _approve_transfer_when_available(sender_id: int, target_world: String) -> void:
 	var ok := await _ensure_world_available(target_world)
 	if ok and registered_worlds.has(target_world):
-		if world_process_manager and world_process_manager.has_method("reserve_world_join"):
-			world_process_manager.reserve_world_join(target_world, sender_id)
-		approve_transfer.rpc_id(sender_id, target_world, registered_worlds[target_world])
+		approve_transfer.rpc_id(sender_id, target_world, _endpoint_with_join_ticket(sender_id, target_world))
 	else:
 		deny_transfer.rpc_id(sender_id, target_world)
 
@@ -237,10 +257,10 @@ func _ensure_world_available(world_key: String) -> bool:
 	if registered_worlds.has(world_key):
 		if world_process_manager and not world_process_manager.is_world_available(world_key):
 			unregister_world_by_key(world_key, "route_unavailable")
-			return false
-		if world_process_manager:
-			world_process_manager.ensure_world_started(world_key)
-		return true
+		else:
+			if world_process_manager:
+				world_process_manager.ensure_world_started(world_key)
+			return true
 
 	if not world_process_manager or not world_process_manager.ensure_world_started(world_key):
 		return false
@@ -272,6 +292,42 @@ func _wait_for_world_stop(world_key: String) -> bool:
 		elapsed += 0.05
 
 	return not world_process_manager.is_world_stopping(world_key)
+
+
+func _endpoint_with_join_ticket(sender_id: int, world_key: String) -> Dictionary:
+	var endpoint: Dictionary = registered_worlds[world_key].duplicate(true)
+	if not world_process_manager or not world_process_manager.has_method("reserve_world_join"):
+		return endpoint
+
+	var reservation: Dictionary = world_process_manager.reserve_world_join(world_key, sender_id)
+	var join_ticket := str(reservation.get("ticket", ""))
+	if join_ticket.is_empty():
+		return endpoint
+
+	var expires_at := float(reservation.get("expires_at", 0.0))
+	endpoint["join_ticket"] = join_ticket
+	endpoint["join_ticket_expires_at"] = expires_at
+	_send_join_ticket_to_world(world_key, join_ticket, expires_at)
+	return endpoint
+
+
+func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float) -> void:
+	for peer_id in peer_worlds.keys():
+		if str(peer_worlds[peer_id]) == world_key:
+			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at)
+			return
+
+
+func _is_peer_open(peer_id: int) -> bool:
+	var peer := multiplayer.multiplayer_peer
+	if not peer or not peer.has_method("get_peer"):
+		return peer_id in multiplayer.get_peers()
+
+	var socket = peer.get_peer(peer_id)
+	if not socket or not socket.has_method("get_ready_state"):
+		return peer_id in multiplayer.get_peers()
+
+	return socket.get_ready_state() == WebSocketPeer.STATE_OPEN
 
 
 func _expire_stale_worlds() -> void:

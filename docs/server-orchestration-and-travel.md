@@ -12,6 +12,7 @@ The current custom Godot branch now uses master-owned child process orchestratio
 - World servers are temporary child processes started by master when a route or transfer needs that world.
 - A world with `0` connected gameplay peers is stopped by master after the idle window.
 - Route and transfer approvals create pending-join reservations that clients refresh over `MasterNet`, so an empty world is not stopped while an approved client is still connecting.
+- Route and transfer approvals also issue short-lived one-use join tickets. Worlds only spawn a master-launched client after that ticket is presented, which prevents raw direct joins to active world ports.
 - Master records the child PID and kills it if graceful shutdown does not complete.
 - World servers still self-exit if they were launched by master and then lose the master connection for the cleanup window.
 - World servers only become registered after master ACKs their launch token. A rejected or unacknowledged registration exits instead of holding a port forever.
@@ -31,7 +32,7 @@ Relevant Godot constraints:
 - `OS.create_instance()` returns a PID and launches another Godot instance independently; it does not create a child that automatically dies with the parent.
 - `OS.kill()` and `OS.is_process_running()` are the practical minimal tools for local child supervision.
 
-For production, the next hardening step is not a separate allocator yet. Run the master under a normal service supervisor such as systemd, keep world allocation in master, and add remote-host configuration plus server-side transfer tickets before public testing.
+For production, the next hardening step is not a separate allocator yet. Run the master under a normal service supervisor such as systemd, keep world allocation in master, and add remote-host configuration plus authenticated server-side transfer/session tickets before public testing.
 
 ## What Was Researched
 

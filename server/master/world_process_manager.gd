@@ -84,20 +84,25 @@ func mark_world_registered(world_key: String) -> void:
 	print("MASTER_WORLD_RUNNING key=%s pid=%d" % [world_key, int(state.get("pid", -1))])
 
 
-func reserve_world_join(world_key: String, peer_id: int) -> void:
+func reserve_world_join(world_key: String, peer_id: int) -> Dictionary:
 	if not worlds.has(world_key):
-		return
+		return {}
 
 	var state: Dictionary = worlds[world_key]
 	if str(state.get("state", "")) == "stopping":
-		return
+		return {}
 
 	var reservations: Dictionary = state.get("join_reservations", {})
-	reservations[str(peer_id)] = Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS
+	var reservation := {
+		"expires_at": Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS,
+		"ticket": _new_join_ticket(),
+	}
+	reservations[str(peer_id)] = reservation
 	state["join_reservations"] = reservations
 	state["idle_since"] = -1.0
 	worlds[world_key] = state
 	print("MASTER_WORLD_JOIN_RESERVED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
+	return reservation
 
 
 func refresh_world_join(world_key: String, peer_id: int) -> bool:
@@ -113,7 +118,9 @@ func refresh_world_join(world_key: String, peer_id: int) -> bool:
 	if not reservations.has(reservation_key):
 		return false
 
-	reservations[reservation_key] = Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS
+	var reservation := _reservation_dict(reservations[reservation_key])
+	reservation["expires_at"] = Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS
+	reservations[reservation_key] = reservation
 	state["join_reservations"] = reservations
 	state["idle_since"] = -1.0
 	worlds[world_key] = state
@@ -150,8 +157,6 @@ func update_world_player_count(world_key: String, player_count: int) -> void:
 	var clamped_count = max(player_count, 0)
 	var previous_count := int(state.get("player_count", -1))
 	state["player_count"] = clamped_count
-	if clamped_count > previous_count:
-		_consume_join_reservations(state, clamped_count - max(previous_count, 0))
 	_refresh_idle_state(world_key, state, Time.get_unix_time_from_system())
 	worlds[world_key] = state
 	if previous_count != clamped_count:
@@ -247,6 +252,10 @@ func _new_launch_token() -> String:
 	return token
 
 
+func _new_join_ticket() -> String:
+	return _new_launch_token()
+
+
 func _poll_world_processes() -> void:
 	var now := Time.get_unix_time_from_system()
 	for world_key in worlds.keys():
@@ -307,7 +316,7 @@ func _refresh_idle_state(world_key: String, state: Dictionary, now: float) -> vo
 func _expire_join_reservations(state: Dictionary, now: float) -> void:
 	var reservations: Dictionary = state.get("join_reservations", {})
 	for key in reservations.keys():
-		if float(reservations[key]) <= now:
+		if _reservation_expires_at(reservations[key]) <= now:
 			reservations.erase(key)
 	state["join_reservations"] = reservations
 
@@ -317,14 +326,16 @@ func _join_reservation_count(state: Dictionary) -> int:
 	return reservations.size()
 
 
-func _consume_join_reservations(state: Dictionary, count: int) -> void:
-	if count <= 0:
-		return
+func _reservation_dict(value: Variant) -> Dictionary:
+	if value is Dictionary:
+		return value
+	return {
+		"expires_at": float(value),
+		"ticket": "",
+	}
 
-	var reservations: Dictionary = state.get("join_reservations", {})
-	for key in reservations.keys():
-		if count <= 0:
-			break
-		reservations.erase(key)
-		count -= 1
-	state["join_reservations"] = reservations
+
+func _reservation_expires_at(value: Variant) -> float:
+	if value is Dictionary:
+		return float(value.get("expires_at", 0.0))
+	return float(value)

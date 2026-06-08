@@ -9,6 +9,12 @@ production MMO structure that can support real players, grow toward dozens of
 world servers and 100-200 concurrent users, and keep the workflow reasonable
 without forcing years of infrastructure work.
 
+Current active direction: the implementation branch intentionally collapses the
+gateway and social responsibilities into the Godot Master Server for now. The
+current runtime shape is `client + master server + on-demand world servers`;
+Gateway and Social remain conceptual future split points, not processes to add
+to the present spike.
+
 ## High-Level Overview
 
 VirtuCade should keep four conceptual server roles:

@@ -16,16 +16,20 @@ func set_connected(connected: bool) -> void:
 
 
 func add_system_line(message: String) -> void:
-	_append_line("[color=gray]%s[/color]" % message)
+	_append_line("[color=gray]%s[/color]" % _escape_bbcode(message))
 
 
 func add_chat_line(sender_id: int, message: String) -> void:
-	_append_line("[b]%d:[/b] %s" % [sender_id, message])
+	_append_line("[b]%d:[/b] %s" % [sender_id, _escape_bbcode(message)])
 
 
 func _append_line(message: String) -> void:
 	output.append_text("%s\n" % message)
 	output.scroll_to_line(output.get_line_count())
+
+
+func _escape_bbcode(message: String) -> String:
+	return message.replace("[", "[lb]")
 
 
 func _on_text_submitted(message: String) -> void:
