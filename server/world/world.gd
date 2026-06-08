@@ -4,6 +4,7 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
+const TRANSFER_REQUEST_TIMEOUT_SECONDS := 5.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
@@ -22,6 +23,7 @@ var pending_players := {}
 var expected_join_tickets := {}
 var authorized_join_metadata := {}
 var peer_master_ids := {}
+var pending_transfers := {}
 
 
 func _ready() -> void:
@@ -55,6 +57,7 @@ func _ready() -> void:
 		connected_players.erase(peer_id)
 		authorized_join_metadata.erase(peer_id)
 		peer_master_ids.erase(peer_id)
+		pending_transfers.erase(peer_id)
 		print("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
 		_remove_player(peer_id)
 		if was_connected:
@@ -292,6 +295,11 @@ func _on_world_join_authorized(peer_id: int) -> void:
 
 
 func _on_portal_use_requested(peer_id: int, target_world: String) -> void:
+	_expire_pending_transfers()
+	if pending_transfers.has(peer_id):
+		print("[WORLD %s] ignoring duplicate portal request peer=%s target=%s" % [world_key, peer_id, target_world])
+		return
+
 	if not connected_players.has(peer_id):
 		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "not_joined")
 		return
@@ -310,8 +318,16 @@ func _on_portal_use_requested(peer_id: int, target_world: String) -> void:
 		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "missing_master_peer")
 		return
 
+	pending_transfers[peer_id] = Time.get_unix_time_from_system() + TRANSFER_REQUEST_TIMEOUT_SECONDS
 	print("[WORLD %s] server-approved portal peer=%s master_peer=%s target=%s" % [world_key, peer_id, master_peer_id, target_world])
 	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world)
+
+
+func _expire_pending_transfers() -> void:
+	var now := Time.get_unix_time_from_system()
+	for peer_id in pending_transfers.keys():
+		if float(pending_transfers[peer_id]) <= now:
+			pending_transfers.erase(peer_id)
 
 
 func _send_heartbeat() -> void:

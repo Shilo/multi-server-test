@@ -10,6 +10,7 @@ var world_api: MultiplayerAPI
 
 var routes := {}
 var chat_echoes: Array[String] = []
+var chat_receipts := {}
 var active_world_key := ""
 var current_world_scene: Node
 var pending_transfer := {}
@@ -42,6 +43,7 @@ func _ready() -> void:
 	master_endpoint.transfer_denied.connect(_on_transfer_denied)
 	chat_endpoint.chat_received.connect(func(sender_id: int, message: String) -> void:
 		chat_echoes.append(message)
+		chat_receipts["%d:%s" % [sender_id, message]] = true
 		if chat and chat.has_method("add_chat_line"):
 			chat.add_chat_line(sender_id, message)
 	)
@@ -282,9 +284,12 @@ func _send_chat_ping(label: String) -> bool:
 		print("[CLIENT] chat ping skipped; chat is not connected")
 		return false
 
-	var message := "chat-ping-%s-world-%s" % [label, active_world_key]
+	var local_peer_id := master_api.get_unique_id()
+	var message := "chat-ping-%s-client-%d-world-%s" % [label, local_peer_id, active_world_key]
+	var receipt_key := "%d:%s" % [local_peer_id, message]
+	chat_receipts.erase(receipt_key)
 	chat_endpoint.send_chat.rpc_id(1, message)
-	return await _wait_until(func() -> bool: return message in chat_echoes, 5.0, "chat echo %s" % message)
+	return await _wait_until(func() -> bool: return chat_receipts.has(receipt_key), 5.0, "chat echo %s" % message)
 
 
 func _on_chat_message_submitted(message: String) -> void:
@@ -391,6 +396,7 @@ func _on_portal_requested(target_world: String) -> void:
 	requested_transfer_target = target_world
 	print("[CLIENT] requesting transfer from %s to %s" % [active_world_key, target_world])
 	world_endpoint.request_portal_use.rpc_id(1, target_world)
+	call_deferred("_clear_stale_transfer_request", target_world)
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
@@ -427,6 +433,16 @@ func _complete_manual_transfer(target_world: String) -> void:
 		print("[CLIENT] manual transfer complete: %s" % active_world_key)
 	else:
 		push_error("[CLIENT] manual transfer failed to %s" % target_world)
+	requested_transfer_target = ""
+
+
+func _clear_stale_transfer_request(target_world: String) -> void:
+	await get_tree().create_timer(5.0).timeout
+	if requested_transfer_target != target_world:
+		return
+
+	print("[CLIENT] transfer request timed out: %s" % target_world)
+	denied_transfer = target_world
 	requested_transfer_target = ""
 
 

@@ -53,6 +53,10 @@ func unregister_world_by_key(world_key: String, reason: String) -> void:
 			peer_to_remove = int(peer_id)
 			break
 
+	var was_registered := registered_worlds.has(world_key) or world_last_seen.has(world_key) or peer_to_remove != 0
+	if not was_registered:
+		return
+
 	if peer_to_remove != 0:
 		peer_worlds.erase(peer_to_remove)
 
@@ -167,12 +171,12 @@ func shutdown_registered_world(world_key: String, reason: String) -> void:
 	var found_peer := false
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			if reason != "idle" and _is_peer_open(int(peer_id)):
+			if _is_peer_open(int(peer_id)):
 				shutdown_world.rpc_id(int(peer_id), reason)
 			found_peer = true
 			break
 
-	if found_peer or registered_worlds.has(world_key):
+	if not found_peer and registered_worlds.has(world_key):
 		unregister_world_by_key(world_key, reason)
 
 
