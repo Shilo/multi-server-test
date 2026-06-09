@@ -5,7 +5,6 @@ const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
 const TRANSFER_REQUEST_TIMEOUT_SECONDS := 5.0
-const WORLD_IDLE_EXIT_SECONDS := 6.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
@@ -25,7 +24,6 @@ var expected_join_tickets := {}
 var authorized_join_metadata := {}
 var peer_master_ids := {}
 var pending_transfers := {}
-var idle_since := -1.0
 
 
 func _ready() -> void:
@@ -134,6 +132,11 @@ func _connect_to_master() -> void:
 	)
 	master_api.server_disconnected.connect(func() -> void:
 		print("[WORLD %s] master registry disconnected" % world_key)
+		if _has_no_player_activity():
+			print("WORLD_STOPPING key=%s reason=idle" % world_key)
+			get_tree().quit(0)
+			return
+
 		registered_with_master = false
 		registration_pending = false
 		master_connection_started = false
@@ -365,23 +368,7 @@ func _send_heartbeat() -> void:
 	if not registered_with_master:
 		return
 
-	_poll_idle_shutdown()
 	$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key, connected_players.size())
-
-
-func _poll_idle_shutdown() -> void:
-	if not _has_no_player_activity():
-		idle_since = -1.0
-		return
-
-	var now := Time.get_unix_time_from_system()
-	if idle_since < 0.0:
-		idle_since = now
-		return
-
-	if now - idle_since >= WORLD_IDLE_EXIT_SECONDS:
-		print("WORLD_STOPPING key=%s reason=idle" % world_key)
-		get_tree().quit(0)
 
 
 func _has_no_player_activity() -> bool:

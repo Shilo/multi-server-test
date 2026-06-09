@@ -1,6 +1,5 @@
 const HOST := "127.0.0.1"
 const MASTER_PORT := 19080
-const FIRST_WORLD_PORT := MASTER_PORT + 1
 const DEFAULT_WORLD_KEY := "hub"
 const WORLD_SCENE_DIR := "res://shared/worlds"
 
@@ -39,7 +38,7 @@ static func world_port(world_key: String) -> int:
 	var world_index := world_keys().find(world_key)
 	if world_index == -1:
 		return -1
-	return FIRST_WORLD_PORT + world_index
+	return MASTER_PORT + 1 + world_index
 
 
 static func world_scene_path(world_key: String) -> String:

@@ -104,7 +104,7 @@ The following scenes and scripts passed `--check-only`:
 - `res://shared/net/chat_endpoint.gd`
 - `res://shared/net/world_endpoint.gd`
 - `res://shared/world/world.gd`
-- `res://shared/world/portal_area.gd`
+- `res://shared/world/portal.gd`
 - `res://shared/player/player.gd`
 
 `git diff --check` also passed.

@@ -79,6 +79,8 @@ func _setup_multiplayer_branches() -> void:
 	master_api.server_disconnected.connect(func() -> void:
 		print("[CLIENT] master server disconnected")
 		chat_connected = false
+		join_keepalive_active = false
+		join_keepalive_world = ""
 		_set_chat_connected(false)
 		_add_chat_system_line("master disconnected")
 	)
@@ -311,7 +313,7 @@ func _run_manual_portal_test() -> void:
 
 
 func _send_chat_ping(label: String) -> bool:
-	if not chat_connected:
+	if not chat_connected or not _is_master_connected():
 		print("[CLIENT] chat ping skipped; chat is not connected")
 		return false
 
@@ -324,7 +326,7 @@ func _send_chat_ping(label: String) -> bool:
 
 
 func _on_chat_message_submitted(message: String) -> void:
-	if not chat_connected:
+	if not chat_connected or not _is_master_connected():
 		_add_chat_system_line("chat unavailable")
 		return
 
@@ -368,7 +370,8 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_secon
 
 func _start_join_keepalive(world_key: String) -> void:
 	join_keepalive_world = world_key
-	master_endpoint.refresh_world_join.rpc_id(1, world_key)
+	if _is_master_connected():
+		master_endpoint.refresh_world_join.rpc_id(1, world_key)
 	if join_keepalive_active:
 		return
 
@@ -382,13 +385,23 @@ func _stop_join_keepalive(world_key: String, _completed: bool) -> void:
 
 	join_keepalive_active = false
 	join_keepalive_world = ""
-	master_endpoint.release_world_join.rpc_id(1, world_key)
+	if _is_master_connected():
+		master_endpoint.release_world_join.rpc_id(1, world_key)
 
 
 func _run_join_keepalive(world_key: String) -> void:
 	while join_keepalive_active and join_keepalive_world == world_key:
+		if not _is_master_connected():
+			join_keepalive_active = false
+			join_keepalive_world = ""
+			return
 		master_endpoint.refresh_world_join.rpc_id(1, world_key)
 		await get_tree().create_timer(2.0).timeout
+
+
+func _is_master_connected() -> bool:
+	var peer := master_api.multiplayer_peer
+	return peer and peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 
 func _wait_until(predicate: Callable, timeout_seconds: float, label: String, report_error := true) -> bool:
@@ -409,8 +422,6 @@ func _load_world_scene(world_key: String) -> void:
 
 	var scene := load(NET_CONFIG.world_scene_path(world_key)) as PackedScene
 	current_world_scene = scene.instantiate()
-	if current_world_scene.has_method("set_available_world_keys"):
-		current_world_scene.set_available_world_keys(_available_world_keys())
 	current_world_scene.portal_requested.connect(_on_portal_requested)
 	world_view.add_child(current_world_scene)
 	_set_status("Loading %s" % world_key)

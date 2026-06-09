@@ -56,7 +56,7 @@ func move_local_player_to_portal(target_world: String) -> bool:
 	var spawn_root := get_node(SPAWN_ROOT_PATH)
 	for child in spawn_root.get_children():
 		if child is CharacterBody2D and child.is_multiplayer_authority():
-			child.position = portal.position
+			child.position = _position_in_spawn_root(portal)
 			return true
 	return false
 
@@ -72,7 +72,7 @@ func player_can_use_portal(peer_id: int, portal_name: String) -> bool:
 		return false
 
 	var player := spawn_root.get_node(player_name) as Node2D
-	return player.position.distance_to(portal.position) <= PORTAL_USE_DISTANCE
+	return player.global_position.distance_to(portal.global_position) <= PORTAL_USE_DISTANCE
 
 
 func portal_by_name(portal_name: String) -> Node2D:
@@ -97,14 +97,14 @@ func spawn_position_from_entry(source_world: String, target_portal: String) -> V
 	if not target_portal.is_empty():
 		var explicit_portal := portal_by_name(target_portal)
 		if explicit_portal:
-			return explicit_portal.position
+			return _position_in_spawn_root(explicit_portal)
 		push_error("World %s has no target portal named %s" % [world_key(), target_portal])
 		return Vector2.INF
 
 	if not source_world.is_empty():
 		var return_portals := _portals_targeting_world(source_world)
 		if return_portals.size() == 1:
-			return return_portals[0].position
+			return _position_in_spawn_root(return_portals[0])
 		if return_portals.size() > 1:
 			push_error("World %s has multiple portals targeting %s; set target_portal explicitly" % [world_key(), source_world])
 			return Vector2.INF
@@ -116,6 +116,11 @@ func world_key() -> String:
 	if not scene_file_path.is_empty():
 		return scene_file_path.get_file().get_basename()
 	return _snake_case(name)
+
+
+func _position_in_spawn_root(node: Node2D) -> Vector2:
+	var spawn_root := get_node(SPAWN_ROOT_PATH) as Node2D
+	return spawn_root.to_local(node.global_position)
 
 
 func _spawn_player_from_data(data: Variant) -> Node:
@@ -180,7 +185,7 @@ func _portals_targeting_world(target_world: String) -> Array[Node2D]:
 func _default_spawn_position() -> Vector2:
 	var spawn := _first_spawn(self)
 	if spawn:
-		return spawn.position
+		return _position_in_spawn_root(spawn)
 	return Vector2.ZERO
 
 

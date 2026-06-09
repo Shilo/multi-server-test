@@ -172,7 +172,9 @@ func shutdown_registered_world(world_key: String, reason: String) -> void:
 	var found_peer := false
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			if reason != "idle" and _is_peer_open(int(peer_id)):
+			if reason == "idle":
+				_disconnect_peer(int(peer_id))
+			elif _is_peer_open(int(peer_id)):
 				shutdown_world.rpc_id(int(peer_id), reason)
 			found_peer = true
 			break
@@ -367,6 +369,12 @@ func _is_peer_open(peer_id: int) -> bool:
 		return peer_id in multiplayer.get_peers()
 
 	return socket.get_ready_state() == WebSocketPeer.STATE_OPEN
+
+
+func _disconnect_peer(peer_id: int) -> void:
+	var peer := multiplayer.multiplayer_peer
+	if peer and peer.has_method("disconnect_peer"):
+		peer.disconnect_peer(peer_id)
 
 
 func _expire_stale_worlds() -> void:

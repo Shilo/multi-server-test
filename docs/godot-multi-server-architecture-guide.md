@@ -112,7 +112,9 @@ shared/
   world/
     world.tscn
     world.gd
-    portal_area.gd
+    portal.tscn
+    portal.gd
+    spawn.gd
   worlds/
     hub/
       hub.tscn
@@ -170,10 +172,18 @@ Derived rules:
 - `hub` is the default world.
 - A playable world must live at `res://shared/worlds/<world_key>/<world_key>.tscn`.
 - World keys are sorted after discovery.
-- World ports start at `19081` and follow the sorted world key order.
+- World ports are derived from `MASTER_PORT + 1 + sorted_world_index`, so with the current `MASTER_PORT` of `19080`, world ports start at `19081`.
 - Display names are derived from the world key.
 - Portal topology lives in the world scenes, not in `NetConfig`.
 - World registration tokens are not in `NetConfig`; the master generates a fresh token for each launched child process.
+
+Port allocation note:
+
+- The current MVP does not use a port pool. Ports are deterministic per discovered world key, not incremented per launch.
+- Starting and stopping the same world repeatedly reuses that world's deterministic port after the OS releases it.
+- This is fine for hundreds of distinct world scenes on one VPS; for example 500 worlds would use `19081` through `19580`.
+- The limitation is one active server process per world key. If VirtuCade later needs multiple simultaneous instances of the same world/experience, replace deterministic keyed ports with a master-owned reusable port pool.
+- A port pool would allocate a free port when a world instance starts, return it when that process stops, and advertise the assigned port through the existing master route response.
 
 Important helpers:
 
@@ -255,14 +265,17 @@ World registration behavior:
 Transfer approval behavior:
 
 1. Client keeps `MasterNet` connected.
-2. A portal emits a target world key.
-3. Client asks master for transfer approval.
-4. Master starts the target world if it is not already running.
-5. Master waits briefly for registration.
-6. Master reserves a pending join for the requesting peer.
-7. Master sends a one-use join ticket to the target world and includes it in the approved endpoint data.
-8. Master sends either approval with endpoint data or a denial.
-9. Client swaps only `WorldNet` after approval and presents the join ticket before requesting world state.
+2. A scene-authored `Portal` emits its portal name and local target label.
+3. Client asks the current world server to use that portal by portal name.
+4. The world server validates the player is near that portal on the server's replicated state.
+5. The world server resolves `target_world` and optional `target_portal` from the scene-authored `Portal`.
+6. The world server asks master for transfer approval.
+7. Master starts the target world if it is not already running.
+8. Master waits briefly for registration.
+9. Master reserves a pending join for the requesting peer.
+10. Master sends a one-use join ticket to the target world and includes it in the approved endpoint data.
+11. Master sends either approval with endpoint data or a denial.
+12. Client swaps only `WorldNet` after approval and presents the join ticket before requesting world state.
 
 The pending join reservation is the race guard between transfer approval and idle shutdown. It prevents an empty world from shutting down while the approved client is still opening its world connection. The client refreshes the reservation over the persistent master connection while it connects to the target world, then releases it after receiving world state or after a failed join. If the client disappears, master releases that peer's reservations on disconnect; if the client stalls without refreshing, the reservation expires and the normal empty-world idle timer starts again. If a target world is already in the `stopping` state, master waits briefly for it to finish stopping and then starts a replacement before approving the transfer.
 
@@ -384,16 +397,17 @@ This keeps the current MVP simple: movement is client-authority, while world ser
 Portal flow:
 
 1. Local authority player enters a portal.
-2. `portal_area.gd` emits `portal_entered(target_world)`.
-3. `world.gd` emits `portal_requested(target_world)`.
-4. `client.gd` sends a transfer request to master with the target world key.
-5. Master starts the target world if needed and waits for registration.
-6. On approval, client disconnects the old world peer.
-7. Client unloads the old world scene.
-8. Client loads the target world scene.
-9. Client connects `WorldNet` to the target world endpoint.
-10. Client requests world state.
-11. Master/chat remains connected.
+2. `portal.gd` emits `portal_used(portal_name, target_world)`.
+3. `world.gd` emits `portal_requested(portal_name, target_world)`.
+4. `client.gd` sends the portal name to the current world server.
+5. The world server validates the portal request and asks master to approve the resolved target world.
+6. Master starts the target world if needed and waits for registration.
+7. On approval, client disconnects the old world peer.
+8. Client unloads the old world scene.
+9. Client loads the target world scene.
+10. Client connects `WorldNet` to the target world endpoint.
+11. Client requests world state.
+12. Master/chat remains connected.
 
 Only local authority player bodies can activate portals, so remote synchronized bodies should not trigger travel for another client.
 
