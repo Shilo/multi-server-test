@@ -16,6 +16,7 @@ var current_world_scene: Node
 var pending_transfer := {}
 var denied_transfer := ""
 var requested_transfer_target := ""
+var requested_transfer_portal := ""
 var join_keepalive_world := ""
 var join_keepalive_active := false
 var connecting_world_key := ""
@@ -57,9 +58,10 @@ func _ready() -> void:
 	world_endpoint.world_join_rejected.connect(func(world_key: String, _reason: String) -> void:
 		rejected_world_join = world_key
 	)
-	world_endpoint.portal_use_denied.connect(func(target_world: String, _reason: String) -> void:
-		if requested_transfer_target == target_world:
-			denied_transfer = target_world
+	world_endpoint.portal_use_denied.connect(func(portal_name: String, _reason: String) -> void:
+		if requested_transfer_portal == portal_name:
+			denied_transfer = requested_transfer_target
+			requested_transfer_portal = ""
 			requested_transfer_target = ""
 	)
 
@@ -120,6 +122,7 @@ func run_smoke_test() -> void:
 			return
 		print("SMOKE_STEP confirmed world %s with chat alive" % active_world_key)
 
+	await get_tree().create_timer(1.0).timeout
 	print("SMOKE_PASS")
 	get_tree().quit(0)
 
@@ -127,6 +130,31 @@ func run_smoke_test() -> void:
 func _smoke_transfer_sequence() -> Array[String]:
 	var sequence: Array[String] = []
 	var initial_world := NET_CONFIG.initial_world()
+	var world_keys := NET_CONFIG.world_keys()
+	if (
+		initial_world == "hub"
+		and "left_world" in world_keys
+		and "right_world" in world_keys
+		and "top_world" in world_keys
+	):
+		sequence = [
+			"left_world",
+			"top_world",
+			"right_world",
+			"hub",
+			"top_world",
+			"hub",
+			"right_world",
+			"left_world",
+			"hub",
+		]
+		for world_key in world_keys:
+			if world_key == initial_world or world_key in sequence:
+				continue
+			sequence.append(world_key)
+			sequence.append(initial_world)
+		return sequence
+
 	for world_key in NET_CONFIG.world_keys():
 		if world_key == initial_world:
 			continue
@@ -229,6 +257,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 	pending_transfer = {}
 	denied_transfer = ""
 	requested_transfer_target = ""
+	requested_transfer_portal = ""
 	if current_world_scene and current_world_scene.has_method("activate_portal_to"):
 		if current_world_scene.has_method("move_local_player_to_portal"):
 			current_world_scene.move_local_player_to_portal(target_world)
@@ -238,6 +267,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 		return false
 	if requested_transfer_target != target_world:
 		requested_transfer_target = ""
+		requested_transfer_portal = ""
 		return false
 
 	var ok := await _wait_until(
@@ -256,6 +286,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 	var approved_world := str(pending_transfer["target_world"])
 	var connected := await _connect_world(approved_world)
 	requested_transfer_target = ""
+	requested_transfer_portal = ""
 	return connected
 
 
@@ -385,7 +416,7 @@ func _load_world_scene(world_key: String) -> void:
 	_set_status("Loading %s" % world_key)
 
 
-func _on_portal_requested(target_world: String) -> void:
+func _on_portal_requested(portal_name: String, target_world: String) -> void:
 	if not NET_CONFIG.is_valid_world_key(target_world):
 		print("[CLIENT] portal target %s is invalid; ignoring" % target_world)
 		return
@@ -394,9 +425,10 @@ func _on_portal_requested(target_world: String) -> void:
 		return
 
 	requested_transfer_target = target_world
-	print("[CLIENT] requesting transfer from %s to %s" % [active_world_key, target_world])
-	world_endpoint.request_portal_use.rpc_id(1, target_world)
-	call_deferred("_clear_stale_transfer_request", target_world)
+	requested_transfer_portal = portal_name
+	print("[CLIENT] requesting transfer from %s to %s via %s" % [active_world_key, target_world, portal_name])
+	world_endpoint.request_portal_use.rpc_id(1, portal_name)
+	call_deferred("_clear_stale_transfer_request", portal_name)
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
@@ -421,6 +453,7 @@ func _on_transfer_denied(target_world: String) -> void:
 
 	denied_transfer = target_world
 	requested_transfer_target = ""
+	requested_transfer_portal = ""
 
 
 func _complete_manual_transfer(target_world: String) -> void:
@@ -434,15 +467,17 @@ func _complete_manual_transfer(target_world: String) -> void:
 	else:
 		push_error("[CLIENT] manual transfer failed to %s" % target_world)
 	requested_transfer_target = ""
+	requested_transfer_portal = ""
 
 
-func _clear_stale_transfer_request(target_world: String) -> void:
+func _clear_stale_transfer_request(portal_name: String) -> void:
 	await get_tree().create_timer(5.0).timeout
-	if requested_transfer_target != target_world:
+	if requested_transfer_portal != portal_name:
 		return
 
-	print("[CLIENT] transfer request timed out: %s" % target_world)
-	denied_transfer = target_world
+	print("[CLIENT] transfer request timed out: %s" % portal_name)
+	denied_transfer = requested_transfer_target
+	requested_transfer_portal = ""
 	requested_transfer_target = ""
 
 

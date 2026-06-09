@@ -5,6 +5,7 @@ const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
 const TRANSFER_REQUEST_TIMEOUT_SECONDS := 5.0
+const WORLD_IDLE_EXIT_SECONDS := 6.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
@@ -24,6 +25,7 @@ var expected_join_tickets := {}
 var authorized_join_metadata := {}
 var peer_master_ids := {}
 var pending_transfers := {}
+var idle_since := -1.0
 
 
 func _ready() -> void:
@@ -42,6 +44,7 @@ func _ready() -> void:
 	$MasterNet/MasterEndpoint.world_registered.connect(_on_world_registered)
 	$MasterNet/MasterEndpoint.world_shutdown_requested.connect(_on_world_shutdown_requested)
 	$MasterNet/MasterEndpoint.world_join_expected.connect(_on_world_join_expected)
+	$MasterNet/MasterEndpoint.world_transfer_result_received.connect(_on_world_transfer_result_received)
 	$WorldNet/WorldEndpoint.world_join_authorized.connect(_on_world_join_authorized)
 	$WorldNet/WorldEndpoint.portal_use_requested.connect(_on_portal_use_requested)
 
@@ -98,9 +101,9 @@ func _load_world_scene() -> void:
 	$WorldNet/WorldSceneRoot.add_child(world_scene)
 
 
-func _spawn_player(peer_id: int, source_world := "") -> void:
+func _spawn_player(peer_id: int, source_world := "", target_portal := "") -> void:
 	if world_scene and world_scene.has_method("spawn_player"):
-		world_scene.spawn_player(peer_id, source_world)
+		world_scene.spawn_player(peer_id, source_world, target_portal)
 		print("[WORLD %s] spawned player for peer %s" % [world_key, peer_id])
 
 
@@ -231,7 +234,7 @@ func _on_world_registered(registered_world_key: String) -> void:
 	print("WORLD_REGISTERED key=%s" % world_key)
 
 
-func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String) -> void:
+func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String) -> void:
 	if expected_world_key != world_key or join_ticket.is_empty():
 		return
 
@@ -239,6 +242,7 @@ func _on_world_join_expected(expected_world_key: String, join_ticket: String, ex
 		"expires_at": expires_at,
 		"master_peer_id": master_peer_id,
 		"source_world": source_world,
+		"target_portal": target_portal,
 	}
 	_expire_join_tickets()
 
@@ -248,6 +252,7 @@ func _authorize_join(peer_id: int, join_ticket: String) -> bool:
 		authorized_join_metadata[peer_id] = {
 			"master_peer_id": peer_id,
 			"source_world": "",
+			"target_portal": "",
 		}
 		return true
 
@@ -286,41 +291,67 @@ func _on_world_join_authorized(peer_id: int) -> void:
 	if connected_players.has(peer_id):
 		return
 
+	var metadata: Dictionary = authorized_join_metadata.get(peer_id, {})
+	if world_scene and world_scene.has_method("spawn_position_from_entry"):
+		var spawn_position: Vector2 = world_scene.spawn_position_from_entry(
+			str(metadata.get("source_world", "")),
+			str(metadata.get("target_portal", ""))
+		)
+		if not spawn_position.is_finite():
+			print("[WORLD %s] rejected peer %s due invalid spawn entry" % [world_key, peer_id])
+			$WorldNet/WorldEndpoint.reject_world_join.rpc_id(peer_id, world_key, "invalid_spawn_entry")
+			_disconnect_world_peer(peer_id)
+			return
+
 	pending_players.erase(peer_id)
 	connected_players[peer_id] = true
-	var metadata: Dictionary = authorized_join_metadata.get(peer_id, {})
 	peer_master_ids[peer_id] = int(metadata.get("master_peer_id", peer_id))
-	_spawn_player(peer_id, str(metadata.get("source_world", "")))
+	_spawn_player(peer_id, str(metadata.get("source_world", "")), str(metadata.get("target_portal", "")))
 	_send_heartbeat()
 
 
-func _on_portal_use_requested(peer_id: int, target_world: String) -> void:
+func _on_portal_use_requested(peer_id: int, portal_name: String) -> void:
 	_expire_pending_transfers()
 	if pending_transfers.has(peer_id):
-		print("[WORLD %s] ignoring duplicate portal request peer=%s target=%s" % [world_key, peer_id, target_world])
+		print("[WORLD %s] ignoring duplicate portal request peer=%s portal=%s" % [world_key, peer_id, portal_name])
 		return
 
 	if not connected_players.has(peer_id):
-		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "not_joined")
-		return
-	if not NET_CONFIG.is_valid_world_key(target_world):
-		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "invalid_target")
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, portal_name, "not_joined")
 		return
 	if not world_scene or not world_scene.has_method("player_can_use_portal"):
-		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "world_has_no_portals")
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, portal_name, "world_has_no_portals")
 		return
-	if not world_scene.player_can_use_portal(peer_id, target_world):
-		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "not_at_portal")
+	if not world_scene.player_can_use_portal(peer_id, portal_name):
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, portal_name, "not_at_portal")
+		return
+
+	var target_world := ""
+	var target_portal := ""
+	if world_scene.has_method("portal_target_world"):
+		target_world = world_scene.portal_target_world(portal_name)
+	if world_scene.has_method("portal_target_portal"):
+		target_portal = world_scene.portal_target_portal(portal_name)
+
+	if not NET_CONFIG.is_valid_world_key(target_world):
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, portal_name, "invalid_target")
 		return
 
 	var master_peer_id := int(peer_master_ids.get(peer_id, 0))
 	if master_peer_id <= 0:
-		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, target_world, "missing_master_peer")
+		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, portal_name, "missing_master_peer")
 		return
 
 	pending_transfers[peer_id] = Time.get_unix_time_from_system() + TRANSFER_REQUEST_TIMEOUT_SECONDS
-	print("[WORLD %s] server-approved portal peer=%s master_peer=%s target=%s" % [world_key, peer_id, master_peer_id, target_world])
-	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world)
+	print("[WORLD %s] server-approved portal peer=%s master_peer=%s portal=%s target=%s target_portal=%s" % [world_key, peer_id, master_peer_id, portal_name, target_world, target_portal])
+	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world, target_portal)
+
+
+func _on_world_transfer_result_received(master_peer_id: int, _target_world: String, _approved: bool) -> void:
+	for peer_id in peer_master_ids.keys():
+		if int(peer_master_ids[peer_id]) == master_peer_id:
+			pending_transfers.erase(peer_id)
+			return
 
 
 func _expire_pending_transfers() -> void:
@@ -334,7 +365,43 @@ func _send_heartbeat() -> void:
 	if not registered_with_master:
 		return
 
+	_poll_idle_shutdown()
 	$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key, connected_players.size())
+
+
+func _poll_idle_shutdown() -> void:
+	if not _has_no_player_activity():
+		idle_since = -1.0
+		return
+
+	var now := Time.get_unix_time_from_system()
+	if idle_since < 0.0:
+		idle_since = now
+		return
+
+	if now - idle_since >= WORLD_IDLE_EXIT_SECONDS:
+		print("WORLD_STOPPING key=%s reason=idle" % world_key)
+		get_tree().quit(0)
+
+
+func _has_no_player_activity() -> bool:
+	_expire_join_tickets()
+	_expire_pending_transfers()
+	return (
+		connected_players.is_empty()
+		and pending_players.is_empty()
+		and expected_join_tickets.is_empty()
+		and pending_transfers.is_empty()
+	)
+
+
+func _disconnect_world_peer(peer_id: int) -> void:
+	pending_players.erase(peer_id)
+	authorized_join_metadata.erase(peer_id)
+	peer_master_ids.erase(peer_id)
+	var peer := world_api.multiplayer_peer
+	if peer and peer.has_method("disconnect_peer"):
+		peer.disconnect_peer(peer_id)
 
 
 func _start_master_loss_timer() -> void:

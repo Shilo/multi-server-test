@@ -4,7 +4,7 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const LOCAL_WORLD_SERVER_SCENE := "res://server/world/world.tscn"
 const WORLD_START_TIMEOUT_SECONDS := 5.0
 const WORLD_IDLE_SHUTDOWN_SECONDS := 5.0
-const WORLD_STOP_KILL_SECONDS := 2.0
+const WORLD_STOP_KILL_SECONDS := 4.0
 const WORLD_JOIN_RESERVATION_SECONDS := 10.0
 
 var master_endpoint: Node
@@ -84,7 +84,7 @@ func mark_world_registered(world_key: String) -> void:
 	print("MASTER_WORLD_RUNNING key=%s pid=%d" % [world_key, int(state.get("pid", -1))])
 
 
-func reserve_world_join(world_key: String, peer_id: int, source_world := "") -> Dictionary:
+func reserve_world_join(world_key: String, peer_id: int, source_world := "", target_portal := "") -> Dictionary:
 	if not worlds.has(world_key):
 		return {}
 
@@ -97,6 +97,7 @@ func reserve_world_join(world_key: String, peer_id: int, source_world := "") -> 
 		"expires_at": Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS,
 		"ticket": _new_join_ticket(),
 		"source_world": source_world,
+		"target_portal": target_portal,
 	}
 	reservations[str(peer_id)] = reservation
 	state["join_reservations"] = reservations
