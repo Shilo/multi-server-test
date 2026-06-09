@@ -3,12 +3,17 @@ const MASTER_PORT := 19080
 const DEFAULT_WORLD_KEY := "hub"
 const WORLD_SCENE_DIR := "res://shared/worlds"
 
+static var _cached_world_keys: Array[String] = []
+
 
 static func master_url() -> String:
 	return "ws://%s:%d" % [HOST, MASTER_PORT]
 
 
 static func world_keys() -> Array[String]:
+	if not _cached_world_keys.is_empty():
+		return _cached_world_keys.duplicate()
+
 	var keys: Array[String] = []
 	for entry in ResourceLoader.list_directory(WORLD_SCENE_DIR):
 		if not entry.ends_with("/"):
@@ -19,7 +24,8 @@ static func world_keys() -> Array[String]:
 		else:
 			push_error("[NET_CONFIG] world folder '%s' must contain %s.tscn" % [key, key])
 	keys.sort()
-	return keys
+	_cached_world_keys = keys
+	return _cached_world_keys.duplicate()
 
 
 static func initial_world() -> String:

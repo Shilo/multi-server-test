@@ -362,12 +362,11 @@ The inherited scenes are:
 - `shared/worlds/right_world/right_world.tscn`
 - `shared/worlds/top_world/top_world.tscn`
 
-They override:
+They author:
 
-- `world_key`
-- `world_name`
-- `world_color`
-- `portal_targets_csv`
+- scene-local `Portal` nodes with `target_world` and optional `target_portal`
+- optional `Spawn` nodes for default entry points
+- baked scene NPCs and art/layout for that world
 
 Client and world server both mount the active scene at:
 

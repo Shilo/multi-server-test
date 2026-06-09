@@ -7,6 +7,7 @@ signal portal_use_requested(peer_id: int, portal_name: String)
 signal portal_use_denied(portal_name: String, reason: String)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
+const NET_UTIL := preload("res://shared/net/net_util.gd")
 
 var server_world_key := NET_CONFIG.initial_world()
 var admission_checker := Callable()
@@ -77,6 +78,4 @@ func _is_join_admitted(sender_id: int, join_ticket: String) -> bool:
 
 
 func _disconnect_peer(peer_id: int) -> void:
-	var peer := multiplayer.multiplayer_peer
-	if peer and peer.has_method("disconnect_peer"):
-		peer.disconnect_peer(peer_id)
+	NET_UTIL.disconnect_peer(multiplayer, peer_id)

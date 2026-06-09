@@ -3,8 +3,6 @@ extends Node2D
 signal portal_requested(portal_name: String, target_world: String)
 
 const PLAYER_SCENE := preload("res://shared/player/player.tscn")
-const PORTAL_SCRIPT := preload("res://shared/world/portal.gd")
-const SPAWN_SCRIPT := preload("res://shared/world/spawn.gd")
 const SPAWN_ROOT_PATH := "SpawnRoot"
 const SPAWNER_PATH := "MultiplayerSpawner"
 const PORTAL_USE_DISTANCE := 72.0
@@ -115,7 +113,7 @@ func spawn_position_from_entry(source_world: String, target_portal: String) -> V
 func world_key() -> String:
 	if not scene_file_path.is_empty():
 		return scene_file_path.get_file().get_basename()
-	return _snake_case(name)
+	return name
 
 
 func _position_in_spawn_root(node: Node2D) -> Vector2:
@@ -200,22 +198,8 @@ func _first_spawn(node: Node) -> Node2D:
 
 
 func _is_portal(node: Node) -> bool:
-	return node.get_script() == PORTAL_SCRIPT
+	return node is Portal
 
 
 func _is_spawn(node: Node) -> bool:
-	return node.get_script() == SPAWN_SCRIPT
-
-
-func _snake_case(value: String) -> String:
-	var result := ""
-	for index in range(value.length()):
-		var character := value.substr(index, 1)
-		if index > 0 and _is_uppercase_letter(character):
-			result += "_"
-		result += character.to_lower()
-	return result
-
-
-func _is_uppercase_letter(character: String) -> bool:
-	return character >= "A" and character <= "Z"
+	return node is Spawn

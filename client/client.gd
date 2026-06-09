@@ -176,8 +176,6 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 	if not ok:
 		return false
 	print("SMOKE_STEP client connected to master" if require_all_worlds else "[CLIENT] connected to master")
-	print("[CLIENT] available worlds=%s" % str(_available_world_keys()))
-	print("[CLIENT] live worlds=%s" % str(_registered_world_keys()))
 
 	chat_connected = true
 	_set_chat_connected(true)
@@ -202,20 +200,6 @@ func _has_initial_world_route() -> bool:
 
 	var worlds: Dictionary = routes["worlds"]
 	return worlds.has(routes["initial_world"])
-
-
-func _available_world_keys() -> Array[String]:
-	return NET_CONFIG.world_keys()
-
-
-func _registered_world_keys() -> Array[String]:
-	var keys: Array[String] = []
-	if routes.has("worlds"):
-		var worlds: Dictionary = routes["worlds"]
-		for key in worlds.keys():
-			keys.append(str(key))
-	keys.sort()
-	return keys
 
 
 func _connect_world(world_key: String) -> bool:

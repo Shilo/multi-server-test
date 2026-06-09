@@ -2,6 +2,9 @@ extends CharacterBody2D
 
 @export var speed := 180.0
 
+var authority_applied := false
+
+
 func _enter_tree() -> void:
 	_apply_authority_from_name()
 
@@ -12,12 +15,15 @@ func _ready() -> void:
 
 
 func _apply_authority_from_name() -> void:
+	if authority_applied:
+		return
 	if not name.begins_with("Player_"):
 		return
 
 	var peer_id := int(name.trim_prefix("Player_"))
 	if peer_id > 0:
 		set_multiplayer_authority(peer_id, true)
+		authority_applied = true
 
 
 func _physics_process(_delta: float) -> void:

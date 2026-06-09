@@ -52,25 +52,25 @@ MASTER_WORLD_REGISTERED key=top_world
 MASTER_WORLD_STOP_REQUESTED key=top_world reason=idle
 MASTER_WORLD_STOPPED key=top_world
 SMOKE_PROCESS_GONE hub_after_master_kill
-SMOKE_PASS clients=1 chat_messages=7
+SMOKE_PASS clients=1 chat_messages=10
 ```
 
 Two-client editor-binary smoke also passed with:
 
 ```text
-SMOKE_PASS clients=2 chat_messages=14
+SMOKE_PASS clients=2 chat_messages=20
 ```
 
 Exported smoke also passed with:
 
 ```text
-SMOKE_PASS clients=1 chat_messages=7
+SMOKE_PASS clients=1 chat_messages=10
 ```
 
 The smoke sequence transferred:
 
 ```text
-hub -> left_world -> hub -> right_world -> hub -> top_world -> hub
+hub -> left_world -> top_world -> right_world -> hub -> top_world -> hub -> right_world -> left_world -> hub
 ```
 
 Chat stayed connected across the active `WorldNet` swaps.

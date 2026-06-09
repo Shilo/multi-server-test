@@ -9,6 +9,7 @@ signal world_join_expected(world_key: String, join_ticket: String, expires_at: f
 signal world_transfer_result_received(master_peer_id: int, target_world: String, approved: bool)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
+const NET_UTIL := preload("res://shared/net/net_util.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
 
 var registered_worlds := {}
@@ -110,16 +111,6 @@ func register_world(world_key: String, launch_token: String) -> void:
 	print("MASTER_WORLD_REGISTERED key=%s peer=%s url=%s" % [world_key, sender_id, normalized_endpoint["url"]])
 	world_process_manager.mark_world_registered(world_key)
 	world_registered_ack.rpc_id(sender_id, world_key)
-
-
-@rpc("any_peer", "call_remote", "reliable")
-func request_transfer(target_world: String) -> void:
-	if not multiplayer.is_server():
-		return
-
-	var sender_id := multiplayer.get_remote_sender_id()
-	print("[MASTER] rejected client-side transfer request from peer %s to %s" % [sender_id, target_world])
-	deny_transfer.rpc_id(sender_id, target_world)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -360,21 +351,11 @@ func world_transfer_completed(master_peer_id: int, target_world: String, approve
 
 
 func _is_peer_open(peer_id: int) -> bool:
-	var peer := multiplayer.multiplayer_peer
-	if not peer or not peer.has_method("get_peer"):
-		return peer_id in multiplayer.get_peers()
-
-	var socket = peer.get_peer(peer_id)
-	if not socket or not socket.has_method("get_ready_state"):
-		return peer_id in multiplayer.get_peers()
-
-	return socket.get_ready_state() == WebSocketPeer.STATE_OPEN
+	return NET_UTIL.is_peer_open(multiplayer, peer_id)
 
 
 func _disconnect_peer(peer_id: int) -> void:
-	var peer := multiplayer.multiplayer_peer
-	if peer and peer.has_method("disconnect_peer"):
-		peer.disconnect_peer(peer_id)
+	NET_UTIL.disconnect_peer(multiplayer, peer_id)
 
 
 func _expire_stale_worlds() -> void:

@@ -117,7 +117,6 @@ func _connect_to_master() -> void:
 		print("[WORLD %s] no master launch token; running without master registration" % world_key)
 		return
 
-	master_connection_started = true
 	master_api.connected_to_server.connect(func() -> void:
 		print("[WORLD %s] connected to master registry" % world_key)
 		_register_with_master()

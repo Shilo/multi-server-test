@@ -5,6 +5,7 @@ signal chat_received(sender_id: int, message: String)
 const MAX_MESSAGE_LENGTH := 200
 const RATE_WINDOW_SECONDS := 3.0
 const MAX_MESSAGES_PER_WINDOW := 10
+const NET_UTIL := preload("res://shared/net/net_util.gd")
 
 var peer_message_times := {}
 var master_endpoint: Node
@@ -61,15 +62,7 @@ func _is_world_peer(peer_id: int) -> bool:
 
 
 func _is_peer_open(peer_id: int) -> bool:
-	var peer := multiplayer.multiplayer_peer
-	if not peer or not peer.has_method("get_peer"):
-		return peer_id in multiplayer.get_peers()
-
-	var socket = peer.get_peer(peer_id)
-	if not socket or not socket.has_method("get_ready_state"):
-		return peer_id in multiplayer.get_peers()
-
-	return socket.get_ready_state() == WebSocketPeer.STATE_OPEN
+	return NET_UTIL.is_peer_open(multiplayer, peer_id)
 
 
 func _allow_message(sender_id: int) -> bool:

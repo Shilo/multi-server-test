@@ -120,7 +120,7 @@ func refresh_world_join(world_key: String, peer_id: int) -> bool:
 	if not reservations.has(reservation_key):
 		return false
 
-	var reservation := _reservation_dict(reservations[reservation_key])
+	var reservation: Dictionary = reservations[reservation_key]
 	reservation["expires_at"] = Time.get_unix_time_from_system() + WORLD_JOIN_RESERVATION_SECONDS
 	reservations[reservation_key] = reservation
 	state["join_reservations"] = reservations
@@ -317,7 +317,8 @@ func _refresh_idle_state(world_key: String, state: Dictionary, now: float) -> vo
 func _expire_join_reservations(state: Dictionary, now: float) -> void:
 	var reservations: Dictionary = state.get("join_reservations", {})
 	for key in reservations.keys():
-		if _reservation_expires_at(reservations[key]) <= now:
+		var reservation: Dictionary = reservations[key]
+		if float(reservation.get("expires_at", 0.0)) <= now:
 			reservations.erase(key)
 	state["join_reservations"] = reservations
 
@@ -325,18 +326,3 @@ func _expire_join_reservations(state: Dictionary, now: float) -> void:
 func _join_reservation_count(state: Dictionary) -> int:
 	var reservations: Dictionary = state.get("join_reservations", {})
 	return reservations.size()
-
-
-func _reservation_dict(value: Variant) -> Dictionary:
-	if value is Dictionary:
-		return value
-	return {
-		"expires_at": float(value),
-		"ticket": "",
-	}
-
-
-func _reservation_expires_at(value: Variant) -> float:
-	if value is Dictionary:
-		return float(value.get("expires_at", 0.0))
-	return float(value)

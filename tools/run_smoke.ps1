@@ -126,6 +126,7 @@ if (-not ($worldKeys -contains "hub")) {
 
 $servers = @()
 $clients = @()
+$expectedChatMessages = 0
 try {
     $servers += Start-Scene "master" "res://server/master/master.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
@@ -157,6 +158,9 @@ try {
             }
             throw "Smoke test did not produce SMOKE_PASS for $clientName"
         }
+
+        $transferCount = (Select-String -Path $clientLogPath -SimpleMatch "SMOKE_STEP transfer ").Count
+        $expectedChatMessages += 1 + $transferCount
     }
 
     $requiredMarkers = @("MASTER_READY")
@@ -172,7 +176,6 @@ try {
         }
     }
 
-    $expectedChatMessages = (1 + (2 * ($worldKeys.Count - 1))) * $ClientCount
     $chatMessages = (Select-String -Path (Join-Path $LogRoot "master.out.log") -SimpleMatch "[CHAT] received from peer").Count
     if ($chatMessages -lt $expectedChatMessages) {
         Write-Host (Get-Content (Join-Path $LogRoot "master.out.log") -Raw)

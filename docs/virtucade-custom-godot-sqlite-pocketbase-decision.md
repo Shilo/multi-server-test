@@ -426,7 +426,8 @@ first:
 Client -> Master WebSocket/Godot RPC: request_guest_entry
 Client -> Master WebSocket/Godot RPC: register
 Client -> Master WebSocket/Godot RPC: login
-Client -> Master WebSocket/Godot RPC: request_transfer
+Client -> World WebSocket/Godot RPC: request_portal_use
+World -> Master WebSocket/Godot RPC: request_world_transfer
 Client -> Master WebSocket/Godot RPC: send_global_chat
 ```
 
