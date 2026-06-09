@@ -53,6 +53,7 @@ Main documentation:
 
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical current architecture.
 - [VirtuCade Experience Architecture Research](docs/virtucade-experience-architecture-research.md): Roblox-like world/experience architecture research for the custom Godot path.
+- [VirtuCade Database Handling Spike](docs/virtucade-database-handling-spike.md): master-owned persistence, SQLite, auth transport, and world save/load research.
 - [VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): custom infrastructure decision spike.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): Tiny MMO comparison and lessons.
 - [Godot Resource Database Wrapper Spike](docs/godot-resource-database-wrapper-spike.md): Resource-file persistence challenge spike.

@@ -205,6 +205,8 @@ world_result        idempotent world-to-master reward/result event
 
 World servers should not directly write global player, inventory, currency, or account data. They should report save/load requests or final results to the master, which becomes the single SQLite writer for durable state.
 
+For the detailed persistence recommendation, see [VirtuCade Database Handling Spike](virtucade-database-handling-spike.md).
+
 ## World Startup Arguments
 
 The world role accepts a bare positional world key after Godot's `--`. Master-owned launches append one private launch token after the key.
