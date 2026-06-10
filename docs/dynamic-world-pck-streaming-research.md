@@ -30,7 +30,7 @@ Local code reviewed:
 - `server/master/master.gd`
 - `server/master/world_process_manager.gd`
 - `server/world/world.gd`
-- `shared/worlds/*/*.tscn`
+- `server/worlds/*/*.tscn`
 - `tools/export_all.ps1`
 - `tools/run_smoke.ps1`
 
@@ -76,17 +76,20 @@ Each world server loads one keyed world scene and listens on that world's socket
 The client keeps the master/chat connection alive while replacing the active
 world socket during travel.
 
-The current world location is hard-coded through `NET_CONFIG`:
+Before this spike, the world location was hard-coded through `NET_CONFIG`.
+The implementation spike moved that root to:
 
 ```gdscript
-const WORLD_SCENE_DIR := "res://shared/worlds"
+const WORLD_SCENE_DIR := "res://server/worlds"
 ```
 
-`world_keys()` discovers worlds by listing that resource directory, and
-`world_port()` derives ports from the sorted local world list. This means the
-current client assumes all worlds are present in its initial resource pack.
+`world_keys()` now combines the manifest with local world folders, and
+`world_port()` still derives ports from the sorted world list. Exported clients
+should rely on the master-provided route/catalog data instead of local world
+folder discovery.
 
-The client also loads the world scene before connecting to the world server:
+Before this spike, the client also loaded the world scene before connecting to
+the world server with a ticket that had already been issued:
 
 ```gdscript
 _load_world_scene(world_key)
@@ -199,8 +202,10 @@ GDScript, which is the straightforward path for Web PCK loading.
 
 Use `res://server/worlds/` for the current spike.
 
-This is a developer-facing convention, not a player-facing runtime detail. Godot
-does not care whether the mounted client scene path is `res://worlds/hub` or
+This is a developer-facing convention, not a player-facing runtime detail. In
+this project, `server/` and `client/` mean "source that is bundled into this
+executable or artifact." That is where the concern ends. Godot does not care
+whether the mounted client scene path is `res://worlds/hub` or
 `res://server/worlds/hub`; after a PCK is mounted, either path is just a virtual
 `res://` resource path. The important project rule is that export automation
 must know which folders go into which artifacts.
@@ -233,11 +238,9 @@ res://server/worlds/<world_key>/
 
 The tradeoff is semantic: a Web client will load a mounted resource path that
 begins with `res://server/`. That is acceptable for this spike because the path
-is not user-facing and the folder rule is easy to remember. The guardrail is
-that `res://server/worlds/` must stay client-safe. Server-only scripts, secrets,
-admin tooling, persistence code, and private orchestration helpers must live
-elsewhere under `res://server/` and must be excluded from downloadable world
-packs.
+is not user-facing. The export boundary is what matters: `server/worlds/<key>/`
+is bundled into the server export and also emitted as a public client-downloadable
+world pack; other `server/` folders are bundled only into the server executable.
 
 ## Export And Build Workflow
 
@@ -447,7 +450,7 @@ Suggested flow:
 10. Change a world, rebuild only that PCK, update manifest, confirm redownload.
 ```
 
-The current smoke test discovers local `shared/worlds` folders directly. It will
+The current smoke test discovers local `server/worlds` folders directly. It will
 need a Web/client-pack smoke path that validates:
 
 - base client export does not contain world scenes;
@@ -507,7 +510,7 @@ client-facing packs are separate artifacts with public, hash-addressed URLs.
 
 Recommended implementation order:
 
-1. Move `shared/worlds/<key>/` to `server/worlds/<key>/` and update scene paths.
+1. Move `shared/worlds/<key>/` to `server/worlds/<key>/` and update scene paths. Done in the first implementation spike.
 2. Keep `shared/world/` and `shared/player/` in the base client/server export.
 3. Replace `NET_CONFIG.world_keys()` filesystem discovery with manifest-driven
    world keys.

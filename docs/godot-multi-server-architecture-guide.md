@@ -146,7 +146,7 @@ server/
 
 ## Network Config
 
-`shared/net/net_config.gd` discovers playable worlds from `shared/worlds/`.
+`shared/net/net_config.gd` discovers playable worlds from `server/worlds/`.
 
 Current ports:
 
@@ -170,7 +170,7 @@ top_world
 Derived rules:
 
 - `hub` is the default world.
-- A playable world must live at `res://shared/worlds/<world_key>/<world_key>.tscn`.
+- A playable world must live at `res://server/worlds/<world_key>/<world_key>.tscn`.
 - World keys are sorted after discovery.
 - World ports are derived from `MASTER_PORT + 1 + sorted_world_index`, so with the current `MASTER_PORT` of `19080`, world ports start at `19081`.
 - Display names are derived from the world key.
@@ -359,10 +359,10 @@ World
 
 The inherited scenes are:
 
-- `shared/worlds/hub/hub.tscn`
-- `shared/worlds/left_world/left_world.tscn`
-- `shared/worlds/right_world/right_world.tscn`
-- `shared/worlds/top_world/top_world.tscn`
+- `server/worlds/hub/hub.tscn`
+- `server/worlds/left_world/left_world.tscn`
+- `server/worlds/right_world/right_world.tscn`
+- `server/worlds/top_world/top_world.tscn`
 
 They author:
 
@@ -487,7 +487,7 @@ References:
 
 ## Network Constants
 
-`shared/net/net_config.gd` owns the advertised URL host. Playable worlds are discovered from strict `shared/worlds/<world_key>/<world_key>.tscn` folders; ports and display names are derived from sorted world keys. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
+`shared/net/net_config.gd` owns the advertised URL host. Playable worlds are discovered from strict `server/worlds/<world_key>/<world_key>.tscn` folders; ports and display names are derived from sorted world keys. Servers use Godot's default `create_server(port)` bind behavior, while clients and world servers dial URLs built from `HOST`.
 
 ## Known Limits
 

@@ -2,7 +2,9 @@ extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const CHAT_SCENE := preload("res://client/chat/chat.tscn")
+const WORLD_PACK_MANAGER := preload("res://client/world_pack_manager.gd")
 const SMOKE_TEST_ARG := "smoke_test"
+const INITIAL_WORLD_SMOKE_ARG := "initial_world_smoke"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 
 var master_api: MultiplayerAPI
@@ -17,6 +19,10 @@ var pending_transfer := {}
 var denied_transfer := ""
 var requested_transfer_target := ""
 var requested_transfer_portal := ""
+var pending_join_endpoint := {}
+var pending_join_world := ""
+var denied_join_world := ""
+var denied_join_reason := ""
 var join_keepalive_world := ""
 var join_keepalive_active := false
 var connecting_world_key := ""
@@ -24,6 +30,7 @@ var rejected_world_join := ""
 var smoke_test := false
 var chat_connected := false
 var chat: Node
+var world_pack_manager: Node
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -36,12 +43,15 @@ var chat: Node
 func _ready() -> void:
 	_setup_chat()
 	_setup_multiplayer_branches()
+	_setup_world_pack_manager()
 	smoke_test = SMOKE_TEST_ARG in OS.get_cmdline_user_args()
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
 		routes = new_routes
 	)
 	master_endpoint.transfer_approved.connect(_on_transfer_approved)
 	master_endpoint.transfer_denied.connect(_on_transfer_denied)
+	master_endpoint.world_join_approved.connect(_on_world_join_approved)
+	master_endpoint.world_join_denied.connect(_on_world_join_denied)
 	chat_endpoint.chat_received.connect(func(sender_id: int, message: String) -> void:
 		chat_echoes.append(message)
 		chat_receipts["%d:%s" % [sender_id, message]] = true
@@ -65,7 +75,9 @@ func _ready() -> void:
 			requested_transfer_target = ""
 	)
 
-	if smoke_test:
+	if INITIAL_WORLD_SMOKE_ARG in OS.get_cmdline_user_args():
+		run_initial_world_smoke_test()
+	elif smoke_test:
 		run_smoke_test()
 	else:
 		run_manual_client()
@@ -94,6 +106,12 @@ func _setup_chat() -> void:
 	chat.message_submitted.connect(_on_chat_message_submitted)
 	canvas_layer.add_child(chat)
 	_add_chat_system_line("chat starting")
+
+
+func _setup_world_pack_manager() -> void:
+	world_pack_manager = WORLD_PACK_MANAGER.new()
+	world_pack_manager.name = "WorldPackManager"
+	add_child(world_pack_manager)
 
 
 func run_manual_client() -> void:
@@ -129,10 +147,24 @@ func run_smoke_test() -> void:
 	get_tree().quit(0)
 
 
+func run_initial_world_smoke_test() -> void:
+	print("SMOKE_STEP client starts")
+	var ok := await _bootstrap_connections(false)
+	if not ok:
+		_smoke_fail("bootstrap failed")
+		return
+	if active_world_key != NET_CONFIG.initial_world():
+		_smoke_fail("expected initial world %s, got %s" % [NET_CONFIG.initial_world(), active_world_key])
+		return
+
+	print("SMOKE_PASS")
+	get_tree().quit(0)
+
+
 func _smoke_transfer_sequence() -> Array[String]:
 	var sequence: Array[String] = []
 	var initial_world := NET_CONFIG.initial_world()
-	var world_keys := NET_CONFIG.world_keys()
+	var world_keys := _known_world_keys()
 	if (
 		initial_world == "hub"
 		and "left_world" in world_keys
@@ -157,7 +189,7 @@ func _smoke_transfer_sequence() -> Array[String]:
 			sequence.append(initial_world)
 		return sequence
 
-	for world_key in NET_CONFIG.world_keys():
+	for world_key in world_keys:
 		if world_key == initial_world:
 			continue
 		sequence.append(world_key)
@@ -207,13 +239,26 @@ func _connect_world(world_key: String) -> bool:
 		push_error("[CLIENT] no registered route for world %s" % world_key)
 		return false
 
-	_start_join_keepalive(world_key)
+	var route_endpoint: Dictionary = routes["worlds"][world_key]
+	var assets_ready: bool = await world_pack_manager.ensure_world_installed(world_key, route_endpoint)
+	if not assets_ready:
+		push_error("[CLIENT] assets unavailable for world %s" % world_key)
+		return false
+
 	world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
 	active_world_key = ""
 	connecting_world_key = world_key
 	rejected_world_join = ""
-	_load_world_scene(world_key)
-	var endpoint: Dictionary = routes["worlds"][world_key]
+	if not _load_world_scene(world_key, route_endpoint):
+		connecting_world_key = ""
+		return false
+
+	var endpoint := await _request_world_join(world_key)
+	if endpoint.is_empty():
+		connecting_world_key = ""
+		return false
+
+	_start_join_keepalive(world_key)
 	var ok := await _connect_api(world_api, endpoint["url"], "world-%s" % world_key)
 	if not ok:
 		connecting_world_key = ""
@@ -231,12 +276,63 @@ func _connect_world(world_key: String) -> bool:
 	return ok and rejected_world_join != world_key
 
 
+func _request_world_join(world_key: String) -> Dictionary:
+	pending_join_endpoint = {}
+	pending_join_world = world_key
+	denied_join_world = ""
+	denied_join_reason = ""
+	master_endpoint.request_world_join.rpc_id(1, world_key)
+
+	var ok := await _wait_until(
+		func() -> bool:
+			return (
+				str(pending_join_endpoint.get("key", "")) == world_key
+				or denied_join_world == world_key
+			),
+		5.0,
+		"join ticket for %s" % world_key
+	)
+	pending_join_world = ""
+	if not ok or denied_join_world == world_key:
+		if not denied_join_reason.is_empty():
+			push_error("[CLIENT] join denied for %s: %s" % [world_key, denied_join_reason])
+		return {}
+
+	var endpoint: Dictionary = pending_join_endpoint.duplicate(true)
+	if not routes.has("worlds"):
+		routes["worlds"] = {}
+	var worlds: Dictionary = routes["worlds"]
+	worlds[world_key] = endpoint
+	routes["worlds"] = worlds
+	return endpoint
+
+
 func _has_world_route(world_key: String) -> bool:
 	if not routes.has("worlds"):
 		return false
 
 	var worlds: Dictionary = routes["worlds"]
 	return worlds.has(world_key)
+
+
+func _known_world_keys() -> Array[String]:
+	var keys: Array[String] = []
+	if routes.has("world_catalog"):
+		var world_catalog: Dictionary = routes["world_catalog"]
+		for key in world_catalog.keys():
+			keys.append(str(key))
+	if keys.is_empty():
+		keys = NET_CONFIG.world_keys()
+	keys.sort()
+	return keys
+
+
+func _is_known_world_key(world_key: String) -> bool:
+	if _known_world_keys().has(world_key):
+		return true
+	if _has_world_route(world_key):
+		return true
+	return NET_CONFIG.is_valid_world_key(world_key)
 
 
 func _transfer_via_portal(target_world: String) -> bool:
@@ -400,19 +496,24 @@ func _wait_until(predicate: Callable, timeout_seconds: float, label: String, rep
 	return false
 
 
-func _load_world_scene(world_key: String) -> void:
+func _load_world_scene(world_key: String, endpoint: Dictionary) -> bool:
 	for child in world_view.get_children():
 		child.queue_free()
 
-	var scene := load(NET_CONFIG.world_scene_path(world_key)) as PackedScene
+	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
+	var scene := load(scene_path) as PackedScene
+	if scene == null:
+		push_error("[CLIENT] failed to load world scene: %s" % scene_path)
+		return false
 	current_world_scene = scene.instantiate()
 	current_world_scene.portal_requested.connect(_on_portal_requested)
 	world_view.add_child(current_world_scene)
 	_set_status("Loading %s" % world_key)
+	return true
 
 
 func _on_portal_requested(portal_name: String, target_world: String) -> void:
-	if not NET_CONFIG.is_valid_world_key(target_world):
+	if not _is_known_world_key(target_world):
 		print("[CLIENT] portal target %s is invalid; ignoring" % target_world)
 		return
 	if not requested_transfer_target.is_empty():
@@ -439,6 +540,23 @@ func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
 	pending_transfer = {"target_world": target_world, "endpoint": endpoint}
 	if not smoke_test:
 		call_deferred("_complete_manual_transfer", target_world)
+
+
+func _on_world_join_approved(world_key: String, endpoint: Dictionary) -> void:
+	if pending_join_world != world_key:
+		print("[CLIENT] ignoring stale join approval for %s" % world_key)
+		return
+
+	pending_join_endpoint = endpoint
+
+
+func _on_world_join_denied(world_key: String, reason: String) -> void:
+	if pending_join_world != world_key:
+		print("[CLIENT] ignoring stale join denial for %s" % world_key)
+		return
+
+	denied_join_world = world_key
+	denied_join_reason = reason
 
 
 func _on_transfer_denied(target_world: String) -> void:

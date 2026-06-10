@@ -3,6 +3,8 @@ extends Node
 signal routes_received(routes: Dictionary)
 signal transfer_approved(target_world: String, endpoint: Dictionary)
 signal transfer_denied(target_world: String)
+signal world_join_approved(world_key: String, endpoint: Dictionary)
+signal world_join_denied(world_key: String, reason: String)
 signal world_registered(world_key: String)
 signal world_shutdown_requested(reason: String)
 signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String)
@@ -11,10 +13,12 @@ signal world_transfer_result_received(master_peer_id: int, target_world: String,
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
+const WORLD_JOIN_INTENT_SECONDS := 120.0
 
 var registered_worlds := {}
 var peer_worlds := {}
 var world_last_seen := {}
+var pending_world_join_intents := {}
 var world_process_manager: Node
 
 
@@ -36,6 +40,7 @@ func unregister_peer(peer_id: int) -> void:
 		return
 	if world_process_manager and world_process_manager.has_method("release_join_reservations_for_peer"):
 		world_process_manager.release_join_reservations_for_peer(peer_id)
+	pending_world_join_intents.erase(str(peer_id))
 	if not peer_worlds.has(peer_id):
 		return
 
@@ -133,6 +138,19 @@ func request_world_transfer(source_world: String, master_peer_id: int, target_wo
 
 
 @rpc("any_peer", "call_remote", "reliable")
+func request_world_join(world_key: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
+		return
+
+	call_deferred("_approve_world_join_when_available", sender_id, world_key)
+
+
+@rpc("any_peer", "call_remote", "reliable")
 func refresh_world_join(world_key: String) -> void:
 	if not multiplayer.is_server():
 		return
@@ -214,12 +232,30 @@ func approve_transfer(target_world: String, endpoint: Dictionary) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
+func approve_world_join(world_key: String, endpoint: Dictionary) -> void:
+	if multiplayer.is_server():
+		return
+
+	print("[CLIENT] join approved for %s" % world_key)
+	world_join_approved.emit(world_key, endpoint)
+
+
+@rpc("authority", "call_remote", "reliable")
 func deny_transfer(target_world: String) -> void:
 	if multiplayer.is_server():
 		return
 
 	print("[CLIENT] transfer denied to %s" % target_world)
 	transfer_denied.emit(target_world)
+
+
+@rpc("authority", "call_remote", "reliable")
+func deny_world_join(world_key: String, reason: String) -> void:
+	if multiplayer.is_server():
+		return
+
+	print("[CLIENT] join denied for %s: %s" % [world_key, reason])
+	world_join_denied.emit(world_key, reason)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -248,19 +284,45 @@ func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 
 	var routes := live_routes()
 	var worlds: Dictionary = routes["worlds"]
-	worlds[world_key] = _endpoint_with_join_ticket(sender_id, world_key, "", "")
+	worlds[world_key] = _endpoint_without_join_ticket(world_key)
 	routes["worlds"] = worlds
+	_set_pending_world_join_intent(sender_id, world_key, "", "")
 	receive_routes.rpc_id(sender_id, routes)
 
 
 func _approve_transfer_when_available(sender_id: int, target_world: String, source_world: String, target_portal: String) -> void:
 	var ok := await _ensure_world_available(target_world)
 	if ok and registered_worlds.has(target_world):
-		approve_transfer.rpc_id(sender_id, target_world, _endpoint_with_join_ticket(sender_id, target_world, source_world, target_portal))
+		_set_pending_world_join_intent(sender_id, target_world, source_world, target_portal)
+		approve_transfer.rpc_id(sender_id, target_world, _endpoint_without_join_ticket(target_world))
 		_notify_source_world_transfer_completed(source_world, sender_id, target_world, true)
 	else:
 		deny_transfer.rpc_id(sender_id, target_world)
 		_notify_source_world_transfer_completed(source_world, sender_id, target_world, false)
+
+
+func _approve_world_join_when_available(sender_id: int, world_key: String) -> void:
+	var intent := _consume_world_join_intent(sender_id, world_key)
+	if intent.is_empty():
+		deny_world_join.rpc_id(sender_id, world_key, "missing_join_intent")
+		return
+
+	var ok := await _ensure_world_available(world_key)
+	if not ok or not registered_worlds.has(world_key):
+		deny_world_join.rpc_id(sender_id, world_key, "world_unavailable")
+		return
+
+	var endpoint := _endpoint_with_join_ticket(
+		sender_id,
+		world_key,
+		str(intent.get("source_world", "")),
+		str(intent.get("target_portal", ""))
+	)
+	if str(endpoint.get("join_ticket", "")).is_empty():
+		deny_world_join.rpc_id(sender_id, world_key, "ticket_unavailable")
+		return
+
+	approve_world_join.rpc_id(sender_id, world_key, endpoint)
 
 
 func _ensure_world_available(world_key: String) -> bool:
@@ -289,6 +351,12 @@ func _ensure_world_available(world_key: String) -> bool:
 		elapsed += 0.05
 
 	return false
+
+
+func _endpoint_without_join_ticket(world_key: String) -> Dictionary:
+	if not registered_worlds.has(world_key):
+		return NET_CONFIG.world_endpoint(world_key)
+	return registered_worlds[world_key].duplicate(true)
 
 
 func _wait_for_world_stop(world_key: String) -> bool:
@@ -335,6 +403,42 @@ func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_
 			return
 
 
+func _set_pending_world_join_intent(sender_id: int, target_world: String, source_world: String, target_portal: String) -> void:
+	pending_world_join_intents[str(sender_id)] = {
+		"target_world": target_world,
+		"source_world": source_world,
+		"target_portal": target_portal,
+		"expires_at": Time.get_unix_time_from_system() + WORLD_JOIN_INTENT_SECONDS,
+	}
+
+
+func _consume_world_join_intent(sender_id: int, world_key: String) -> Dictionary:
+	_expire_pending_world_join_intents()
+	var intent_key := str(sender_id)
+	if pending_world_join_intents.has(intent_key):
+		var intent: Dictionary = pending_world_join_intents[intent_key]
+		if str(intent.get("target_world", "")) == world_key:
+			pending_world_join_intents.erase(intent_key)
+			return intent
+
+	if world_key == NET_CONFIG.initial_world():
+		return {
+			"target_world": world_key,
+			"source_world": "",
+			"target_portal": "",
+		}
+
+	return {}
+
+
+func _expire_pending_world_join_intents() -> void:
+	var now := Time.get_unix_time_from_system()
+	for intent_key in pending_world_join_intents.keys():
+		var intent: Dictionary = pending_world_join_intents[intent_key]
+		if float(intent.get("expires_at", 0.0)) <= now:
+			pending_world_join_intents.erase(intent_key)
+
+
 func _notify_source_world_transfer_completed(source_world: String, master_peer_id: int, target_world: String, approved: bool) -> void:
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == source_world and _is_peer_open(int(peer_id)):
@@ -362,6 +466,7 @@ func _expire_stale_worlds() -> void:
 	if not multiplayer.is_server():
 		return
 
+	_expire_pending_world_join_intents()
 	var now := Time.get_unix_time_from_system()
 	for world_key in world_last_seen.keys():
 		if now - float(world_last_seen[world_key]) <= HEARTBEAT_TIMEOUT_SECONDS:

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "asset_base_url": "http://127.0.0.1:19100/world_packs",
+  "worlds": {
+    "hub": {
+      "display_name": "Hub",
+      "scene": "res://server/worlds/hub/hub.tscn",
+      "pack": {
+        "enabled": true,
+        "file": "hub.pck",
+        "url": "http://127.0.0.1:19100/world_packs/hub.pck",
+        "version": "39882095cc2b",
+        "sha256": "39882095cc2b59579a7c2d2179fc881808848a25febd1d8beffce8812ef35186",
+        "size": 14528
+      }
+    },
+    "left_world": {
+      "display_name": "Left World",
+      "scene": "res://server/worlds/left_world/left_world.tscn"
+    },
+    "right_world": {
+      "display_name": "Right World",
+      "scene": "res://server/worlds/right_world/right_world.tscn"
+    },
+    "top_world": {
+      "display_name": "Top World",
+      "scene": "res://server/worlds/top_world/top_world.tscn"
+    }
+  }
+}
