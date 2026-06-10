@@ -278,9 +278,11 @@ func _poll_world_processes() -> void:
 		worlds[world_key] = state
 		if str(state.get("state", "")) == "stopping":
 			var stop_requested_at := float(state.get("stop_requested_at", -1.0))
-			if stop_requested_at >= 0.0 and now - stop_requested_at >= WORLD_STOP_KILL_SECONDS:
+			if not bool(state.get("kill_requested", false)) and stop_requested_at >= 0.0 and now - stop_requested_at >= WORLD_STOP_KILL_SECONDS:
 				var err := OS.kill(pid)
 				print("MASTER_WORLD_KILLED key=%s pid=%d err=%s" % [world_key, pid, err])
+				state["kill_requested"] = true
+				worlds[world_key] = state
 			continue
 
 		var player_count := int(state.get("player_count", 0))

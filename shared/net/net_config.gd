@@ -5,6 +5,7 @@ const WORLD_SCENE_DIR := "res://server/worlds"
 const WORLD_MANIFEST_PATH := "res://server/worlds/world_manifest.json"
 
 static var _cached_world_keys: Array[String] = []
+static var _world_keys_loaded := false
 static var _cached_world_manifest := {}
 static var _world_manifest_loaded := false
 
@@ -14,7 +15,7 @@ static func master_url() -> String:
 
 
 static func world_keys() -> Array[String]:
-	if not _cached_world_keys.is_empty():
+	if _world_keys_loaded:
 		return _cached_world_keys.duplicate()
 
 	var keys: Array[String] = []
@@ -47,6 +48,7 @@ static func world_keys() -> Array[String]:
 
 	valid_keys.sort()
 	_cached_world_keys = valid_keys
+	_world_keys_loaded = true
 	return _cached_world_keys.duplicate()
 
 

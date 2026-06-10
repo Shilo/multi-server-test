@@ -69,19 +69,58 @@ function Export-WithPckPackerFallback {
 }
 
 function Update-ManifestFile($path, $metadata) {
-    $manifest = [ordered]@{
-        schema_version = 1
-        asset_base_url = $PackBaseUrl
-        worlds = [ordered]@{
-            $WorldKey = [ordered]@{
-                display_name = (Get-Culture).TextInfo.ToTitleCase($WorldKey.Replace("_", " "))
-                scene = "res://server/worlds/$WorldKey/$WorldKey.tscn"
-                pack = $metadata
-            }
+    if (Test-Path $path) {
+        $manifest = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    }
+    else {
+        $manifest = [pscustomobject]@{
+            schema_version = 1
+            asset_base_url = $PackBaseUrl
+            worlds = [pscustomobject]@{}
         }
     }
-    $json = $manifest | ConvertTo-Json -Depth 8
-    Set-Content -LiteralPath $path -Value $json
+
+    if (-not $manifest.PSObject.Properties["schema_version"]) {
+        $manifest | Add-Member -MemberType NoteProperty -Name "schema_version" -Value 1
+    }
+    if ($manifest.PSObject.Properties["asset_base_url"]) {
+        $manifest.asset_base_url = $PackBaseUrl
+    }
+    else {
+        $manifest | Add-Member -MemberType NoteProperty -Name "asset_base_url" -Value $PackBaseUrl
+    }
+    if (-not $manifest.PSObject.Properties["worlds"]) {
+        $manifest | Add-Member -MemberType NoteProperty -Name "worlds" -Value ([pscustomobject]@{})
+    }
+
+    $worlds = $manifest.worlds
+    if (-not $worlds.PSObject.Properties[$WorldKey]) {
+        $worlds | Add-Member -MemberType NoteProperty -Name $WorldKey -Value ([pscustomobject]@{})
+    }
+
+    $world = $worlds.$WorldKey
+    $displayName = (Get-Culture).TextInfo.ToTitleCase($WorldKey.Replace("_", " "))
+    foreach ($property in @(
+        @{ Name = "display_name"; Value = $displayName },
+        @{ Name = "scene"; Value = "res://server/worlds/$WorldKey/$WorldKey.tscn" }
+    )) {
+        if ($world.PSObject.Properties[$property.Name]) {
+            $world.$($property.Name) = $property.Value
+        }
+        else {
+            $world | Add-Member -MemberType NoteProperty -Name $property.Name -Value $property.Value
+        }
+    }
+
+    $packObject = ($metadata | ConvertTo-Json -Depth 8) | ConvertFrom-Json
+    if ($world.PSObject.Properties["pack"]) {
+        $world.pack = $packObject
+    }
+    else {
+        $world | Add-Member -MemberType NoteProperty -Name "pack" -Value $packObject
+    }
+
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
 }
 
 function Update-ProjectManifestFile($path, $metadata) {
@@ -140,7 +179,7 @@ function Update-ProjectManifestFile($path, $metadata) {
 }
 
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
-Remove-Item -Force -Path $packOutput, $manifestOutput -ErrorAction SilentlyContinue
+Remove-Item -Force -Path $packOutput -ErrorAction SilentlyContinue
 
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
 try {

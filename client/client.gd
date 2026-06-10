@@ -19,6 +19,7 @@ var pending_transfer := {}
 var denied_transfer := ""
 var requested_transfer_target := ""
 var requested_transfer_portal := ""
+var transfer_in_progress := false
 var pending_join_endpoint := {}
 var pending_join_world := ""
 var denied_join_world := ""
@@ -366,7 +367,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 		return false
 
 	var approved_world := str(pending_transfer["target_world"])
-	var connected := await _connect_world(approved_world)
+	var connected := await _connect_transfer_world(approved_world)
 	requested_transfer_target = ""
 	requested_transfer_portal = ""
 	return connected
@@ -519,6 +520,9 @@ func _on_portal_requested(portal_name: String, target_world: String) -> void:
 	if not requested_transfer_target.is_empty():
 		print("[CLIENT] transfer already pending to %s; ignoring %s" % [requested_transfer_target, target_world])
 		return
+	if transfer_in_progress:
+		print("[CLIENT] transfer already in progress; ignoring %s" % target_world)
+		return
 
 	requested_transfer_target = target_world
 	requested_transfer_portal = portal_name
@@ -574,7 +578,7 @@ func _complete_manual_transfer(target_world: String) -> void:
 		return
 
 	_set_status("Transferring to %s" % target_world)
-	var ok := await _connect_world(target_world)
+	var ok := await _connect_transfer_world(target_world)
 	if ok:
 		print("[CLIENT] manual transfer complete: %s" % active_world_key)
 	else:
@@ -587,11 +591,24 @@ func _clear_stale_transfer_request(portal_name: String) -> void:
 	await get_tree().create_timer(5.0).timeout
 	if requested_transfer_portal != portal_name:
 		return
+	if transfer_in_progress or str(pending_transfer.get("target_world", "")) == requested_transfer_target:
+		return
 
 	print("[CLIENT] transfer request timed out: %s" % portal_name)
 	denied_transfer = requested_transfer_target
 	requested_transfer_portal = ""
 	requested_transfer_target = ""
+
+
+func _connect_transfer_world(target_world: String) -> bool:
+	if transfer_in_progress:
+		print("[CLIENT] transfer connection already in progress; ignoring %s" % target_world)
+		return false
+
+	transfer_in_progress = true
+	var ok := await _connect_world(target_world)
+	transfer_in_progress = false
+	return ok
 
 
 func _set_status(text: String) -> void:

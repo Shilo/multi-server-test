@@ -2,6 +2,9 @@ param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
     [switch]$UseExported,
     [switch]$InitialOnly,
+    [switch]$ClearWorldPackCache,
+    [ValidateSet("Any", "Download", "CacheHit")]
+    [string]$WorldPackExpectation = "Any",
     [int]$TimeoutSeconds = 30,
     [int]$ClientCount = 1
 )
@@ -145,6 +148,13 @@ function Start-PackServer {
     throw "Timed out waiting for pack server"
 }
 
+function Get-WorldPackCachePath {
+    if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        return $null
+    }
+    return Join-Path $env:APPDATA "Godot\app_userdata\multi-server-test\world_packs"
+}
+
 function Get-WorldKeys {
     $worldRoot = Join-Path $ProjectRoot "server\worlds"
     $keys = @()
@@ -170,6 +180,15 @@ $clients = @()
 $packServer = $null
 $expectedChatMessages = 0
 try {
+    if ($ClearWorldPackCache) {
+        $cachePath = Get-WorldPackCachePath
+        if ([string]::IsNullOrWhiteSpace($cachePath)) {
+            throw "Cannot locate Godot app userdata path because APPDATA is not set."
+        }
+        Remove-Item -Recurse -Force -LiteralPath $cachePath -ErrorAction SilentlyContinue
+        Write-Host "SMOKE_WORLD_PACK_CACHE_CLEARED path=$cachePath"
+    }
+
     if ($UseExported) {
         $packServer = Start-PackServer
     }
@@ -204,6 +223,17 @@ try {
                 Write-Host (Get-Content $clientErrPath -Raw)
             }
             throw "Smoke test did not produce SMOKE_PASS for $clientName"
+        }
+
+        if ($UseExported -and $InitialOnly -and $WorldPackExpectation -ne "Any") {
+            $downloaded = $clientLog.Contains("[WORLD_PACK] downloading")
+            $cacheHit = $clientLog.Contains("[WORLD_PACK] cache hit")
+            if ($WorldPackExpectation -eq "Download" -and -not $downloaded) {
+                throw "Expected exported smoke to download a world pack, but no download marker was found in $clientName"
+            }
+            if ($WorldPackExpectation -eq "CacheHit" -and -not $cacheHit) {
+                throw "Expected exported smoke to hit the world pack cache, but no cache-hit marker was found in $clientName"
+            }
         }
 
         if (-not $InitialOnly) {

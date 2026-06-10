@@ -3,11 +3,24 @@ extends Node
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const PACK_CACHE_DIR := "user://world_packs"
 
+var _active_installs := {}
+
 
 func ensure_world_installed(world_key: String, endpoint: Dictionary) -> bool:
-	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
-	if ResourceLoader.exists(scene_path, "PackedScene"):
+	while _active_installs.has(world_key):
+		await get_tree().process_frame
+
+	if _is_world_scene_available(world_key, endpoint):
 		return true
+
+	_active_installs[world_key] = true
+	var ok := await _ensure_world_installed_locked(world_key, endpoint)
+	_active_installs.erase(world_key)
+	return ok
+
+
+func _ensure_world_installed_locked(world_key: String, endpoint: Dictionary) -> bool:
+	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
 
 	var pack = endpoint.get("pack", {})
 	if typeof(pack) != TYPE_DICTIONARY or pack.is_empty():
@@ -20,15 +33,27 @@ func ensure_world_installed(world_key: String, endpoint: Dictionary) -> bool:
 		push_error("[WORLD_PACK] missing pack URL for %s" % world_key)
 		return false
 
+	var expected_sha256 := str(pack_metadata.get("sha256", "")).to_lower()
+	if expected_sha256.is_empty():
+		push_error("[WORLD_PACK] missing sha256 for remote pack %s" % world_key)
+		return false
+
 	var cache_path := _cache_path(world_key, pack_metadata)
-	if not FileAccess.file_exists(cache_path) or not _verify_pack_file(cache_path, pack_metadata):
-		var downloaded := await _download_pack(url, cache_path)
+	if FileAccess.file_exists(cache_path) and _verify_pack_file(cache_path, pack_metadata):
+		print("[WORLD_PACK] cache hit %s -> %s" % [world_key, cache_path])
+	else:
+		var download_path := "%s.part" % cache_path
+		_remove_file(download_path)
+		var downloaded := await _download_pack(url, download_path)
 		if not downloaded:
 			return false
-		if not _verify_pack_file(cache_path, pack_metadata):
+		if not _verify_pack_file(download_path, pack_metadata):
+			_remove_file(download_path)
+			return false
+		if not _replace_cache_file(download_path, cache_path):
 			return false
 
-	if not ProjectSettings.load_resource_pack(cache_path, true):
+	if not ProjectSettings.load_resource_pack(cache_path, false):
 		push_error("[WORLD_PACK] failed to mount pack for %s: %s" % [world_key, cache_path])
 		return false
 
@@ -37,6 +62,11 @@ func ensure_world_installed(world_key: String, endpoint: Dictionary) -> bool:
 		return false
 
 	return true
+
+
+func _is_world_scene_available(world_key: String, endpoint: Dictionary) -> bool:
+	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
+	return ResourceLoader.exists(scene_path, "PackedScene")
 
 
 func _download_pack(url: String, cache_path: String) -> bool:
@@ -64,6 +94,7 @@ func _download_pack(url: String, cache_path: String) -> bool:
 	var request_result := int(result[0])
 	var response_code := int(result[1])
 	if request_result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
+		_remove_file(cache_path)
 		push_error("[WORLD_PACK] download failed url=%s result=%s response=%s" % [url, request_result, response_code])
 		return false
 
@@ -83,13 +114,33 @@ func _verify_pack_file(cache_path: String, pack_metadata: Dictionary) -> bool:
 	file.close()
 
 	var expected_sha256 := str(pack_metadata.get("sha256", "")).to_lower()
-	if not expected_sha256.is_empty():
-		var actual_sha256 := FileAccess.get_sha256(cache_path).to_lower()
-		if actual_sha256 != expected_sha256:
-			push_error("[WORLD_PACK] sha256 mismatch for %s" % cache_path)
-			return false
+	if expected_sha256.is_empty():
+		push_error("[WORLD_PACK] missing sha256 for %s" % cache_path)
+		return false
+
+	var actual_sha256 := FileAccess.get_sha256(cache_path).to_lower()
+	if actual_sha256 != expected_sha256:
+		push_error("[WORLD_PACK] sha256 mismatch for %s" % cache_path)
+		return false
 
 	return true
+
+
+func _replace_cache_file(download_path: String, cache_path: String) -> bool:
+	_remove_file(cache_path)
+	var err := DirAccess.rename_absolute(
+		ProjectSettings.globalize_path(download_path),
+		ProjectSettings.globalize_path(cache_path)
+	)
+	if err != OK:
+		push_error("[WORLD_PACK] failed to move downloaded pack %s -> %s err=%s" % [download_path, cache_path, err])
+		return false
+	return true
+
+
+func _remove_file(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 func _cache_path(world_key: String, pack_metadata: Dictionary) -> String:

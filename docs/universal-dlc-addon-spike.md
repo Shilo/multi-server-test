@@ -51,11 +51,23 @@ that tells the caller what happened. It does not mean "load the scene" because a
 generic DLC addon should not know whether the caller wants a scene, texture,
 script, audio bank, mod descriptor, or data file.
 
-Use `replace_files=false` by default when mounting resource packs. Godot's
-default replacement behavior is powerful for patches, but risky for a universal
-DLC/mod addon. A content pack should normally live under a project-owned
-namespace such as `res://dlc/<publisher>/<id>/...`, or under any explicit project
-path the host app chooses.
+Treat these as hard runtime requirements, not preferences:
+
+- Remote content must have an integrity source: inline `sha256`,
+  `sha256_url`, or trusted provider digest. `Content-Length`, `ETag`, and
+  `Last-Modified` are cache hints, not integrity.
+- Downloads must go to a temporary `.part` path, validate, then move into the
+  stable cache path. Failed HTTP responses, partial downloads, and hash
+  mismatches must not poison the cache.
+- Concurrent calls for the same content ID/cache key must share one in-flight
+  prepare operation instead of starting duplicate downloads or mounts.
+- Resource-pack installs must default to `replace_files=false`. Overriding
+  bundled resources is patch behavior and should require explicit opt-in.
+
+Godot's default replacement behavior is powerful for patches, but risky for a
+universal DLC/mod addon. A content pack should normally live under a
+project-owned namespace such as `res://dlc/<publisher>/<id>/...`, or under any
+explicit project path the host app chooses.
 
 For this project specifically, `res://server/worlds/` is still fine. The
 `server/`, `client/`, and `shared/` folders are export-bundle ownership labels.
@@ -122,20 +134,42 @@ That plugin should not be required by exported clients.
 The addon should optimize for one obvious call and a few explicit lower-level
 calls.
 
-Recommended primary API:
+Recommended primary API for configured content:
 
 ```gdscript
 var result := await DLC.prepare("hub")
 ```
 
-Recommended direct URL API:
+Recommended primary API for server-provided descriptors:
+
+```gdscript
+var result := await DLC.prepare({
+	"id": "hub",
+	"url": "https://example.com/dlc/hub.pck",
+	"sha256": "39882095cc2b59579a7c2d2179fc881808848a25febd1d8beffce8812ef35186",
+	"size": 14528,
+	"cache_key": "hub",
+	"install": "resource_pack",
+	"replace_files": false,
+	"entry": "res://server/worlds/hub/hub.tscn"
+})
+```
+
+Descriptor mode should be just as first-class as ID mode. In this project, the
+master server already sends `url`, `sha256`, `size`, and scene metadata in
+world route/transfer endpoints. Requiring a separate client-side DLC registry
+for those same fields would duplicate metadata and create exactly the friction
+the addon is supposed to remove. Registry mode is still valuable for standalone
+games, mods, or static content lists; descriptor mode is the natural fit for
+server-authoritative routing.
+
+Recommended direct URL shorthand:
 
 ```gdscript
 var result := await DLC.prepare("https://example.com/dlc/hub.pck", {
 	"sha256_url": "https://example.com/dlc/hub.pck.sha256",
 	"cache_key": "hub",
-	"install": "resource_pack",
-	"replace_files": false,
+	"install": "resource_pack"
 })
 ```
 
@@ -171,8 +205,9 @@ DLC.clear_cache("hub")
 ```
 
 Do not make callers pass large metadata dictionaries to the primary method.
-Prefer a configured registry of content items, plus small options only for
-direct URL use and overrides.
+Prefer either a configured registry of content items or a server-provided
+descriptor. Avoid designs where the caller has to assemble large dictionaries
+by hand at every call site.
 
 ## Result Object
 
@@ -244,6 +279,12 @@ This is the best default because it is server-agnostic, CDN-friendly, and
 requires only one tiny sidecar file. The sidecar is not a manifest; it is just an
 integrity and freshness token.
 
+For mutable names such as `hub.pck`, serve sidecars with `Cache-Control:
+no-cache` so the client revalidates the freshness token. For production hosting,
+prefer immutable PCK URLs or filenames, such as `hub-<sha256>.pck`, and let the
+sidecar or descriptor point to the current immutable artifact. That avoids the
+race where `hub.pck` and `hub.pck.sha256` are briefly out of sync during upload.
+
 If even the sidecar is undesired, the addon can use `HEAD` response metadata
 such as `ETag`, `Last-Modified`, and `Content-Length`. That is acceptable for
 local testing or trusted static hosting, but weaker:
@@ -254,6 +295,10 @@ local testing or trusted static hosting, but weaker:
   CORS exposes it.
 - A changed remote PCK cannot be proven valid without either downloading it or
   fetching a trusted hash from somewhere.
+
+The addon should refuse to install remote resource packs when no integrity
+source is available unless the caller explicitly opts into an unsafe/development
+mode. That opt-in should be noisy in logs and unavailable as the default.
 
 Comparing "cached PCK metadata" to "remote PCK metadata" only works if the host
 exposes useful metadata over HTTP or a provider API. A remote PCK does not expose
@@ -435,6 +480,31 @@ Freshness preference:
 The addon should never treat `Content-Length` alone as proof that the content is
 correct.
 
+Cache writes should be content-addressed and two-phase:
+
+```text
+download -> user://dlc/<id>/<cache_key>.pck.part
+validate -> SHA-256 and optional size check
+rename   -> user://dlc/<id>/<sha256>.pck
+record   -> cache.json update
+```
+
+If the HTTP request fails, the response code is non-2xx, the file size does not
+match, or the SHA-256 does not match, the `.part` file should be deleted and the
+stable cache entry should remain untouched. The result should distinguish
+`from_cache=true`, `status="downloaded"`, and `status="mounted"` so tests and
+callers can assert cache behavior directly.
+
+The service should keep an in-flight map keyed by content ID or cache key:
+
+```gdscript
+var existing := await DLC.prepare("hub")
+var also_existing := await DLC.prepare("hub")
+```
+
+Only one network download should happen. Later calls should await the first
+prepare operation and receive the same ready/failure state.
+
 For Web exports, `user://` persistence depends on browser IndexedDB/cookie
 settings. Godot documents that incognito/private browsing and some iframe cookie
 settings can prevent persistence. The addon should expose cache misses normally
@@ -578,7 +648,7 @@ folder can be excluded from exports.
 5. If the cached file matches the current version token and still exists, skip
    the download.
 6. Download to a temp path with `HTTPRequest.download_file`.
-7. Validate size and SHA-256 when available.
+7. Validate SHA-256 or provider digest, plus size when available.
 8. Move the file to a content-addressed cache path.
 9. Update the cache database atomically.
 10. Install:
@@ -618,22 +688,41 @@ For Web exports:
   disk instead of held in memory.
 - Test real Web exports for GitHub Releases redirects before blessing them as a
   default provider.
+- Do not freeze the public provider API, progress API, or GitHub Releases
+  behavior until at least one real browser export has exercised download,
+  validation, mount, refresh/cache hit, and redownload.
 
 ## Suggested First Spike
 
 Implement one generic vertical slice around the current `hub.pck`, but do not
-name the addon APIs around worlds.
+name the addon APIs around worlds. Keep the MVP intentionally small:
+
+```text
+HTTP source
+.pck resource-pack installer
+sha256 or sha256_url integrity
+user:// cache
+temporary .part downloads
+in-flight prepare dedupe
+ProjectSettings.load_resource_pack(..., replace_files=false)
+```
+
+Treat GitHub Pages as plain HTTP for the first pass. Defer GitHub Releases,
+repository raw-file providers, ZIP extraction, catalog discovery, and editor UI
+until the HTTP PCK path is proven in a Web export.
 
 1. Create `addons/godot_dlc/` runtime files only.
-2. Add `DLC.prepare()` with ID and direct URL support.
+2. Add `DLC.prepare()` with ID, descriptor dictionary, and direct URL support.
 3. Support plain HTTP `.pck` plus `.sha256` sidecar.
-4. Store cache state in `user://dlc/cache.json`.
-5. Mount with `replace_files=false` by default, with per-item override.
-6. Replace `client/world_pack_manager.gd` call site with a configured generic
-   DLC item for `hub`.
-7. Keep the existing world manifest for master/world transfer while the generic
+4. Download to `.part`, validate SHA-256, then rename into cache.
+5. Store cache state in `user://dlc/cache.json`.
+6. Deduplicate concurrent prepare calls for the same ID/cache key.
+7. Mount with `replace_files=false` by default, with per-item override.
+8. Replace `client/world_pack_manager.gd` call site with a server-provided
+   descriptor for `hub`; use a configured item only where it avoids duplication.
+9. Keep the existing world manifest for master/world transfer while the generic
    addon handles only content availability.
-8. Add a local smoke test:
+10. Add a local smoke test:
    - delete `user://dlc`,
    - request `hub`,
    - confirm download and mount,
@@ -641,6 +730,7 @@ name the addon APIs around worlds.
    - confirm cache hit,
    - change `.sha256`,
    - confirm redownload or validation failure.
+11. Add a browser Web export test before adding provider-specific APIs.
 
 ## Open Questions
 
@@ -655,6 +745,7 @@ name the addon APIs around worlds.
   should not be required.
 - Should GitHub Releases be a first-class provider in the first implementation,
   or should it wait until plain HTTP and GitHub Pages-style hosting are stable?
+  This spike now recommends waiting.
 - How much Web storage pressure is acceptable for cached PCKs before the addon
   needs cache eviction policy?
 

@@ -68,6 +68,9 @@ func _collect_files(res_dir: String, files: Array[String]) -> bool:
 		if dir.current_is_dir():
 			if not _collect_files(child_path, files):
 				return false
+		elif entry.ends_with(".import"):
+			_fail("fallback packer cannot include imported assets; use an export-pack preset instead: %s" % child_path)
+			return false
 		elif _should_pack_file(entry):
 			files.append(child_path)
 		entry = dir.get_next()
