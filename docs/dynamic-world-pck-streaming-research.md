@@ -118,7 +118,7 @@ check local cache manifest
 download PCK to user:// when missing or stale
 verify size/hash/version
 ProjectSettings.load_resource_pack("user://world_packs/<key>-<hash>.pck", true)
-load("res://worlds/<key>/<key>.tscn")
+load("res://server/worlds/<key>/<key>.tscn")
 connect to the world server with a fresh join ticket
 ```
 
@@ -197,12 +197,15 @@ GDScript, which is the straightforward path for Web PCK loading.
 
 ## Recommended Resource Layout
 
-Do not move downloadable client world content to `res://server/worlds/`.
-Downloaded packs mount into the client's `res://` namespace. Putting client
-content under a `server/` path makes the runtime model confusing and risks
-mixing server-only code with client-loadable content.
+Use `res://server/worlds/` for the current spike.
 
-Recommended long-term layout:
+This is a developer-facing convention, not a player-facing runtime detail. Godot
+does not care whether the mounted client scene path is `res://worlds/hub` or
+`res://server/worlds/hub`; after a PCK is mounted, either path is just a virtual
+`res://` resource path. The important project rule is that export automation
+must know which folders go into which artifacts.
+
+The working convention is:
 
 ```text
 res://shared/main/          bootstrap scene and role selection
@@ -210,8 +213,10 @@ res://shared/net/           shared endpoint/config code
 res://shared/world/         base world runtime shared by client and server
 res://shared/player/        shared player runtime
 res://client/               client shell and UI
-res://server/               server-only master/world process code
-res://worlds/<world_key>/   downloadable mini-game content
+res://server/               server export source
+res://server/worlds/<key>/  mini-game source, included in server export and
+                            packed separately for client download
+res://addons/               all exports when needed
 ```
 
 `res://shared/world/` should remain in the base client export if downloaded
@@ -223,11 +228,16 @@ If a world needs unique client-safe scripts, art, scenes, audio, shaders, or
 resources, keep them under:
 
 ```text
-res://worlds/<world_key>/
+res://server/worlds/<world_key>/
 ```
 
-Server-only scripts, secrets, admin tooling, persistence code, and private
-orchestration helpers must stay outside downloadable packs.
+The tradeoff is semantic: a Web client will load a mounted resource path that
+begins with `res://server/`. That is acceptable for this spike because the path
+is not user-facing and the folder rule is easy to remember. The guardrail is
+that `res://server/worlds/` must stay client-safe. Server-only scripts, secrets,
+admin tooling, persistence code, and private orchestration helpers must live
+elsewhere under `res://server/` and must be excluded from downloadable world
+packs.
 
 ## Export And Build Workflow
 
@@ -257,15 +267,15 @@ Suggested presets:
 Web Client Base
   includes: client/**, shared/main/**, shared/net/**, shared/world/**,
             shared/player/**, icon/project basics
-  excludes: server/**, worlds/**
+  excludes: server/**
 
 Server
-  includes: server/**, shared/**, worlds/**
+  includes: server/**, shared/**
   dedicated server export
 
 World Pack <key>
-  includes: worlds/<key>/** plus required imported dependencies
-  excludes: server/**
+  includes: server/worlds/<key>/** plus required imported dependencies
+  excludes: other server-only paths under server/**
 ```
 
 Godot supports command-line PCK export with `--export-pack`. For per-world PCKs,
@@ -287,7 +297,7 @@ The build script should compute a manifest after each PCK is written:
   "worlds": {
     "hub": {
       "display_name": "Hub",
-      "scene": "res://worlds/hub/hub.tscn",
+      "scene": "res://server/worlds/hub/hub.tscn",
       "pack_url": "https://example.com/world_packs/hub-4b1f.pck",
       "pack_sha256": "4b1f...",
       "pack_size": 1234567,
@@ -328,7 +338,7 @@ Endpoint data sent to the client should include asset metadata:
   "name": "Hub",
   "url": "wss://game.example.com/worlds/hub",
   "port": 19081,
-  "scene": "res://worlds/hub/hub.tscn",
+  "scene": "res://server/worlds/hub/hub.tscn",
   "pack": {
     "url": "https://game.example.com/world_packs/hub-4b1f.pck",
     "sha256": "4b1f...",
@@ -484,8 +494,8 @@ client-facing packs are separate artifacts with public, hash-addressed URLs.
   server still validates travel, tickets, identity, and gameplay authority.
 - Use HTTPS and same-origin hosting where possible to avoid CORS complexity.
 - Hash world PCKs and reject mismatches before mounting.
-- Keep pack internal paths namespaced under `res://worlds/<key>/` to avoid
-  accidental override behavior.
+- Keep pack internal paths namespaced under `res://server/worlds/<key>/` to
+  avoid accidental override behavior.
 - Use `replace_files=true` only when intentional. Namespacing should make
   replacement mostly irrelevant for normal world packs.
 - Do not rely on pack encryption as a security boundary for gameplay secrets.
@@ -497,7 +507,7 @@ client-facing packs are separate artifacts with public, hash-addressed URLs.
 
 Recommended implementation order:
 
-1. Move `shared/worlds/<key>/` to `worlds/<key>/` and update scene paths.
+1. Move `shared/worlds/<key>/` to `server/worlds/<key>/` and update scene paths.
 2. Keep `shared/world/` and `shared/player/` in the base client/server export.
 3. Replace `NET_CONFIG.world_keys()` filesystem discovery with manifest-driven
    world keys.
