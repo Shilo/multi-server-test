@@ -64,7 +64,11 @@ static func _prepare(url: String, options: PackRatOptions, id: String, key: Stri
 		result.from_cache = true
 		result.local_path = record.local_path
 		record.apply_to_result(result)
-		return _mount_if_pack(result, options)
+		var cached_result: PackRatResult = _mount_if_pack(result, options)
+		if not cached_result.ok:
+			cache.erase_record(key)
+			cache.save()
+		return cached_result
 
 	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s.part" % key)
 	if FileAccess.file_exists(part_path):
@@ -72,13 +76,18 @@ static func _prepare(url: String, options: PackRatOptions, id: String, key: Stri
 
 	var download: PackRatHttpResponse = await _request(url, part_path, options)
 	if not download.ok:
-		if cached_file_exists:
+		DirAccess.remove_absolute(part_path)
+		if cached_file_exists and not options.always_download:
 			result.status = PackRatResult.STATUS_CACHE_HIT
 			result.from_cache = true
 			result.local_path = record.local_path
 			result.add_warning("%s Using the previous cached pack." % download.error)
 			record.apply_to_result(result)
-			return _mount_if_pack(result, options)
+			var fallback_result: PackRatResult = _mount_if_pack(result, options)
+			if not fallback_result.ok:
+				cache.erase_record(key)
+				cache.save()
+			return fallback_result
 
 		return PackRatResult.failed(url, download.error)
 
@@ -110,30 +119,37 @@ static func _prepare(url: String, options: PackRatOptions, id: String, key: Stri
 	result.content_length = file_size
 	metadata.apply_to_result(result)
 
+	if not has_comparable_freshness:
+		result.add_warning("PackRat cached this URL without comparable freshness headers.")
+
+	var mounted_result: PackRatResult = _mount_if_pack(result, options)
+	if not mounted_result.ok:
+		DirAccess.remove_absolute(local_path)
+		return mounted_result
+
 	cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
 	var save_error: Error = cache.save()
 	if save_error != OK:
 		result.add_warning("PackRat prepared the pack but could not save cache metadata (error %d)." % save_error)
 
-	if not has_comparable_freshness:
-		result.add_warning("PackRat cached this URL without comparable freshness headers.")
-
-	return _mount_if_pack(result, options)
+	return mounted_result
 
 
 static func _mount_if_pack(result: PackRatResult, options: PackRatOptions) -> PackRatResult:
 	var extension: String = result.local_path.get_extension().to_lower()
-	if extension == "pck" or extension == "zip":
-		result.mounted = ProjectSettings.load_resource_pack(result.local_path, options.replace_files)
-		if not result.mounted:
-			return PackRatResult.failed(result.source_url, "Godot could not mount %s." % result.local_path)
+	if extension != "pck" and extension != "zip":
+		return PackRatResult.failed(result.source_url, "PackRat only mounts .pck and .zip files.")
 
-		var previous_path: String = str(_mounted_paths_by_id.get(result.id, ""))
-		if not previous_path.is_empty() and previous_path != result.local_path:
-			result.add_warning(
-				"PackRat mounted a different pack for id '%s'. Godot resource packs stay mounted for the life of the process." % result.id
-			)
-		_mounted_paths_by_id[result.id] = result.local_path
+	result.mounted = ProjectSettings.load_resource_pack(result.local_path, options.replace_files)
+	if not result.mounted:
+		return PackRatResult.failed(result.source_url, "Godot could not mount %s." % result.local_path)
+
+	var previous_path: String = str(_mounted_paths_by_id.get(result.id, ""))
+	if not previous_path.is_empty() and previous_path != result.local_path:
+		result.add_warning(
+			"PackRat mounted a different pack for id '%s'. Godot resource packs stay mounted for the life of the process." % result.id
+		)
+	_mounted_paths_by_id[result.id] = result.local_path
 
 	result.ok = true
 	result.entry_path = options.entry_path
@@ -200,7 +216,7 @@ static func _local_path(
 	var basename: String = filename.get_basename()
 	var token: String = _version_token(url, metadata, options)
 	if extension.is_empty():
-		return cache_dir.path_join(id).path_join("%s-%s" % [basename, token])
+		extension = _extension_for_response(metadata)
 
 	return cache_dir.path_join(id).path_join("%s-%s.%s" % [basename, token, extension])
 
@@ -234,6 +250,13 @@ static func _cache_key(url: String, id: String, options: PackRatOptions) -> Stri
 
 static func _expected_metadata_token(options: PackRatOptions) -> String:
 	return ("expected:%d:%d" % [options.expected_size, options.expected_modified_time]).sha256_text().substr(0, 12)
+
+
+static func _extension_for_response(metadata: PackRatHttpResponse) -> String:
+	if metadata.content_type.to_lower().contains("zip"):
+		return "zip"
+
+	return "pck"
 
 
 static func _filename(url: String) -> String:

@@ -22,6 +22,9 @@ var last_modified: String = ""
 ## Remote Content-Length header used for freshness when available.
 var content_length: int = 0
 
+## Remote Content-Type header used only for extensionless cache filenames.
+var content_type: String = ""
+
 
 ## Creates a failed response with [param message].
 static func failed(message: String) -> PackRatHttpResponse:
@@ -44,6 +47,7 @@ static func from_completed(
 	response.etag = _header_value(headers, "etag")
 	response.last_modified = _header_value(headers, "last-modified")
 	response.content_length = int(_header_value(headers, "content-length"))
+	response.content_type = _header_value(headers, "content-type")
 	return response
 
 
@@ -62,6 +66,8 @@ func merge_from(other: PackRatHttpResponse) -> void:
 		last_modified = other.last_modified
 	if other.content_length > 0:
 		content_length = other.content_length
+	if not other.content_type.is_empty():
+		content_type = other.content_type
 
 
 ## Copies this response's metadata into [param result].
