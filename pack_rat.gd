@@ -9,7 +9,6 @@ class_name PackRat extends RefCounted
 const _REQUEST_RUNNER_SCRIPT: GDScript = preload("res://addons/pack_rat/internal/pack_rat_request_runner.gd")
 const _FILE_METADATA_SCRIPT: GDScript = preload("res://addons/pack_rat/pack_rat_file_metadata.gd")
 
-static var _in_flight: Dictionary = {}
 static var _mounted_paths_by_id: Dictionary = {}
 
 
@@ -23,6 +22,9 @@ static func load_resource_pack(url: String, options: PackRatOptions = PackRatOpt
 		return PackRatResult.failed(url, "PackRat MVP only accepts HTTP(S) URLs.")
 
 	var request: PackRatRequest = load_resource_pack_async(url, options)
+	if request.is_completed():
+		return request.result
+
 	await request.completed
 	return request.result
 
@@ -36,27 +38,24 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 
 	var id: String = _id_for_url(url, options)
 	var key: String = _cache_key(url, id, options)
-	var flight_key: String = "%s:%s" % [options.cache_dir, key]
-	if _in_flight.has(flight_key):
-		return _in_flight[flight_key]
-
 	var request: PackRatRequest = PackRatRequest.new()
 	request._setup(url, options, id, key)
-	_in_flight[flight_key] = request
 	var tree: SceneTree = Engine.get_main_loop()
 	if tree == null or tree.root == null:
-		_in_flight.erase(flight_key)
 		request._finish(PackRatResult.failed(url, "PackRat needs a running SceneTree."))
 		return request
 
 	var runner: Node = _REQUEST_RUNNER_SCRIPT.new()
 	tree.root.add_child(runner)
-	runner.start(request, flight_key)
+	runner.start(request)
 	return request
 
 
 ## Deletes every cached resource pack and cache metadata entry.
 static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error:
+	if not _is_safe_cache_dir(options.cache_dir):
+		return ERR_INVALID_PARAMETER
+
 	var error: Error = _clear_directory(options.cache_dir)
 	if error != OK:
 		return error
@@ -70,6 +69,9 @@ static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error
 ## This only removes disk cache entries. Already mounted resource packs remain
 ## mounted until the process exits because Godot does not expose per-pack unload.
 static func clear_cached_resource_pack(value: String, options: PackRatOptions = PackRatOptions.new()) -> Error:
+	if not _is_safe_cache_dir(options.cache_dir):
+		return ERR_INVALID_PARAMETER
+
 	var cache: PackRatCache = PackRatCache.load(options.cache_dir)
 	var keys: PackedStringArray = cache.keys()
 	var matched: bool = false
@@ -81,12 +83,12 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 			continue
 
 		matched = true
-		if FileAccess.file_exists(record.local_path):
-			var remove_error: Error = DirAccess.remove_absolute(record.local_path)
-			if remove_error != OK and first_error == OK:
-				first_error = remove_error
+		var remove_error: Error = _remove_cache_file(record.local_path, options.cache_dir)
+		if remove_error != OK and remove_error != ERR_DOES_NOT_EXIST and first_error == OK:
+			first_error = remove_error
 		cache.erase_record(key)
-		_remove_empty_directory(record.local_path.get_base_dir())
+		if _is_cache_child_path(record.local_path.get_base_dir(), options.cache_dir):
+			_remove_empty_directory(record.local_path.get_base_dir())
 
 	if not matched:
 		return ERR_DOES_NOT_EXIST
@@ -117,8 +119,8 @@ static func github_release_url(owner: String, repo: String, filename: String, ta
 
 
 ## Reads size and modified-time metadata for [param path] without opening the file.
-static func file_metadata(path: String):
-	var metadata: RefCounted = _FILE_METADATA_SCRIPT.new()
+static func file_metadata(path: String) -> PackRatFileMetadata:
+	var metadata: PackRatFileMetadata = _FILE_METADATA_SCRIPT.new()
 	metadata.path = path
 	if path.is_empty():
 		metadata.error = "PackRat could not read file metadata because the path is empty."
@@ -142,8 +144,7 @@ static func file_metadata(path: String):
 	return metadata
 
 
-static func _finish_resource_pack_request(request: PackRatRequest, flight_key: String, result: PackRatResult) -> void:
-	_in_flight.erase(flight_key)
+static func _finish_resource_pack_request(request: PackRatRequest, result: PackRatResult) -> void:
 	request._finish(result)
 
 
@@ -176,6 +177,16 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 	var metadata: PackRatHttpResponse = PackRatHttpResponse.new()
 	var cached_file_exists: bool = record.file_exists()
 	var should_download: bool = options.always_download or not cached_file_exists
+	var cached_expected_size_mismatch: bool = false
+
+	if cached_file_exists and options.has_expected_size():
+		var cached_size: int = FileAccess.get_size(record.local_path)
+		if cached_size != options.expected_size:
+			cached_expected_size_mismatch = true
+			should_download = true
+			_remove_cache_file(record.local_path, options.cache_dir)
+			cache.erase_record(key)
+			cache.save()
 
 	if cached_file_exists and not should_download and (options.offline_first or options.has_expected_metadata()):
 		should_download = false
@@ -196,11 +207,12 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 		record.apply_to_result(result)
 		var cached_result: PackRatResult = _mount_if_pack(result, options)
 		if not cached_result.ok:
+			_remove_cache_file(record.local_path, options.cache_dir)
 			cache.erase_record(key)
 			cache.save()
 		return cached_result
 
-	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s.part" % key)
+	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s-%d.part" % [key, request.get_instance_id()])
 	if FileAccess.file_exists(part_path):
 		DirAccess.remove_absolute(part_path)
 
@@ -211,7 +223,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 
 	if not download.ok:
 		DirAccess.remove_absolute(part_path)
-		if cached_file_exists and not options.always_download:
+		if cached_file_exists and not options.always_download and not cached_expected_size_mismatch:
 			result.status = PackRatResult.STATUS_CACHE_HIT
 			result.from_cache = true
 			result.local_path = record.local_path
@@ -219,6 +231,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 			record.apply_to_result(result)
 			var fallback_result: PackRatResult = _mount_if_pack(result, options)
 			if not fallback_result.ok:
+				_remove_cache_file(record.local_path, options.cache_dir)
 				cache.erase_record(key)
 				cache.save()
 			return fallback_result
@@ -238,6 +251,22 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 
 	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
 	var local_path: String = _local_path(url, options.cache_dir, result.id, metadata, options)
+	if FileAccess.file_exists(local_path) and not options.always_download and not cached_expected_size_mismatch:
+		result.status = PackRatResult.STATUS_DOWNLOADED
+		result.from_cache = false
+		result.local_path = local_path
+		result.content_length = FileAccess.get_size(local_path)
+		metadata.apply_to_result(result)
+		var existing_result: PackRatResult = _mount_if_pack(result, options)
+		if existing_result.ok:
+			DirAccess.remove_absolute(part_path)
+			cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
+			cache.save()
+			return existing_result
+
+		_remove_cache_file(local_path, options.cache_dir)
+		cache.erase_record(key)
+
 	if FileAccess.file_exists(local_path):
 		DirAccess.remove_absolute(local_path)
 
@@ -262,8 +291,17 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 
 	var mounted_result: PackRatResult = _mount_if_pack(result, options)
 	if not mounted_result.ok:
-		DirAccess.remove_absolute(local_path)
+		_remove_cache_file(local_path, options.cache_dir)
 		return mounted_result
+
+	var previous_local_path: String = record.local_path
+	var previous_mounted_path: String = str(_mounted_paths_by_id.get(result.id, ""))
+	if (
+		not previous_local_path.is_empty()
+		and previous_local_path != local_path
+		and previous_local_path != previous_mounted_path
+	):
+		_remove_cache_file(previous_local_path, options.cache_dir)
 
 	cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
 	var save_error: Error = cache.save()
@@ -527,6 +565,40 @@ static func _ensure_dir(path: String) -> void:
 	var error: Error = DirAccess.make_dir_recursive_absolute(path)
 	if error != OK and error != ERR_ALREADY_EXISTS:
 		push_warning("PackRat could not create %s (error %d)." % [path, error])
+
+
+static func _is_safe_cache_dir(path: String) -> bool:
+	var normalized: String = _normalized_cache_dir(path)
+	return normalized.begins_with("user://") and normalized != "user://"
+
+
+static func _is_cache_child_path(path: String, cache_dir: String) -> bool:
+	var normalized_cache_dir: String = _normalized_cache_dir(cache_dir)
+	if normalized_cache_dir.is_empty():
+		return false
+
+	return path.begins_with("%s/" % normalized_cache_dir)
+
+
+static func _remove_cache_file(path: String, cache_dir: String) -> Error:
+	if path.is_empty():
+		return ERR_DOES_NOT_EXIST
+
+	if not _is_cache_child_path(path, cache_dir):
+		return ERR_INVALID_DATA
+
+	if not FileAccess.file_exists(path):
+		return ERR_DOES_NOT_EXIST
+
+	return DirAccess.remove_absolute(path)
+
+
+static func _normalized_cache_dir(path: String) -> String:
+	var normalized: String = path.strip_edges()
+	while normalized.ends_with("/") and normalized != "user://" and normalized != "res://":
+		normalized = normalized.trim_suffix("/")
+
+	return normalized
 
 
 static func _clear_directory(path: String) -> Error:

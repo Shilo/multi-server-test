@@ -28,8 +28,9 @@ var result: PackRatResult
 var _http_request: HTTPRequest
 var _is_canceled: bool = false
 var _is_completed: bool = false
-var _last_downloaded_bytes: int = -1
-var _last_total_bytes: int = -2
+var _has_progress: bool = false
+var _last_downloaded_bytes: int = 0
+var _last_total_bytes: int = 0
 
 
 ## Returns [code]true[/code] after [method cancel] has been called.
@@ -67,9 +68,10 @@ func _set_http_request(request: HTTPRequest) -> void:
 
 
 func _set_progress(downloaded_bytes: int, total_bytes: int) -> void:
-	if downloaded_bytes == _last_downloaded_bytes and total_bytes == _last_total_bytes:
+	if _has_progress and downloaded_bytes == _last_downloaded_bytes and total_bytes == _last_total_bytes:
 		return
 
+	_has_progress = true
 	_last_downloaded_bytes = downloaded_bytes
 	_last_total_bytes = total_bytes
 	progress_changed.emit(downloaded_bytes, total_bytes)
