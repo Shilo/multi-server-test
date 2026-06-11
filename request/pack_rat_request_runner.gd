@@ -7,7 +7,7 @@ var _request: PackRatRequest
 ## Starts the request on the next idle frame.
 func start(request: PackRatRequest) -> void:
 	_request = request
-	call_deferred("_run")
+	_run.call_deferred()
 
 
 func _run() -> void:
