@@ -69,6 +69,41 @@ func add_warning(message: String) -> void:
 		warnings.append(message)
 
 
+## Returns [code]true[/code] when [member entry_path] points to a loadable
+## [PackedScene] and this result completed successfully.
+func has_entry_scene() -> bool:
+	return ok and not entry_path.is_empty() and ResourceLoader.exists(entry_path, "PackedScene")
+
+
+## Loads [member entry_path] as a [PackedScene], or returns [code]null[/code]
+## when this result failed, no entry path was provided, or the resource is not a scene.
+func load_entry_scene() -> PackedScene:
+	if not has_entry_scene():
+		return null
+
+	var scene: PackedScene = ResourceLoader.load(entry_path, "PackedScene")
+	return scene
+
+
+## Changes the active scene to [member entry_path].
+## [br][br]
+## When [param tree] is [code]null[/code], the current [SceneTree] is read from
+## [method Engine.get_main_loop].
+func change_scene_to_entry(tree: SceneTree = null) -> Error:
+	var scene: PackedScene = load_entry_scene()
+	if scene == null:
+		return ERR_FILE_NOT_FOUND
+
+	var target_tree: SceneTree = tree
+	if target_tree == null:
+		target_tree = Engine.get_main_loop()
+
+	if target_tree == null:
+		return ERR_UNCONFIGURED
+
+	return target_tree.change_scene_to_packed(scene)
+
+
 ## Returns this result as a plain dictionary for logging and tests.
 func to_dictionary() -> Dictionary:
 	return {
