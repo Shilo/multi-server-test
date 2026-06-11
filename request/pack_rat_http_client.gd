@@ -60,7 +60,10 @@ static func request(
 			return PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED)
 
 		if not download_path.is_empty():
-			owner._set_progress(http_request.get_downloaded_bytes(), http_request.get_body_size())
+			var total_bytes: int = http_request.get_body_size()
+			if total_bytes <= 0 and options.has_expected_size():
+				total_bytes = options.expected_size
+			owner._set_progress(http_request.get_downloaded_bytes(), total_bytes)
 		await tree.process_frame
 
 	owner._set_http_request(null)
