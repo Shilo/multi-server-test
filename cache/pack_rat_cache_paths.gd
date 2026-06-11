@@ -164,18 +164,18 @@ static func is_safe_cache_dir(path: String) -> bool:
 
 
 static func is_cache_child_path(path: String, cache_dir: String) -> bool:
-	var normalized_cache_dir: String = normalized_cache_dir(cache_dir)
+	var normalized_cache_root: String = normalized_cache_dir(cache_dir)
 	var normalized_path: String = normalized_cache_dir(path)
 	if (
-		normalized_cache_dir.is_empty()
+		normalized_cache_root.is_empty()
 		or has_parent_directory_segment(path)
 		or has_parent_directory_segment(cache_dir)
 		or has_parent_directory_segment(normalized_path)
-		or has_parent_directory_segment(normalized_cache_dir)
+		or has_parent_directory_segment(normalized_cache_root)
 	):
 		return false
 
-	return normalized_path.begins_with("%s/" % normalized_cache_dir)
+	return normalized_path.begins_with("%s/" % normalized_cache_root)
 
 
 static func normalized_cache_dir(path: String) -> String:
