@@ -1,6 +1,21 @@
 class_name PackRatHttpResponse extends RefCounted
 ## Internal HTTP result used by [PackRat] while loading a resource pack.
 
+const _MONTHS: Dictionary = {
+	"jan": 1,
+	"feb": 2,
+	"mar": 3,
+	"apr": 4,
+	"may": 5,
+	"jun": 6,
+	"jul": 7,
+	"aug": 8,
+	"sep": 9,
+	"oct": 10,
+	"nov": 11,
+	"dec": 12,
+}
+
 ## [code]true[/code] when [HTTPRequest] finished successfully with a 2xx response.
 var ok: bool = false
 
@@ -52,6 +67,26 @@ static func from_completed(
 	return response
 
 
+static func parse_http_date_unix(value: String) -> int:
+	var parts: PackedStringArray = value.strip_edges().split(" ", false)
+	if parts.size() < 5:
+		return 0
+
+	var month: int = _month_number(parts[2])
+	var time_parts: PackedStringArray = parts[4].split(":")
+	if month <= 0 or time_parts.size() != 3:
+		return 0
+
+	return int(Time.get_unix_time_from_datetime_dict({
+		"year": int(parts[3]),
+		"month": month,
+		"day": int(parts[1]),
+		"hour": int(time_parts[0]),
+		"minute": int(time_parts[1]),
+		"second": int(time_parts[2]),
+	}))
+
+
 ## Returns [code]true[/code] when at least one freshness field is available.
 func has_freshness() -> bool:
 	return not etag.is_empty() or not last_modified.is_empty() or content_length > 0
@@ -91,3 +126,7 @@ static func _header_map(headers: PackedStringArray) -> Dictionary:
 		output[header.substr(0, separator).to_lower()] = header.substr(separator + 1).strip_edges()
 
 	return output
+
+
+static func _month_number(value: String) -> int:
+	return int(_MONTHS.get(value.to_lower(), 0))
