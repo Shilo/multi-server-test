@@ -4,9 +4,6 @@ class_name PackRat extends RefCounted
 ## The main API is [method prepare]. It lazily creates [member service] under the
 ## scene tree root so callers do not need an autoload or editor plugin.
 
-const SERVICE_NODE_NAME: String = "PackRatService"
-const PackRatService: GDScript = preload("res://addons/pack_rat/pack_rat_service.gd")
-
 static var _service: PackRatService = null
 
 ## Runtime worker node used by [method prepare].
@@ -15,6 +12,8 @@ static var _service: PackRatService = null
 ## [HTTPRequest] requires a node in the scene tree.
 static var service: PackRatService:
 	get:
+		var _service_node_name: String = "PackRatService"
+
 		if is_instance_valid(_service):
 			return _service
 
@@ -22,13 +21,13 @@ static var service: PackRatService:
 		if tree == null or tree.root == null:
 			return null
 
-		var existing: Node = tree.root.get_node_or_null(SERVICE_NODE_NAME)
+		var existing: Node = tree.root.get_node_or_null(_service_node_name)
 		if existing is PackRatService:
 			_service = existing
 			return _service
 
 		_service = PackRatService.new()
-		_service.name = SERVICE_NODE_NAME
+		_service.name = _service_node_name
 		tree.root.add_child.call_deferred(_service)
 		return _service
 
@@ -38,10 +37,7 @@ static var service: PackRatService:
 ## Returns a [PackRatResult] with [member PackRatResult.ok] set to [code]true[/code]
 ## when the file is ready. [param options] can override cache location,
 ## replacement behavior, request headers, timeout, and entry path.
-static func prepare(url: String, options: PackRatOptions = null) -> PackRatResult:
-	if options == null:
-		options = PackRatOptions.new()
-
+static func prepare(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatResult:
 	var runtime_service: PackRatService = service
 	if runtime_service == null:
 		return PackRatResult.failed(url, "PackRat.prepare() needs a running SceneTree.")
