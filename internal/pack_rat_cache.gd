@@ -33,6 +33,15 @@ func record(key: String) -> PackRatCacheRecord:
 	return PackRatCacheRecord.from_dictionary(_items.get(key, {}))
 
 
+## Returns the stored cache keys.
+func keys() -> PackedStringArray:
+	var output: PackedStringArray = []
+	for key in _items.keys():
+		output.append(str(key))
+
+	return output
+
+
 ## Stores [param record] at [param key].
 func set_record(key: String, record: PackRatCacheRecord) -> void:
 	_items[key] = record.to_dictionary()

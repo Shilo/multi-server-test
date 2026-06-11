@@ -1,5 +1,5 @@
 class_name PackRatResult extends RefCounted
-## Result returned by [method PackRat.prepare].
+## Result returned by [method PackRat.load_resource_pack].
 
 ## The cached file was reused.
 const STATUS_CACHE_HIT: String = "cache_hit"
@@ -7,7 +7,7 @@ const STATUS_CACHE_HIT: String = "cache_hit"
 ## A new file was downloaded and cached.
 const STATUS_DOWNLOADED: String = "downloaded"
 
-## The prepare operation failed.
+## The resource pack load failed.
 const STATUS_FAILED: String = "failed"
 
 ## [code]true[/code] when the requested content is ready.
@@ -26,7 +26,7 @@ var from_cache: bool = false
 ## [code]true[/code] when the local file was mounted as a PCK/ZIP resource pack.
 var mounted: bool = false
 
-## Original remote URL passed to [method PackRat.prepare].
+## Original remote URL passed to [method PackRat.load_resource_pack].
 var source_url: String = ""
 
 ## Local cached file path.

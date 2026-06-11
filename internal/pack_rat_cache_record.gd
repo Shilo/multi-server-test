@@ -1,5 +1,5 @@
 class_name PackRatCacheRecord extends RefCounted
-## Internal cache entry for one prepared URL.
+## Internal cache entry for one loaded URL.
 
 ## Original remote URL used to create this cache entry.
 var source_url: String = ""

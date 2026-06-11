@@ -1,5 +1,5 @@
 class_name PackRatHttpResponse extends RefCounted
-## Internal HTTP result used by [PackRat] while preparing a pack.
+## Internal HTTP result used by [PackRat] while loading a resource pack.
 
 ## [code]true[/code] when [HTTPRequest] finished successfully with a 2xx response.
 var ok: bool = false

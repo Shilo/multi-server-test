@@ -1,5 +1,5 @@
 class_name PackRatOptions extends RefCounted
-## Optional settings for [method PackRat.prepare].
+## Optional settings for [method PackRat.load_resource_pack].
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""
@@ -9,6 +9,9 @@ var cache_dir: String = "user://pack_rat"
 
 ## Whether mounted PCK/ZIP files can replace existing [code]res://[/code] paths.
 var replace_files: bool = true
+
+## Byte offset for embedded PCK files. Godot does not support nonzero offsets for ZIP packs.
+var offset: int = 0
 
 ## Optional resource path the caller intends to load after the pack is ready.
 var entry_path: String = ""
