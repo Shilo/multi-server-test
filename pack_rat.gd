@@ -14,7 +14,7 @@ class_name PackRat extends RefCounted
 ## replacement behavior, request headers, timeout, and entry path.
 static func load_resource_pack(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatResult:
 	if not PackRatCachePaths.is_http_url(url):
-		return PackRatResult.failed(url, "PackRat MVP only accepts HTTP(S) URLs.")
+		return PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs.")
 
 	var request_options: PackRatOptions = options.copy()
 	if not PackRatCachePaths.is_safe_cache_dir(request_options.cache_dir):
@@ -38,7 +38,7 @@ static func load_resource_pack(url: String, options: PackRatOptions = PackRatOpt
 static func load_resource_pack_async(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatRequest:
 	if not PackRatCachePaths.is_http_url(url):
 		var invalid_request: PackRatRequest = PackRatRequest.new()
-		_finish_request_next_frame(invalid_request, PackRatResult.failed(url, "PackRat MVP only accepts HTTP(S) URLs."))
+		_finish_request_next_frame(invalid_request, PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs."))
 		return invalid_request
 
 	var request_options: PackRatOptions = options.copy()
