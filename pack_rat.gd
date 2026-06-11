@@ -24,6 +24,7 @@ const _MONTHS: Dictionary = {
 
 static var _mounted_paths_by_id: Dictionary = {}
 static var _mounted_signatures_by_id: Dictionary = {}
+static var _mounted_paths: Dictionary = {}
 static var _fast_cache_records: Dictionary = {}
 static var _fast_cache_signatures: Dictionary = {}
 
@@ -95,13 +96,22 @@ static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error
 		return ERR_INVALID_PARAMETER
 
 	var cache_dir: String = _normalized_cache_dir(options.cache_dir)
-	var error: Error = _clear_directory(cache_dir)
-	if error != OK:
-		return error
+	_ensure_dir(cache_dir)
+	var first_error: Error = _clear_part_files(cache_dir)
+	var clear_error: Error = _clear_unmounted_cache_files(cache_dir)
+	if first_error == OK:
+		first_error = clear_error
+
+	var cache: PackRatCache = PackRatCache.load(cache_dir)
+	for key in cache.keys():
+		cache.erase_record(key)
+
+	var save_error: Error = cache.save()
+	if first_error == OK:
+		first_error = save_error
 
 	_clear_fast_cache()
-	_ensure_dir(cache_dir)
-	return OK
+	return first_error
 
 
 ## Deletes cached entries matching [param value] as a URL, ID, cached filename, or path.
@@ -117,28 +127,56 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 	var keys: PackedStringArray = cache.keys()
 	var matched: bool = false
 	var first_error: Error = OK
+	var matched_ids: PackedStringArray = []
 
 	for key in keys:
 		var record: PackRatCacheRecord = cache.record(key)
-		if not _cache_record_matches(value, record):
+		if not _cache_record_matches(value, key, record):
 			continue
 
 		matched = true
-		var remove_error: Error = _remove_cache_file(record.local_path, cache_dir)
-		if remove_error != OK and remove_error != ERR_DOES_NOT_EXIST and first_error == OK:
-			first_error = remove_error
+		var record_id: String = _record_id(key, record)
+		if not matched_ids.has(record_id):
+			matched_ids.append(record_id)
 		cache.erase_record(key)
-		if _is_cache_child_path(record.local_path.get_base_dir(), cache_dir):
-			_remove_empty_directory(record.local_path.get_base_dir())
+		_forget_fast_cache(key, options)
+		var remove_error: Error = _remove_cache_file(record.local_path, cache_dir)
+		if _is_real_remove_error(remove_error) and first_error == OK:
+			first_error = remove_error
+
+	if not matched:
+		var direct_id: String = _id_from_cached_filename(value)
+		var direct_path: String = value if value.begins_with("user://") else cache_dir.path_join(value)
+		if not direct_id.is_empty() and _is_cache_child_path(direct_path, cache_dir) and FileAccess.file_exists(direct_path):
+			matched = true
+			matched_ids.append(direct_id)
+		elif not _is_http_url(value) and _has_matching_cache_file(cache_dir, _safe(value)):
+			matched = true
+			matched_ids.append(_safe(value))
 
 	if not matched:
 		return ERR_DOES_NOT_EXIST
+
+	for key in cache.keys():
+		var record: PackRatCacheRecord = cache.record(key)
+		if not matched_ids.has(_record_id(key, record)):
+			continue
+
+		cache.erase_record(key)
+		_forget_fast_cache(key, options)
+		var remove_error: Error = _remove_cache_file(record.local_path, cache_dir)
+		if _is_real_remove_error(remove_error) and first_error == OK:
+			first_error = remove_error
+
+	for id in matched_ids:
+		var cleanup_error: Error = _clear_unmounted_cache_files(cache_dir, id)
+		if _is_real_remove_error(cleanup_error) and first_error == OK:
+			first_error = cleanup_error
 
 	var save_error: Error = cache.save()
 	if save_error != OK:
 		return save_error
 
-	_clear_fast_cache()
 	return first_error
 
 
@@ -232,6 +270,11 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 	var record: PackRatCacheRecord = cache.record(key)
 	var metadata: PackRatHttpResponse = PackRatHttpResponse.new()
 	var cached_file_exists: bool = record.file_exists()
+	if not record.local_path.is_empty() and not cached_file_exists:
+		cache.erase_record(key)
+		_forget_fast_cache(key, options)
+		cache.save()
+
 	var should_download: bool = options.always_download or not cached_file_exists
 	var cached_expected_size_mismatch: bool = false
 
@@ -266,7 +309,6 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 			_remember_fast_cache(key, url, cached_result, options)
 		return cached_result
 
-	_ensure_dir(options.cache_dir.path_join(result.id))
 	_ensure_dir(options.cache_dir.path_join("tmp"))
 	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s-%d.part" % [key, request.get_instance_id()])
 	if FileAccess.file_exists(part_path):
@@ -305,7 +347,12 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 
 	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
 	var local_path: String = _local_path(url, options.cache_dir, result.id, metadata, options)
-	if FileAccess.file_exists(local_path) and not options.always_download and not cached_expected_size_mismatch:
+	if (
+		FileAccess.file_exists(local_path)
+		and not _is_mounted_path(local_path)
+		and not options.always_download
+		and not cached_expected_size_mismatch
+	):
 		result.status = PackRatResult.STATUS_DOWNLOADED
 		result.from_cache = false
 		result.local_path = local_path
@@ -322,7 +369,13 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 		_evict_cache_record(cache, key, local_path, options, false)
 
 	if FileAccess.file_exists(local_path):
-		DirAccess.remove_absolute(local_path)
+		if _is_mounted_path(local_path):
+			local_path = _unused_cache_path(local_path, request.get_instance_id())
+		else:
+			var remove_error: Error = _remove_cache_file(local_path, options.cache_dir)
+			if _is_real_remove_error(remove_error):
+				DirAccess.remove_absolute(part_path)
+				return PackRatResult.failed(url, "Could not replace cached pack %s (error %d)." % [local_path, remove_error])
 
 	var move_error: Error = DirAccess.rename_absolute(part_path, local_path)
 	if move_error != OK:
@@ -357,6 +410,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 	):
 		_remove_cache_file(previous_local_path, options.cache_dir)
 
+	_cleanup_old_versions(cache, key, result.id, local_path, options, result)
 	cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
 	var save_error: Error = cache.save()
 	if save_error != OK:
@@ -398,6 +452,7 @@ static func _mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pa
 		)
 	_mounted_paths_by_id[result.id] = result.local_path
 	_mounted_signatures_by_id[result.id] = signature
+	_mounted_paths[result.local_path] = true
 
 	result.ok = true
 	result.entry_path = options.entry_path
@@ -482,12 +537,11 @@ static func _local_path(
 ) -> String:
 	var filename: String = _filename(url)
 	var extension: String = filename.get_extension()
-	var basename: String = filename.get_basename()
 	var token: String = _version_token(url, metadata, options)
 	if extension.is_empty():
 		extension = _extension_for_response(metadata)
 
-	return cache_dir.path_join(id).path_join("%s-%s.%s" % [basename, token, extension])
+	return cache_dir.path_join("%s-%s.%s" % [id, token, extension])
 
 
 static func _version_token(url: String, metadata: PackRatHttpResponse, options: PackRatOptions) -> String:
@@ -574,19 +628,21 @@ static func _month_number(value: String) -> int:
 	return int(_MONTHS.get(value.to_lower(), 0))
 
 
-static func _cache_record_matches(value: String, record: PackRatCacheRecord) -> bool:
+static func _cache_record_matches(value: String, key: String, record: PackRatCacheRecord) -> bool:
 	if _is_http_url(value):
 		return record.source_url == value
+
+	if key == value:
+		return true
 
 	if record.local_path == value:
 		return true
 
-	var id: String = record.local_path.get_base_dir().get_file()
 	var safe_value: String = _safe(value)
-	if id == safe_value:
+	if _record_id(key, record) == safe_value:
 		return true
 
-	return record.local_path.get_file() == value
+	return record.local_path.get_file() == value or _filename(record.source_url) == value
 
 
 static func _filename(url: String) -> String:
@@ -633,6 +689,18 @@ static func _mount_signature(path: String, options: PackRatOptions) -> String:
 	]
 
 
+static func _record_id(key: String, record: PackRatCacheRecord) -> String:
+	if not record.id.is_empty():
+		return record.id
+
+	var filename_id: String = _id_from_cached_filename(record.local_path.get_file())
+	if not filename_id.is_empty():
+		return filename_id
+
+	var separator: int = key.rfind("-")
+	return key.substr(0, separator) if separator > 0 else key
+
+
 static func _ensure_dir(path: String) -> void:
 	var error: Error = DirAccess.make_dir_recursive_absolute(path)
 	if error != OK and error != ERR_ALREADY_EXISTS:
@@ -651,6 +719,153 @@ static func _evict_cache_record(
 	_forget_fast_cache(key, options)
 	if save:
 		cache.save()
+
+
+static func _cleanup_old_versions(
+	cache: PackRatCache,
+	current_key: String,
+	id: String,
+	current_path: String,
+	options: PackRatOptions,
+	result: PackRatResult
+) -> void:
+	for key in cache.keys():
+		if key == current_key:
+			continue
+
+		var record: PackRatCacheRecord = cache.record(key)
+		if _record_id(key, record) != id:
+			continue
+
+		var remove_error: Error = _remove_cache_file(record.local_path, options.cache_dir)
+		if remove_error == ERR_BUSY:
+			result.add_warning(
+				"PackRat kept old mounted cache file %s because Godot resource packs stay mounted for the life of the process." % record.local_path
+			)
+		cache.erase_record(key)
+		_forget_fast_cache(key, options)
+
+	var scan_error: Error = _clear_unmounted_cache_files(options.cache_dir, id, current_path)
+	if scan_error != OK:
+		result.add_warning("PackRat could not fully clean old cache files for id '%s' (error %d)." % [id, scan_error])
+
+
+static func _id_from_cached_filename(filename: String) -> String:
+	var basename: String = filename.get_basename()
+	var separator: int = basename.rfind("-")
+	if separator <= 0:
+		return ""
+
+	return basename.substr(0, separator)
+
+
+static func _unused_cache_path(path: String, salt: int) -> String:
+	var directory: String = path.get_base_dir()
+	var basename: String = path.get_file().get_basename()
+	var extension: String = path.get_extension()
+	for index in range(100):
+		var suffix: String = "%d-%d" % [salt, index]
+		var candidate: String = "%s-%s" % [basename, suffix]
+		if not extension.is_empty():
+			candidate = "%s.%s" % [candidate, extension]
+		var candidate_path: String = directory.path_join(candidate)
+		if not FileAccess.file_exists(candidate_path):
+			return candidate_path
+
+	var fallback: String = "%s-%d" % [basename, Time.get_ticks_usec()]
+	var fallback_filename: String = "%s.%s" % [fallback, extension] if not extension.is_empty() else fallback
+	return directory.path_join(fallback_filename)
+
+
+static func _has_matching_cache_file(cache_dir: String, id: String) -> bool:
+	var dir: DirAccess = DirAccess.open(cache_dir)
+	if dir == null:
+		return false
+
+	dir.list_dir_begin()
+	var child: String = dir.get_next()
+	while not child.is_empty():
+		if not dir.current_is_dir() and _cached_filename_matches_id(child, id):
+			dir.list_dir_end()
+			return true
+
+		child = dir.get_next()
+
+	dir.list_dir_end()
+	return false
+
+
+static func _clear_unmounted_cache_files(cache_dir: String, id: String = "", keep_path: String = "") -> Error:
+	var dir: DirAccess = DirAccess.open(cache_dir)
+	if dir == null:
+		return OK
+
+	var first_error: Error = OK
+	dir.list_dir_begin()
+	var child: String = dir.get_next()
+	while not child.is_empty():
+		var child_path: String = cache_dir.path_join(child)
+		if dir.current_is_dir():
+			var nested_error: Error = _clear_unmounted_cache_files(child_path, id, keep_path)
+			if _is_real_remove_error(nested_error) and first_error == OK:
+				first_error = nested_error
+			_remove_empty_directory(child_path)
+		elif _is_cache_pack_file(child):
+			if keep_path.is_empty() or _normalized_cache_dir(child_path) != _normalized_cache_dir(keep_path):
+				if id.is_empty() or _cached_filename_matches_id(child, id):
+					var remove_error: Error = _remove_cache_file(child_path, cache_dir)
+					if _is_real_remove_error(remove_error) and first_error == OK:
+						first_error = remove_error
+
+		child = dir.get_next()
+
+	dir.list_dir_end()
+	return first_error
+
+
+static func _clear_part_files(cache_dir: String) -> Error:
+	var tmp_dir: String = cache_dir.path_join("tmp")
+	var dir: DirAccess = DirAccess.open(tmp_dir)
+	if dir == null:
+		return OK
+
+	var first_error: Error = OK
+	dir.list_dir_begin()
+	var child: String = dir.get_next()
+	while not child.is_empty():
+		var child_path: String = tmp_dir.path_join(child)
+		var remove_error: Error = OK
+		if dir.current_is_dir():
+			remove_error = _clear_directory(child_path)
+			if remove_error == OK:
+				remove_error = DirAccess.remove_absolute(child_path)
+		elif child.ends_with(".part"):
+			remove_error = DirAccess.remove_absolute(child_path)
+
+		if _is_real_remove_error(remove_error) and first_error == OK:
+			first_error = remove_error
+
+		child = dir.get_next()
+
+	dir.list_dir_end()
+	return first_error
+
+
+static func _is_cache_pack_file(filename: String) -> bool:
+	var extension: String = filename.get_extension().to_lower()
+	return extension == "pck" or extension == "zip"
+
+
+static func _cached_filename_matches_id(filename: String, id: String) -> bool:
+	return _is_cache_pack_file(filename) and _id_from_cached_filename(filename) == id
+
+
+static func _is_mounted_path(path: String) -> bool:
+	return _mounted_paths.has(path) or _mounted_paths.has(_normalized_cache_dir(path))
+
+
+static func _is_real_remove_error(error: Error) -> bool:
+	return error != OK and error != ERR_DOES_NOT_EXIST and error != ERR_BUSY
 
 
 static func _fast_cache_result(url: String, id: String, key: String, options: PackRatOptions) -> PackRatResult:
@@ -742,6 +957,9 @@ static func _remove_cache_file(path: String, cache_dir: String) -> Error:
 
 	if not FileAccess.file_exists(path):
 		return ERR_DOES_NOT_EXIST
+
+	if _is_mounted_path(path):
+		return ERR_BUSY
 
 	return DirAccess.remove_absolute(path)
 

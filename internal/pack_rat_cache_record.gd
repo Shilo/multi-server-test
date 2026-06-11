@@ -1,6 +1,9 @@
 class_name PackRatCacheRecord extends RefCounted
 ## Internal cache entry for one loaded URL.
 
+## Stable pack ID used for cache lookup and cleanup.
+var id: String = ""
+
 ## Original remote URL used to create this cache entry.
 var source_url: String = ""
 
@@ -32,6 +35,7 @@ static func from_dictionary(data: Variant) -> PackRatCacheRecord:
 	if not data is Dictionary:
 		return record
 
+	record.id = str(data.get("id", ""))
 	record.source_url = str(data.get("source_url", ""))
 	record.local_path = str(data.get("local_path", ""))
 	record.etag = str(data.get("etag", ""))
@@ -51,6 +55,7 @@ static func from_result(
 	options: PackRatOptions
 ) -> PackRatCacheRecord:
 	var record: PackRatCacheRecord = PackRatCacheRecord.new()
+	record.id = result.id
 	record.source_url = url
 	record.local_path = path
 	record.etag = result.etag
@@ -94,6 +99,7 @@ func apply_to_result(result: PackRatResult) -> void:
 ## Returns a JSON-compatible dictionary for [code]cache.json[/code].
 func to_dictionary() -> Dictionary:
 	return {
+		"id": id,
 		"source_url": source_url,
 		"local_path": local_path,
 		"etag": etag,
