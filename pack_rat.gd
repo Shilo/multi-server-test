@@ -6,9 +6,6 @@ class_name PackRat extends RefCounted
 ## when each request completes or fails to start. No autoload, editor plugin,
 ## or persistent helper node is required.
 
-const _REQUEST_RUNNER_SCRIPT: GDScript = preload("res://addons/pack_rat/internal/pack_rat_request_runner.gd")
-const _FILE_METADATA_SCRIPT: GDScript = preload("res://addons/pack_rat/pack_rat_file_metadata.gd")
-
 static var _mounted_paths_by_id: Dictionary = {}
 
 
@@ -45,7 +42,7 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 		request._finish(PackRatResult.failed(url, "PackRat needs a running SceneTree."))
 		return request
 
-	var runner: Node = _REQUEST_RUNNER_SCRIPT.new()
+	var runner: PackRatRequestRunner = PackRatRequestRunner.new()
 	tree.root.add_child(runner)
 	runner.start(request)
 	return request
@@ -120,7 +117,7 @@ static func github_release_url(owner: String, repo: String, filename: String, ta
 
 ## Reads size and modified-time metadata for [param path] without opening the file.
 static func file_metadata(path: String) -> PackRatFileMetadata:
-	var metadata: PackRatFileMetadata = _FILE_METADATA_SCRIPT.new()
+	var metadata: PackRatFileMetadata = PackRatFileMetadata.new()
 	metadata.path = path
 	if path.is_empty():
 		metadata.error = "PackRat could not read file metadata because the path is empty."
@@ -167,6 +164,8 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 	var result: PackRatResult = PackRatResult.new()
 	result.source_url = url
 	result.id = id
+	if request.is_canceled():
+		return PackRatResult.failed(url, "PackRat request was canceled.")
 
 	_ensure_dir(options.cache_dir)
 	_ensure_dir(options.cache_dir.path_join(result.id))

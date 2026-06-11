@@ -1,4 +1,4 @@
-extends Node
+class_name PackRatRequestRunner extends Node
 ## Internal scene-tree node that keeps a [PackRatRequest] coroutine alive.
 
 var _request: PackRatRequest
