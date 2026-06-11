@@ -41,6 +41,30 @@ var max_redirects: int = 8
 var always_download: bool = false
 
 
+## Creates options from a generic master-server pack dictionary.
+## [br][br]
+## Recognized keys are [code]id[/code], [code]size[/code],
+## [code]expected_size[/code], [code]modified_time[/code],
+## [code]expected_modified_time[/code], [code]entry_path[/code], and
+## [code]offline_first[/code]. URLs stay outside options.
+static func from_pack_info(info: Dictionary) -> PackRatOptions:
+	var options: PackRatOptions = PackRatOptions.new()
+	options.apply_pack_info(info)
+	return options
+
+
+## Copies generic server-provided pack metadata into this options object.
+func apply_pack_info(info: Dictionary) -> void:
+	id = str(info.get("id", id))
+	entry_path = str(info.get("entry_path", entry_path))
+	offline_first = bool(info.get("offline_first", offline_first))
+	expected_size = int(info.get("expected_size", info.get("size", expected_size)))
+	expected_modified_time = int(info.get(
+		"expected_modified_time",
+		info.get("modified_time", expected_modified_time)
+	))
+
+
 ## Returns [code]true[/code] when [member expected_size] should be checked.
 func has_expected_size() -> bool:
 	return expected_size > 0

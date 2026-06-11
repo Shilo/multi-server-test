@@ -160,6 +160,18 @@ static func github_release_url(owner: String, repo: String, filename: String, ta
 	]
 
 
+## Joins a static host base URL and path with slash cleanup only.
+static func join_url(base_url: String, path: String) -> String:
+	var clean_base: String = base_url.strip_edges().trim_suffix("/")
+	var clean_path: String = path.strip_edges().trim_prefix("/")
+	if clean_base.is_empty():
+		return clean_path
+	if clean_path.is_empty():
+		return clean_base
+
+	return "%s/%s" % [clean_base, clean_path]
+
+
 ## Reads size and modified-time metadata for [param path] without opening the file.
 static func file_metadata(path: String) -> PackRatFileMetadata:
 	var metadata: PackRatFileMetadata = PackRatFileMetadata.new()
