@@ -27,9 +27,7 @@ static func prepare(url: String, options: PackRatOptions = PackRatOptions.new())
 	var cache: PackRatCache = PackRatCache.load(options.cache_dir)
 	var key: String = _cache_key(url, result.id)
 	var record: PackRatCacheRecord = cache.record(key)
-	var metadata: PackRatHttpResponse = await _request(url, "", options, HTTPClient.METHOD_HEAD)
-	if not metadata.ok:
-		metadata = PackRatHttpResponse.new()
+	var metadata: PackRatHttpResponse = await _freshness_metadata(url, options)
 	var cached_file_exists: bool = record.file_exists()
 	var should_download: bool = options.always_download or not cached_file_exists
 
@@ -104,6 +102,14 @@ static func _mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pa
 	result.ok = true
 	result.entry_path = options.entry_path
 	return result
+
+
+static func _freshness_metadata(url: String, options: PackRatOptions) -> PackRatHttpResponse:
+	var response: PackRatHttpResponse = await _request(url, "", options, HTTPClient.METHOD_HEAD)
+	if not response.ok:
+		return PackRatHttpResponse.new()
+
+	return response
 
 
 static func _request(
