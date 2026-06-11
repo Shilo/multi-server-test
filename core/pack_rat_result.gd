@@ -96,10 +96,10 @@ func change_scene_to_entry(tree: SceneTree = null) -> Error:
 
 	var target_tree: SceneTree = tree
 	if target_tree == null:
-		target_tree = Engine.get_main_loop()
-
-	if target_tree == null:
-		return ERR_UNCONFIGURED
+		var main_loop: MainLoop = Engine.get_main_loop()
+		if main_loop is not SceneTree:
+			return ERR_UNCONFIGURED
+		target_tree = main_loop
 
 	return target_tree.change_scene_to_packed(scene)
 
