@@ -22,7 +22,7 @@ var id: String = ""
 ## Cache key used by this request.
 var cache_key: String = ""
 
-## Final result. Set after [signal completed] is emitted.
+## Final result. Set before [signal completed] is emitted.
 var result: PackRatResult
 
 var _http_request: HTTPRequest

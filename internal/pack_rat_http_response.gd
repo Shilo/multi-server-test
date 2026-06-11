@@ -40,14 +40,15 @@ static func from_completed(
 	headers: PackedStringArray
 ) -> PackRatHttpResponse:
 	var response: PackRatHttpResponse = PackRatHttpResponse.new()
+	var header_map: Dictionary = _header_map(headers)
 	response.result_code = result
 	response.response_code = code
 	response.ok = result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300
 	response.error = "HTTP request failed (result %d, response %d)." % [result, code]
-	response.etag = _header_value(headers, "etag")
-	response.last_modified = _header_value(headers, "last-modified")
-	response.content_length = int(_header_value(headers, "content-length"))
-	response.content_type = _header_value(headers, "content-type")
+	response.etag = str(header_map.get("etag", ""))
+	response.last_modified = str(header_map.get("last-modified", ""))
+	response.content_length = int(header_map.get("content-length", "0"))
+	response.content_type = str(header_map.get("content-type", ""))
 	return response
 
 
@@ -79,11 +80,14 @@ func apply_to_result(result: PackRatResult) -> void:
 	result.response_code = response_code
 
 
-static func _header_value(headers: PackedStringArray, name: String) -> String:
-	var prefix: String = "%s:" % name.to_lower()
+static func _header_map(headers: PackedStringArray) -> Dictionary:
+	var output: Dictionary = {}
 	for raw_header in headers:
 		var header: String = str(raw_header)
-		if header.to_lower().begins_with(prefix):
-			return header.substr(prefix.length()).strip_edges()
+		var separator: int = header.find(":")
+		if separator <= 0:
+			continue
 
-	return ""
+		output[header.substr(0, separator).to_lower()] = header.substr(separator + 1).strip_edges()
+
+	return output

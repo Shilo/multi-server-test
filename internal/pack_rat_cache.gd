@@ -46,7 +46,11 @@ func keys() -> PackedStringArray:
 
 ## Stores [param record] at [param key].
 func set_record(key: String, record: PackRatCacheRecord) -> void:
-	_items[key] = record.to_dictionary()
+	var data: Dictionary = record.to_dictionary()
+	if _items.get(key, {}) == data:
+		return
+
+	_items[key] = data
 	if not _changed_keys.has(key):
 		_changed_keys.append(key)
 	_removed_keys.erase(key)
@@ -75,7 +79,7 @@ func save() -> Error:
 	if file == null:
 		return FileAccess.get_open_error()
 
-	file.store_string(JSON.stringify({"schema": _SCHEMA, "items": latest_items}, "\t"))
+	file.store_string(JSON.stringify({"schema": _SCHEMA, "items": latest_items}))
 	file = null
 
 	var remove_error: Error = OK

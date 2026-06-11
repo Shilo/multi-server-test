@@ -7,8 +7,25 @@ class_name PackRat extends RefCounted
 ## or persistent helper node is required.
 
 const _HASH_TOKEN_LENGTH: int = 12
+const _MONTHS: Dictionary = {
+	"jan": 1,
+	"feb": 2,
+	"mar": 3,
+	"apr": 4,
+	"may": 5,
+	"jun": 6,
+	"jul": 7,
+	"aug": 8,
+	"sep": 9,
+	"oct": 10,
+	"nov": 11,
+	"dec": 12,
+}
 
 static var _mounted_paths_by_id: Dictionary = {}
+static var _mounted_signatures_by_id: Dictionary = {}
+static var _fast_cache_records: Dictionary = {}
+static var _fast_cache_signatures: Dictionary = {}
 
 
 ## Downloads, freshness-checks, caches, and mounts the resource pack at [param url].
@@ -20,7 +37,17 @@ static func load_resource_pack(url: String, options: PackRatOptions = PackRatOpt
 	if not _is_http_url(url):
 		return PackRatResult.failed(url, "PackRat MVP only accepts HTTP(S) URLs.")
 
-	var request: PackRatRequest = load_resource_pack_async(url, options)
+	var request_options: PackRatOptions = options.copy()
+	if not _is_safe_cache_dir(request_options.cache_dir):
+		return PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments.")
+	request_options.cache_dir = _normalized_cache_dir(request_options.cache_dir)
+	var id: String = _id_for_url(url, request_options)
+	var key: String = _cache_key(url, id, request_options)
+	var fast_result: PackRatResult = _fast_cache_result(url, id, key, request_options)
+	if fast_result != null:
+		return fast_result
+
+	var request: PackRatRequest = load_resource_pack_async(url, request_options)
 	if request.is_completed():
 		return request.result
 
@@ -46,6 +73,11 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 	var key: String = _cache_key(url, id, request_options)
 	var request: PackRatRequest = PackRatRequest.new()
 	request._setup(url, request_options, id, key)
+	var fast_result: PackRatResult = _fast_cache_result(url, id, key, request_options)
+	if fast_result != null:
+		_finish_request_next_frame(request, fast_result)
+		return request
+
 	var tree: SceneTree = Engine.get_main_loop()
 	if tree == null or tree.root == null:
 		request._finish(PackRatResult.failed(url, "PackRat needs a running SceneTree."))
@@ -67,6 +99,7 @@ static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error
 	if error != OK:
 		return error
 
+	_clear_fast_cache()
 	_ensure_dir(cache_dir)
 	return OK
 
@@ -105,6 +138,7 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 	if save_error != OK:
 		return save_error
 
+	_clear_fast_cache()
 	return first_error
 
 
@@ -181,8 +215,6 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 		return PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments.")
 
 	_ensure_dir(options.cache_dir)
-	_ensure_dir(options.cache_dir.path_join(result.id))
-	_ensure_dir(options.cache_dir.path_join("tmp"))
 
 	var cache: PackRatCache = PackRatCache.load(options.cache_dir)
 	var record: PackRatCacheRecord = cache.record(key)
@@ -218,8 +250,12 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 		var cached_result: PackRatResult = _mount_if_pack(result, options)
 		if not cached_result.ok:
 			_evict_cache_record(cache, key, record.local_path, options)
+		else:
+			_remember_fast_cache(key, url, cached_result, options)
 		return cached_result
 
+	_ensure_dir(options.cache_dir.path_join(result.id))
+	_ensure_dir(options.cache_dir.path_join("tmp"))
 	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s-%d.part" % [key, request.get_instance_id()])
 	if FileAccess.file_exists(part_path):
 		DirAccess.remove_absolute(part_path)
@@ -268,6 +304,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 			DirAccess.remove_absolute(part_path)
 			cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
 			cache.save()
+			_remember_fast_cache(key, url, existing_result, options)
 			return existing_result
 
 		_evict_cache_record(cache, key, local_path, options, false)
@@ -313,6 +350,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 	if save_error != OK:
 		result.add_warning("PackRat loaded the resource pack but could not save cache metadata (error %d)." % save_error)
 
+	_remember_fast_cache(key, url, mounted_result, options)
 	return mounted_result
 
 
@@ -324,16 +362,30 @@ static func _mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pa
 	if extension == "zip" and options.offset != 0:
 		return PackRatResult.failed(result.source_url, "Godot only supports nonzero resource pack offsets for .pck files.")
 
+	var signature: String = _mount_signature(result.local_path, options)
+	var previous_signature: String = str(_mounted_signatures_by_id.get(result.id, ""))
+	if result.status == PackRatResult.STATUS_CACHE_HIT and previous_signature == signature:
+		result.ok = true
+		result.mounted = true
+		result.entry_path = options.entry_path
+		return result
+
+	var previous_path: String = str(_mounted_paths_by_id.get(result.id, ""))
+	if result.status == PackRatResult.STATUS_DOWNLOADED and previous_path == result.local_path:
+		result.add_warning(
+			"PackRat replaced a pack at an already-mounted path for id '%s'. Godot resource packs stay mounted for the life of the process." % result.id
+		)
+
 	result.mounted = ProjectSettings.load_resource_pack(result.local_path, options.replace_files, options.offset)
 	if not result.mounted:
 		return PackRatResult.failed(result.source_url, "Godot could not mount %s." % result.local_path)
 
-	var previous_path: String = str(_mounted_paths_by_id.get(result.id, ""))
 	if not previous_path.is_empty() and previous_path != result.local_path:
 		result.add_warning(
 			"PackRat mounted a different pack for id '%s'. Godot resource packs stay mounted for the life of the process." % result.id
 		)
 	_mounted_paths_by_id[result.id] = result.local_path
+	_mounted_signatures_by_id[result.id] = signature
 
 	result.ok = true
 	result.entry_path = options.entry_path
@@ -507,15 +559,7 @@ static func _http_date_unix(value: String) -> int:
 
 
 static func _month_number(value: String) -> int:
-	var months: PackedStringArray = [
-		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-	]
-	for index in range(months.size()):
-		if months[index].to_lower() == value.to_lower():
-			return index + 1
-
-	return 0
+	return int(_MONTHS.get(value.to_lower(), 0))
 
 
 static func _cache_record_matches(value: String, record: PackRatCacheRecord) -> bool:
@@ -526,7 +570,8 @@ static func _cache_record_matches(value: String, record: PackRatCacheRecord) -> 
 		return true
 
 	var id: String = record.local_path.get_base_dir().get_file()
-	if id == _safe(value):
+	var safe_value: String = _safe(value)
+	if id == safe_value:
 		return true
 
 	return record.local_path.get_file() == value
@@ -551,19 +596,29 @@ static func _is_http_url(value: String) -> bool:
 
 
 static func _safe(value: String) -> String:
-	var output: String = ""
+	var output: PackedStringArray = []
 	for index in range(value.length()):
 		var character: String = value.substr(index, 1).to_lower()
 		if character in "abcdefghijklmnopqrstuvwxyz0123456789._-":
-			output += character
+			output.append(character)
 		else:
-			output += "_"
+			output.append("_")
 
-	return output if not output.is_empty() else "pack"
+	return "".join(output) if not output.is_empty() else "pack"
 
 
 static func _url_segment(value: String) -> String:
 	return value.strip_edges().trim_prefix("/").trim_suffix("/").uri_encode()
+
+
+static func _mount_signature(path: String, options: PackRatOptions) -> String:
+	return "%s:%s:%d:%d:%d" % [
+		path,
+		str(options.replace_files),
+		options.offset,
+		FileAccess.get_size(path),
+		FileAccess.get_modified_time(path),
+	]
 
 
 static func _ensure_dir(path: String) -> void:
@@ -581,8 +636,64 @@ static func _evict_cache_record(
 ) -> void:
 	_remove_cache_file(path, options.cache_dir)
 	cache.erase_record(key)
+	_forget_fast_cache(key, options)
 	if save:
 		cache.save()
+
+
+static func _fast_cache_result(url: String, id: String, key: String, options: PackRatOptions) -> PackRatResult:
+	if options.always_download or (not options.offline_first and not options.has_expected_metadata()):
+		return null
+
+	var fast_key: String = _fast_cache_key(key, options)
+	if not _fast_cache_records.has(fast_key):
+		return null
+
+	var record: PackRatCacheRecord = PackRatCacheRecord.from_dictionary(_fast_cache_records[fast_key])
+	if not record.file_exists():
+		_fast_cache_records.erase(fast_key)
+		_fast_cache_signatures.erase(fast_key)
+		return null
+
+	var signature: String = _mount_signature(record.local_path, options)
+	if str(_fast_cache_signatures.get(fast_key, "")) != signature:
+		_fast_cache_records.erase(fast_key)
+		_fast_cache_signatures.erase(fast_key)
+		return null
+
+	var result: PackRatResult = PackRatResult.new()
+	result.source_url = url
+	result.id = id
+	result.status = PackRatResult.STATUS_CACHE_HIT
+	result.from_cache = true
+	result.local_path = record.local_path
+	record.apply_to_result(result)
+	return _mount_if_pack(result, options)
+
+
+static func _remember_fast_cache(key: String, url: String, result: PackRatResult, options: PackRatOptions) -> void:
+	if not result.ok:
+		return
+
+	var fast_key: String = _fast_cache_key(key, options)
+	var record: PackRatCacheRecord = PackRatCacheRecord.from_result(url, result.local_path, result, options)
+	_fast_cache_records[fast_key] = record.to_dictionary()
+	_fast_cache_signatures[fast_key] = _mount_signature(result.local_path, options)
+
+
+static func _forget_fast_cache(key: String, options: PackRatOptions) -> void:
+	var fast_key: String = _fast_cache_key(key, options)
+	_fast_cache_records.erase(fast_key)
+	_fast_cache_signatures.erase(fast_key)
+
+
+static func _clear_fast_cache() -> void:
+	_fast_cache_records.clear()
+	_fast_cache_signatures.clear()
+
+
+static func _fast_cache_key(key: String, options: PackRatOptions) -> String:
+	return "%s:%s:%s:%d" % [options.cache_dir, key, str(options.replace_files), options.offset]
 
 
 static func _is_safe_cache_dir(path: String) -> bool:
