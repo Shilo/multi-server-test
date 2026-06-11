@@ -90,8 +90,7 @@ func load_entry_scene() -> PackedScene:
 ## When [param tree] is [code]null[/code], the current [SceneTree] is read from
 ## [method Engine.get_main_loop].
 func change_scene_to_entry(tree: SceneTree = null) -> Error:
-	var scene: PackedScene = load_entry_scene()
-	if scene == null:
+	if not ok or entry_path.is_empty():
 		return ERR_FILE_NOT_FOUND
 
 	var target_tree: SceneTree = tree
@@ -101,7 +100,7 @@ func change_scene_to_entry(tree: SceneTree = null) -> Error:
 			return ERR_UNCONFIGURED
 		target_tree = main_loop
 
-	return target_tree.change_scene_to_packed(scene)
+	return target_tree.change_scene_to_file(entry_path)
 
 
 ## Returns this result as a plain dictionary for logging and tests.
