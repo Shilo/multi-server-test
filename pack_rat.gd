@@ -7,6 +7,7 @@ class_name PackRat extends RefCounted
 ## or persistent helper node is required.
 
 const _REQUEST_RUNNER_SCRIPT: GDScript = preload("res://addons/pack_rat/internal/pack_rat_request_runner.gd")
+const _FILE_METADATA_SCRIPT: GDScript = preload("res://addons/pack_rat/pack_rat_file_metadata.gd")
 
 static var _in_flight: Dictionary = {}
 static var _mounted_paths_by_id: Dictionary = {}
@@ -113,6 +114,32 @@ static func github_release_url(owner: String, repo: String, filename: String, ta
 		_url_segment(tag),
 		clean_filename.uri_encode(),
 	]
+
+
+## Reads size and modified-time metadata for [param path] without opening the file.
+static func file_metadata(path: String):
+	var metadata: RefCounted = _FILE_METADATA_SCRIPT.new()
+	metadata.path = path
+	if path.is_empty():
+		metadata.error = "PackRat could not read file metadata because the path is empty."
+		return metadata
+
+	if not FileAccess.file_exists(path):
+		metadata.error = "PackRat could not read file metadata because %s does not exist." % path
+		return metadata
+
+	metadata.size = FileAccess.get_size(path)
+	metadata.modified_time = FileAccess.get_modified_time(path)
+	if metadata.size < 0:
+		metadata.error = "PackRat could not read file size for %s." % path
+		return metadata
+
+	if metadata.modified_time <= 0:
+		metadata.error = "PackRat could not read modified time for %s." % path
+		return metadata
+
+	metadata.ok = true
+	return metadata
 
 
 static func _finish_resource_pack_request(request: PackRatRequest, flight_key: String, result: PackRatResult) -> void:
@@ -226,6 +253,12 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 
 	if not has_comparable_freshness:
 		result.add_warning("PackRat cached this URL without comparable freshness headers.")
+	if (
+		options.has_expected_modified_time()
+		and options.has_expected_size()
+		and _http_date_unix(metadata.last_modified) <= 0
+	):
+		result.add_warning("PackRat could not compare expected modified time because Last-Modified was missing or invalid.")
 
 	var mounted_result: PackRatResult = _mount_if_pack(result, options)
 	if not mounted_result.ok:
@@ -398,10 +431,10 @@ static func _validate_expected_metadata(
 
 	if options.has_expected_modified_time():
 		var remote_modified_time: int = _http_date_unix(metadata.last_modified)
-		if remote_modified_time <= 0:
+		if remote_modified_time <= 0 and not options.has_expected_size():
 			return "Downloaded pack could not validate expected modified time because Last-Modified was missing or invalid."
 
-		if remote_modified_time != options.expected_modified_time:
+		if remote_modified_time > 0 and remote_modified_time != options.expected_modified_time:
 			return "Downloaded pack modified time mismatch: expected %d, got %d." % [
 				options.expected_modified_time,
 				remote_modified_time,
