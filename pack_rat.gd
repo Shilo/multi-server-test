@@ -28,7 +28,7 @@ static func prepare(url: String, options: PackRatOptions = PackRatOptions.new())
 	var items: Dictionary = cache.get("items", {})
 	var key: String = _cache_key(url, result.id)
 	var record: Dictionary = items.get(key, {})
-	var metadata: Dictionary = await _head(url, options)
+	var metadata: Dictionary = await _request(url, "", options, HTTPClient.METHOD_HEAD)
 	var cached_path: String = str(record.get("local_path", ""))
 	var cached_file_exists: bool = not cached_path.is_empty() and FileAccess.file_exists(cached_path)
 	var should_download: bool = options.always_download or not cached_file_exists
@@ -50,7 +50,7 @@ static func prepare(url: String, options: PackRatOptions = PackRatOptions.new())
 	if FileAccess.file_exists(part_path):
 		DirAccess.remove_absolute(part_path)
 
-	var download: Dictionary = await _download(url, part_path, options)
+	var download: Dictionary = await _request(url, part_path, options)
 	if not bool(download.get("ok", false)):
 		if cached_file_exists:
 			result.status = PackRatResult.STATUS_CACHE_HIT
@@ -109,19 +109,12 @@ static func _mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pa
 	return result
 
 
-static func _head(url: String, options: PackRatOptions) -> Dictionary:
-	var response: Dictionary = await _request(url, "", HTTPClient.METHOD_HEAD, options)
-	if not bool(response.get("ok", false)):
-		return {}
-
-	return response
-
-
-static func _download(url: String, path: String, options: PackRatOptions) -> Dictionary:
-	return await _request(url, path, HTTPClient.METHOD_GET, options)
-
-
-static func _request(url: String, download_path: String, method: int, options: PackRatOptions) -> Dictionary:
+static func _request(
+	url: String,
+	download_path: String,
+	options: PackRatOptions,
+	method: HTTPClient.Method = HTTPClient.METHOD_GET
+) -> Dictionary:
 	var tree: SceneTree = Engine.get_main_loop()
 	if tree == null or tree.root == null:
 		return {"ok": false, "error": "HTTPRequest needs a running SceneTree."}
