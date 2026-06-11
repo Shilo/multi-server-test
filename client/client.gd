@@ -2,9 +2,7 @@ extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const CHAT_SCENE := preload("res://client/chat/chat.tscn")
-const WORLD_PACK_MANAGER := preload("res://client/world_pack_manager.gd")
 const SMOKE_TEST_ARG := "smoke_test"
-const INITIAL_WORLD_SMOKE_ARG := "initial_world_smoke"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 
 var master_api: MultiplayerAPI
@@ -31,7 +29,6 @@ var rejected_world_join := ""
 var smoke_test := false
 var chat_connected := false
 var chat: Node
-var world_pack_manager: Node
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -44,7 +41,6 @@ var world_pack_manager: Node
 func _ready() -> void:
 	_setup_chat()
 	_setup_multiplayer_branches()
-	_setup_world_pack_manager()
 	smoke_test = SMOKE_TEST_ARG in OS.get_cmdline_user_args()
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
 		routes = new_routes
@@ -76,9 +72,7 @@ func _ready() -> void:
 			requested_transfer_target = ""
 	)
 
-	if INITIAL_WORLD_SMOKE_ARG in OS.get_cmdline_user_args():
-		run_initial_world_smoke_test()
-	elif smoke_test:
+	if smoke_test:
 		run_smoke_test()
 	else:
 		run_manual_client()
@@ -107,12 +101,6 @@ func _setup_chat() -> void:
 	chat.message_submitted.connect(_on_chat_message_submitted)
 	canvas_layer.add_child(chat)
 	_add_chat_system_line("chat starting")
-
-
-func _setup_world_pack_manager() -> void:
-	world_pack_manager = WORLD_PACK_MANAGER.new()
-	world_pack_manager.name = "WorldPackManager"
-	add_child(world_pack_manager)
 
 
 func run_manual_client() -> void:
@@ -144,20 +132,6 @@ func run_smoke_test() -> void:
 		print("SMOKE_STEP confirmed world %s with chat alive" % active_world_key)
 
 	await get_tree().create_timer(1.0).timeout
-	print("SMOKE_PASS")
-	get_tree().quit(0)
-
-
-func run_initial_world_smoke_test() -> void:
-	print("SMOKE_STEP client starts")
-	var ok := await _bootstrap_connections(false)
-	if not ok:
-		_smoke_fail("bootstrap failed")
-		return
-	if active_world_key != NET_CONFIG.initial_world():
-		_smoke_fail("expected initial world %s, got %s" % [NET_CONFIG.initial_world(), active_world_key])
-		return
-
 	print("SMOKE_PASS")
 	get_tree().quit(0)
 
@@ -241,7 +215,7 @@ func _connect_world(world_key: String) -> bool:
 		return false
 
 	var route_endpoint: Dictionary = routes["worlds"][world_key]
-	var assets_ready: bool = await world_pack_manager.ensure_world_installed(world_key, route_endpoint)
+	var assets_ready: bool = await _prepare_world_assets(world_key, route_endpoint)
 	if not assets_ready:
 		push_error("[CLIENT] assets unavailable for world %s" % world_key)
 		return false
@@ -275,6 +249,15 @@ func _connect_world(world_key: String) -> bool:
 	connecting_world_key = ""
 	_stop_join_keepalive(world_key, ok)
 	return ok and rejected_world_join != world_key
+
+
+func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
+	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
+	if ResourceLoader.exists(scene_path, "PackedScene"):
+		return true
+
+	push_error("[CLIENT] world scene is not available yet: %s" % scene_path)
+	return false
 
 
 func _request_world_join(world_key: String) -> Dictionary:

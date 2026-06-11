@@ -1,10 +1,6 @@
 param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
     [switch]$UseExported,
-    [switch]$InitialOnly,
-    [switch]$ClearWorldPackCache,
-    [ValidateSet("Any", "Download", "CacheHit")]
-    [string]$WorldPackExpectation = "Any",
     [int]$TimeoutSeconds = 30,
     [int]$ClientCount = 1
 )
@@ -108,53 +104,6 @@ function Wait-ProcessGone($processId, $label, $timeoutSeconds = 10) {
     throw "Timed out waiting for process to exit: $label pid=$processId"
 }
 
-function Start-PackServer {
-    $hubPack = Join-Path $BuildRoot "world_packs\hub.pck"
-    if (-not (Test-Path $hubPack)) {
-        throw "Missing $hubPack. Run tools\export_world_pack.ps1 before exported smoke."
-    }
-
-    $out = Join-Path $LogRoot "pack_server.out.log"
-    $err = Join-Path $LogRoot "pack_server.err.log"
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    $pythonArgs = @("-m", "http.server", "19100", "--bind", "127.0.0.1", "--directory", $BuildRoot)
-    if (-not $python) {
-        $python = Get-Command py -ErrorAction SilentlyContinue
-        $pythonArgs = @("-3", "-m", "http.server", "19100", "--bind", "127.0.0.1", "--directory", $BuildRoot)
-    }
-    if (-not $python) {
-        throw "Python is required to serve exported world packs during smoke."
-    }
-
-    Write-Host "SMOKE_LAUNCH pack_server"
-    $process = Start-Process -FilePath $python.Source -ArgumentList $pythonArgs -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
-    $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline) {
-        try {
-            Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:19100/world_packs/hub.pck" -Method Head -TimeoutSec 1 | Out-Null
-            Write-Host "SMOKE_READY pack_server"
-            return $process
-        }
-        catch {
-            if ($process.HasExited) {
-                if (Test-Path $err) {
-                    Write-Host (Get-Content $err -Raw)
-                }
-                throw "Pack server exited before becoming ready"
-            }
-            Start-Sleep -Milliseconds 100
-        }
-    }
-    throw "Timed out waiting for pack server"
-}
-
-function Get-WorldPackCachePath {
-    if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
-        return $null
-    }
-    return Join-Path $env:APPDATA "Godot\app_userdata\multi-server-test\world_packs"
-}
-
 function Get-WorldKeys {
     $worldRoot = Join-Path $ProjectRoot "server\worlds"
     $keys = @()
@@ -170,38 +119,23 @@ function Get-WorldKeys {
     return $keys
 }
 
-$worldKeys = if ($InitialOnly) { @("hub") } else { Get-WorldKeys }
+$worldKeys = Get-WorldKeys
 if (-not ($worldKeys -contains "hub")) {
     throw "Smoke test requires discovered hub world"
 }
 
 $servers = @()
 $clients = @()
-$packServer = $null
 $expectedChatMessages = 0
 try {
-    if ($ClearWorldPackCache) {
-        $cachePath = Get-WorldPackCachePath
-        if ([string]::IsNullOrWhiteSpace($cachePath)) {
-            throw "Cannot locate Godot app userdata path because APPDATA is not set."
-        }
-        Remove-Item -Recurse -Force -LiteralPath $cachePath -ErrorAction SilentlyContinue
-        Write-Host "SMOKE_WORLD_PACK_CACHE_CLEARED path=$cachePath"
-    }
-
-    if ($UseExported) {
-        $packServer = Start-PackServer
-    }
-
     $servers += Start-Scene "master" "res://server/master/master.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
 
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
-        $clientArgs = if ($InitialOnly) { @("initial_world_smoke") } else { @("smoke_test") }
         $clients += @{
             Name = $clientName
-            Process = Start-Scene $clientName "res://client/client.tscn" $clientArgs -Headless
+            Process = Start-Scene $clientName "res://client/client.tscn" @("smoke_test") -Headless
         }
     }
 
@@ -225,21 +159,8 @@ try {
             throw "Smoke test did not produce SMOKE_PASS for $clientName"
         }
 
-        if ($UseExported -and $InitialOnly -and $WorldPackExpectation -ne "Any") {
-            $downloaded = $clientLog.Contains("[WORLD_PACK] downloading")
-            $cacheHit = $clientLog.Contains("[WORLD_PACK] cache hit")
-            if ($WorldPackExpectation -eq "Download" -and -not $downloaded) {
-                throw "Expected exported smoke to download a world pack, but no download marker was found in $clientName"
-            }
-            if ($WorldPackExpectation -eq "CacheHit" -and -not $cacheHit) {
-                throw "Expected exported smoke to hit the world pack cache, but no cache-hit marker was found in $clientName"
-            }
-        }
-
-        if (-not $InitialOnly) {
-            $transferCount = (Select-String -Path $clientLogPath -SimpleMatch "SMOKE_STEP transfer ").Count
-            $expectedChatMessages += 1 + $transferCount
-        }
+        $transferCount = (Select-String -Path $clientLogPath -SimpleMatch "SMOKE_STEP transfer ").Count
+        $expectedChatMessages += 1 + $transferCount
     }
 
     $requiredMarkers = @("MASTER_READY")
@@ -275,8 +196,7 @@ try {
     $cleanupMaster = Start-Scene "master_cleanup" "res://server/master/master.tscn" @() -Headless
     $servers += $cleanupMaster
     Wait-LogMarker "master_cleanup" "MASTER_READY"
-    $cleanupClientArgs = if ($InitialOnly) { @("initial_world_smoke") } else { @("smoke_test") }
-    $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" $cleanupClientArgs -Headless
+    $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" @("smoke_test") -Headless
     $clients += @{
         Name = "client_cleanup"
         Process = $cleanupClient
@@ -304,8 +224,5 @@ finally {
         if ($server -and -not $server.HasExited) {
             Stop-Process -Id $server.Id -Force
         }
-    }
-    if ($packServer -and -not $packServer.HasExited) {
-        Stop-Process -Id $packServer.Id -Force
     }
 }
