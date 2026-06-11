@@ -2,6 +2,7 @@ class_name PackRatHttpClient extends RefCounted
 ## Internal HTTPRequest wrapper used by PackRat runtime requests.
 
 
+## Reads remote freshness metadata with an HTTP HEAD request.
 static func freshness_metadata(url: String, options: PackRatOptions, owner: PackRatRequest) -> PackRatHttpResponse:
 	var response: PackRatHttpResponse = await request(url, "", options, owner, HTTPClient.METHOD_HEAD)
 	if not response.ok:
@@ -10,6 +11,7 @@ static func freshness_metadata(url: String, options: PackRatOptions, owner: Pack
 	return response
 
 
+## Performs one temporary HTTP request and streams progress into [param owner].
 static func request(
 	url: String,
 	download_path: String,

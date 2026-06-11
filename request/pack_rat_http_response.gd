@@ -67,6 +67,7 @@ static func from_completed(
 	return response
 
 
+## Parses an RFC 7231-style HTTP date into a Unix timestamp, or [code]0[/code] on failure.
 static func parse_http_date_unix(value: String) -> int:
 	var parts: PackedStringArray = value.strip_edges().split(" ", false)
 	if parts.size() < 5:

@@ -5,6 +5,7 @@ static var _fast_cache_records: Dictionary = {}
 static var _fast_cache_signatures: Dictionary = {}
 
 
+## Loads, caches, and mounts the resource pack described by [param request].
 static func load(request: PackRatRequest) -> PackRatResult:
 	var url: String = request.url
 	var options: PackRatOptions = request.options
@@ -174,6 +175,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	return mounted_result
 
 
+## Returns a mounted in-process cache hit, or [code]null[/code] when disk/HTTP work is needed.
 static func fast_cache_result(url: String, id: String, key: String, options: PackRatOptions) -> PackRatResult:
 	if options.always_download or (not options.offline_first and not options.has_expected_metadata()):
 		return null
@@ -204,6 +206,7 @@ static func fast_cache_result(url: String, id: String, key: String, options: Pac
 	return PackRatMountRegistry.mount_if_pack(result, options)
 
 
+## Stores a successful result in the in-process cache-hit map.
 static func remember_fast_cache(key: String, url: String, result: PackRatResult, options: PackRatOptions) -> void:
 	if not result.ok:
 		return
@@ -214,12 +217,14 @@ static func remember_fast_cache(key: String, url: String, result: PackRatResult,
 	_fast_cache_signatures[fast_key] = PackRatMountRegistry.mount_signature(result.local_path, options)
 
 
+## Removes one in-process cache-hit entry.
 static func forget_fast_cache(key: String, options: PackRatOptions) -> void:
 	var fast_key: String = _fast_cache_key(key, options)
 	_fast_cache_records.erase(fast_key)
 	_fast_cache_signatures.erase(fast_key)
 
 
+## Clears every in-process cache-hit entry.
 static func clear_fast_cache() -> void:
 	_fast_cache_records.clear()
 	_fast_cache_signatures.clear()

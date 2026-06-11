@@ -2,12 +2,14 @@ class_name PackRatCacheFiles extends RefCounted
 ## Internal filesystem mutation helpers for PackRat cache files.
 
 
+## Creates [param path] and any missing parent directories.
 static func ensure_dir(path: String) -> void:
 	var error: Error = DirAccess.make_dir_recursive_absolute(path)
 	if error != OK and error != ERR_ALREADY_EXISTS:
 		push_warning("PackRat could not create %s (error %d)." % [path, error])
 
 
+## Returns [code]true[/code] when [param cache_dir] contains a cached pack for [param id].
 static func has_matching_cache_file(cache_dir: String, id: String) -> bool:
 	var dir: DirAccess = DirAccess.open(cache_dir)
 	if dir == null:
@@ -26,6 +28,7 @@ static func has_matching_cache_file(cache_dir: String, id: String) -> bool:
 	return false
 
 
+## Removes cached PCK/ZIP files that are not mounted, optionally filtered by [param id].
 static func clear_unmounted_cache_files(cache_dir: String, id: String = "", keep_path: String = "") -> Error:
 	var dir: DirAccess = DirAccess.open(cache_dir)
 	if dir == null:
@@ -54,6 +57,7 @@ static func clear_unmounted_cache_files(cache_dir: String, id: String = "", keep
 	return first_error
 
 
+## Removes temporary partial download files below [param cache_dir].
 static func clear_part_files(cache_dir: String) -> Error:
 	var tmp_dir: String = cache_dir.path_join("tmp")
 	var dir: DirAccess = DirAccess.open(tmp_dir)
@@ -82,6 +86,7 @@ static func clear_part_files(cache_dir: String) -> Error:
 	return first_error
 
 
+## Removes one cache file after safety and mounted-pack checks.
 static func remove_cache_file(path: String, cache_dir: String) -> Error:
 	if path.is_empty():
 		return ERR_DOES_NOT_EXIST
@@ -98,6 +103,7 @@ static func remove_cache_file(path: String, cache_dir: String) -> Error:
 	return DirAccess.remove_absolute(path)
 
 
+## Returns [code]true[/code] when [param error] should be reported to callers.
 static func is_real_remove_error(error: Error) -> bool:
 	return error != OK and error != ERR_DOES_NOT_EXIST and error != ERR_BUSY
 

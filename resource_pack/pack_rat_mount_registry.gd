@@ -6,6 +6,7 @@ static var _mounted_signatures_by_id: Dictionary = {}
 static var _mounted_paths: Dictionary = {}
 
 
+## Mounts [member PackRatResult.local_path] when it is a PCK or ZIP resource pack.
 static func mount_if_pack(result: PackRatResult, options: PackRatOptions) -> PackRatResult:
 	var extension: String = result.local_path.get_extension().to_lower()
 	if extension != "pck" and extension != "zip":
@@ -45,10 +46,12 @@ static func mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pac
 	return result
 
 
+## Returns [code]true[/code] when [param path] is already mounted in this process.
 static func is_mounted_path(path: String) -> bool:
 	return _mounted_paths.has(path) or _mounted_paths.has(PackRatCachePaths.normalized_cache_dir(path))
 
 
+## Returns the cheap file signature used to detect changed mounted cache files.
 static func mount_signature(path: String, options: PackRatOptions) -> String:
 	return "%s:%s:%d:%d:%d" % [
 		path,
@@ -59,5 +62,6 @@ static func mount_signature(path: String, options: PackRatOptions) -> String:
 	]
 
 
+## Returns the last mounted local path for [param id], or an empty string.
 static func mounted_path_for_id(id: String) -> String:
 	return str(_mounted_paths_by_id.get(id, ""))
