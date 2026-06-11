@@ -11,6 +11,12 @@ func start(request: PackRatRequest) -> void:
 
 
 func _run() -> void:
-	var result: PackRatResult = await PackRatLoader.load(_request)
-	_request._finish(result)
+	var request: PackRatRequest = _request
+	if request == null:
+		queue_free()
+		return
+
+	var result: PackRatResult = await PackRatLoader.load(request)
+	request._finish(result)
+	_request = null
 	queue_free()
