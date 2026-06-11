@@ -131,8 +131,11 @@ static func _request(url: String, download_path: String, method: int, options: P
 	request.download_file = download_path
 	request.max_redirects = options.max_redirects
 	request.timeout = options.timeout_seconds
-	tree.root.add_child.call_deferred(request)
-	await tree.process_frame
+	if tree.root.is_node_ready():
+		tree.root.add_child(request)
+	else:
+		tree.root.add_child.call_deferred(request)
+		await tree.process_frame
 
 	if not request.is_inside_tree():
 		request.queue_free()
