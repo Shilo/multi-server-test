@@ -23,27 +23,6 @@ func apply_to_options(options: PackRatOptions) -> void:
 	options.expected_modified_time = modified_time
 
 
-## Returns a generic client payload containing [param url] and file metadata.
-func to_pack_info(url: String, id: String = "", entry_path: String = "") -> Dictionary:
-	if not ok:
-		return {
-			"ok": false,
-			"error": error,
-		}
-
-	var info: Dictionary = {
-		"url": url,
-		"size": size,
-		"modified_time": modified_time,
-	}
-	if not id.is_empty():
-		info["id"] = id
-	if not entry_path.is_empty():
-		info["entry_path"] = entry_path
-
-	return info
-
-
 ## Returns this metadata as a plain dictionary for server payloads or logging.
 func to_dictionary() -> Dictionary:
 	return {
