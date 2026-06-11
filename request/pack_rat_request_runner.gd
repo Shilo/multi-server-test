@@ -4,10 +4,10 @@ class_name PackRatRequestRunner extends Node
 var _request: PackRatRequest
 
 
-## Starts the request on the next idle frame.
+## Starts the request and frees this runner when it finishes.
 func start(request: PackRatRequest) -> void:
 	_request = request
-	_run.call_deferred()
+	_run()
 
 
 func _run() -> void:

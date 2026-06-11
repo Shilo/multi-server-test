@@ -63,8 +63,12 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 		return request
 
 	var runner: PackRatRequestRunner = PackRatRequestRunner.new()
-	tree.root.add_child.call_deferred(runner)
-	runner.start.call_deferred(request)
+	if tree.root.is_node_ready():
+		tree.root.add_child(runner)
+		runner.start.call_deferred(request)
+	else:
+		tree.root.add_child.call_deferred(runner)
+		runner.start.call_deferred(request)
 	return request
 
 

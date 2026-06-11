@@ -56,6 +56,10 @@ var error: String = ""
 ## Non-fatal notes, such as missing comparable freshness headers.
 var warnings: PackedStringArray = []
 
+## Millisecond timings for major PackRat phases, useful when diagnosing slow
+## downloads, filesystem writes, and resource-pack mounts.
+var timings_msec: Dictionary = {}
+
 
 ## Creates a failed result for [param url] with [param message].
 static func failed(url: String, message: String) -> PackRatResult:
@@ -128,4 +132,5 @@ func to_dictionary() -> Dictionary:
 		"response_code": response_code,
 		"error": error,
 		"warnings": warnings,
+		"timings_msec": timings_msec,
 	}

@@ -40,6 +40,9 @@ var content_length: int = 0
 ## Remote Content-Type header used only for extensionless cache filenames.
 var content_type: String = ""
 
+## Millisecond timings for the low-level HTTP request.
+var timings_msec: Dictionary = {}
+
 
 ## Creates a failed response with [param message].
 static func failed(message: String) -> PackRatHttpResponse:

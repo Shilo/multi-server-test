@@ -34,6 +34,11 @@ var request_headers: PackedStringArray = []
 ## HTTP timeout in seconds. This should stay finite so stalled downloads fail.
 var timeout_seconds: float = 120.0
 
+## Bytes read from [HTTPRequest] per engine iteration. PackRat defaults this
+## higher than Godot's 64 KiB HTTPRequest default because resource packs are
+## usually large files.
+var download_chunk_size: int = 4 * 1024 * 1024
+
 ## Maximum HTTP redirects followed by [HTTPRequest].
 var max_redirects: int = 8
 
@@ -77,6 +82,7 @@ func copy() -> PackRatOptions:
 	options.offline_first = offline_first
 	options.request_headers = request_headers.duplicate()
 	options.timeout_seconds = timeout_seconds
+	options.download_chunk_size = download_chunk_size
 	options.max_redirects = max_redirects
 	options.always_download = always_download
 	return options
