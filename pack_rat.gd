@@ -96,14 +96,12 @@ static func _prepare(url: String, options: PackRatOptions, id: String, key: Stri
 		DirAccess.remove_absolute(part_path)
 		return PackRatResult.failed(url, "Downloaded pack was empty.")
 
-	if options.expected_size > 0 and file_size != options.expected_size:
-		DirAccess.remove_absolute(part_path)
-		return PackRatResult.failed(
-			url,
-			"Downloaded pack size mismatch: expected %d bytes, got %d." % [options.expected_size, file_size]
-		)
-
 	metadata.merge_from(download)
+	var validation_error: String = _validate_expected_metadata(options, metadata, file_size)
+	if not validation_error.is_empty():
+		DirAccess.remove_absolute(part_path)
+		return PackRatResult.failed(url, validation_error)
+
 	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
 	var local_path: String = _local_path(url, options.cache_dir, result.id, metadata, options)
 	if FileAccess.file_exists(local_path):
@@ -257,6 +255,60 @@ static func _extension_for_response(metadata: PackRatHttpResponse) -> String:
 		return "zip"
 
 	return "pck"
+
+
+static func _validate_expected_metadata(
+	options: PackRatOptions,
+	metadata: PackRatHttpResponse,
+	file_size: int
+) -> String:
+	if options.has_expected_size() and file_size != options.expected_size:
+		return "Downloaded pack size mismatch: expected %d bytes, got %d." % [options.expected_size, file_size]
+
+	if options.has_expected_modified_time():
+		var remote_modified_time: int = _http_date_unix(metadata.last_modified)
+		if remote_modified_time <= 0:
+			return "Downloaded pack could not validate expected modified time because Last-Modified was missing or invalid."
+
+		if remote_modified_time != options.expected_modified_time:
+			return "Downloaded pack modified time mismatch: expected %d, got %d." % [
+				options.expected_modified_time,
+				remote_modified_time,
+			]
+
+	return ""
+
+
+static func _http_date_unix(value: String) -> int:
+	var parts: PackedStringArray = value.strip_edges().split(" ", false)
+	if parts.size() < 5:
+		return 0
+
+	var month: int = _month_number(parts[2])
+	var time_parts: PackedStringArray = parts[4].split(":")
+	if month <= 0 or time_parts.size() != 3:
+		return 0
+
+	return int(Time.get_unix_time_from_datetime_dict({
+		"year": int(parts[3]),
+		"month": month,
+		"day": int(parts[1]),
+		"hour": int(time_parts[0]),
+		"minute": int(time_parts[1]),
+		"second": int(time_parts[2]),
+	}))
+
+
+static func _month_number(value: String) -> int:
+	var months: PackedStringArray = [
+		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+	]
+	for index in range(months.size()):
+		if months[index].to_lower() == value.to_lower():
+			return index + 1
+
+	return 0
 
 
 static func _filename(url: String) -> String:

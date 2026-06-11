@@ -38,6 +38,16 @@ var max_redirects: int = 8
 var always_download: bool = false
 
 
+## Returns [code]true[/code] when [member expected_size] should be checked.
+func has_expected_size() -> bool:
+	return expected_size > 0
+
+
+## Returns [code]true[/code] when [member expected_modified_time] should be checked.
+func has_expected_modified_time() -> bool:
+	return expected_modified_time > 0
+
+
 ## Returns [code]true[/code] when server-provided cache identity is available.
 func has_expected_metadata() -> bool:
-	return expected_size > 0 or expected_modified_time > 0
+	return has_expected_size() or has_expected_modified_time()
