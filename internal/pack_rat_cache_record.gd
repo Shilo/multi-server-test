@@ -16,6 +16,12 @@ var last_modified: String = ""
 ## Cached file size or remote Content-Length.
 var content_length: int = 0
 
+## Expected byte size used for metadata-matched cache identity.
+var expected_size: int = 0
+
+## Expected modified time used for metadata-matched cache identity.
+var expected_modified_time: int = 0
+
 ## Unix timestamp for when this record was written.
 var updated_at_unix: int = 0
 
@@ -31,18 +37,27 @@ static func from_dictionary(data: Variant) -> PackRatCacheRecord:
 	record.etag = str(data.get("etag", ""))
 	record.last_modified = str(data.get("last_modified", ""))
 	record.content_length = int(data.get("content_length", 0))
+	record.expected_size = int(data.get("expected_size", 0))
+	record.expected_modified_time = int(data.get("expected_modified_time", 0))
 	record.updated_at_unix = int(data.get("updated_at_unix", 0))
 	return record
 
 
 ## Creates a cache record from a successful [PackRatResult].
-static func from_result(url: String, path: String, result: PackRatResult) -> PackRatCacheRecord:
+static func from_result(
+	url: String,
+	path: String,
+	result: PackRatResult,
+	options: PackRatOptions
+) -> PackRatCacheRecord:
 	var record: PackRatCacheRecord = PackRatCacheRecord.new()
 	record.source_url = url
 	record.local_path = path
 	record.etag = result.etag
 	record.last_modified = result.last_modified
 	record.content_length = result.content_length
+	record.expected_size = options.expected_size
+	record.expected_modified_time = options.expected_modified_time
 	record.updated_at_unix = int(Time.get_unix_time_from_system())
 	return record
 
@@ -84,5 +99,7 @@ func to_dictionary() -> Dictionary:
 		"etag": etag,
 		"last_modified": last_modified,
 		"content_length": content_length,
+		"expected_size": expected_size,
+		"expected_modified_time": expected_modified_time,
 		"updated_at_unix": updated_at_unix,
 	}

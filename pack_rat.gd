@@ -6,6 +6,9 @@ class_name PackRat extends RefCounted
 ## completes or fails to start. No autoload, editor plugin, or persistent helper
 ## node is required.
 
+static var _in_flight: Dictionary = {}
+static var _mounted_paths_by_id: Dictionary = {}
+
 
 ## Downloads, freshness-checks, caches, and mounts the pack at [param url].
 ## [br][br]
@@ -13,25 +16,44 @@ class_name PackRat extends RefCounted
 ## when the file is ready. [param options] can override cache location,
 ## replacement behavior, request headers, timeout, and entry path.
 static func prepare(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatResult:
-	var result: PackRatResult = PackRatResult.new()
-	result.source_url = url
-	result.id = _id_for_url(url, options)
-
 	if not (url.begins_with("http://") or url.begins_with("https://")):
 		return PackRatResult.failed(url, "PackRat MVP only accepts HTTP(S) URLs.")
+
+	var id: String = _id_for_url(url, options)
+	var key: String = _cache_key(url, id, options)
+	var flight_key: String = "%s:%s" % [options.cache_dir, key]
+	if _in_flight.has(flight_key):
+		var existing_prepare: PackRatPendingPrepare = _in_flight[flight_key]
+		await existing_prepare.completed
+		return existing_prepare.result
+
+	var new_prepare: PackRatPendingPrepare = PackRatPendingPrepare.new()
+	_in_flight[flight_key] = new_prepare
+	var result: PackRatResult = await _prepare(url, options, id, key)
+	_in_flight.erase(flight_key)
+	new_prepare.finish(result)
+	return result
+
+
+static func _prepare(url: String, options: PackRatOptions, id: String, key: String) -> PackRatResult:
+	var result: PackRatResult = PackRatResult.new()
+	result.source_url = url
+	result.id = id
 
 	_ensure_dir(options.cache_dir)
 	_ensure_dir(options.cache_dir.path_join(result.id))
 	_ensure_dir(options.cache_dir.path_join("tmp"))
 
 	var cache: PackRatCache = PackRatCache.load(options.cache_dir)
-	var key: String = _cache_key(url, result.id)
 	var record: PackRatCacheRecord = cache.record(key)
-	var metadata: PackRatHttpResponse = await _freshness_metadata(url, options)
+	var metadata: PackRatHttpResponse = PackRatHttpResponse.new()
 	var cached_file_exists: bool = record.file_exists()
 	var should_download: bool = options.always_download or not cached_file_exists
 
-	if cached_file_exists and not should_download:
+	if cached_file_exists and not should_download and (options.offline_first or options.has_expected_metadata()):
+		should_download = false
+	elif cached_file_exists and not should_download:
+		metadata = await _freshness_metadata(url, options)
 		var freshness: String = record.freshness_against(metadata)
 		should_download = freshness == "stale"
 		if freshness == "unknown":
@@ -65,9 +87,16 @@ static func prepare(url: String, options: PackRatOptions = PackRatOptions.new())
 		DirAccess.remove_absolute(part_path)
 		return PackRatResult.failed(url, "Downloaded pack was empty.")
 
-	var has_remote_freshness: bool = metadata.has_freshness()
+	if options.expected_size > 0 and file_size != options.expected_size:
+		DirAccess.remove_absolute(part_path)
+		return PackRatResult.failed(
+			url,
+			"Downloaded pack size mismatch: expected %d bytes, got %d." % [options.expected_size, file_size]
+		)
+
 	metadata.merge_from(download)
-	var local_path: String = _local_path(url, options.cache_dir, result.id, metadata)
+	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
+	var local_path: String = _local_path(url, options.cache_dir, result.id, metadata, options)
 	if FileAccess.file_exists(local_path):
 		DirAccess.remove_absolute(local_path)
 
@@ -81,12 +110,12 @@ static func prepare(url: String, options: PackRatOptions = PackRatOptions.new())
 	result.content_length = file_size
 	metadata.apply_to_result(result)
 
-	cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result))
+	cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
 	var save_error: Error = cache.save()
 	if save_error != OK:
 		result.add_warning("PackRat prepared the pack but could not save cache metadata (error %d)." % save_error)
 
-	if not has_remote_freshness:
+	if not has_comparable_freshness:
 		result.add_warning("PackRat cached this URL without comparable freshness headers.")
 
 	return _mount_if_pack(result, options)
@@ -98,6 +127,13 @@ static func _mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pa
 		result.mounted = ProjectSettings.load_resource_pack(result.local_path, options.replace_files)
 		if not result.mounted:
 			return PackRatResult.failed(result.source_url, "Godot could not mount %s." % result.local_path)
+
+		var previous_path: String = str(_mounted_paths_by_id.get(result.id, ""))
+		if not previous_path.is_empty() and previous_path != result.local_path:
+			result.add_warning(
+				"PackRat mounted a different pack for id '%s'. Godot resource packs stay mounted for the life of the process." % result.id
+			)
+		_mounted_paths_by_id[result.id] = result.local_path
 
 	result.ok = true
 	result.entry_path = options.entry_path
@@ -152,18 +188,27 @@ static func _request(
 	return PackRatHttpResponse.from_completed(result_code, response_code, headers)
 
 
-static func _local_path(url: String, cache_dir: String, id: String, metadata: PackRatHttpResponse) -> String:
+static func _local_path(
+	url: String,
+	cache_dir: String,
+	id: String,
+	metadata: PackRatHttpResponse,
+	options: PackRatOptions
+) -> String:
 	var filename: String = _filename(url)
 	var extension: String = filename.get_extension()
 	var basename: String = filename.get_basename()
-	var token: String = _version_token(url, metadata)
+	var token: String = _version_token(url, metadata, options)
 	if extension.is_empty():
 		return cache_dir.path_join(id).path_join("%s-%s" % [basename, token])
 
 	return cache_dir.path_join(id).path_join("%s-%s.%s" % [basename, token, extension])
 
 
-static func _version_token(url: String, metadata: PackRatHttpResponse) -> String:
+static func _version_token(url: String, metadata: PackRatHttpResponse, options: PackRatOptions) -> String:
+	if options.has_expected_metadata():
+		return _expected_metadata_token(options)
+
 	if not metadata.etag.is_empty():
 		return metadata.etag.sha256_text().substr(0, 12)
 
@@ -180,8 +225,15 @@ static func _id_for_url(url: String, options: PackRatOptions) -> String:
 	return _safe(_filename(url).get_basename())
 
 
-static func _cache_key(url: String, id: String) -> String:
+static func _cache_key(url: String, id: String, options: PackRatOptions) -> String:
+	if options.has_expected_metadata():
+		return "%s-%s" % [id, _expected_metadata_token(options)]
+
 	return "%s-%s" % [id, url.sha256_text().substr(0, 12)]
+
+
+static func _expected_metadata_token(options: PackRatOptions) -> String:
+	return ("expected:%d:%d" % [options.expected_size, options.expected_modified_time]).sha256_text().substr(0, 12)
 
 
 static func _filename(url: String) -> String:
