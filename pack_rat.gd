@@ -224,7 +224,7 @@ static func _finish_request_next_frame(request: PackRatRequest, result: PackRatR
 
 	tree.process_frame.connect(func() -> void:
 		if request.is_canceled():
-			request._finish(PackRatResult.failed(request.url, "PackRat request was canceled."))
+			request._finish(PackRatResult.failed(request.url, PackRatResult.ERROR_CANCELED))
 			return
 
 		request._finish(result)

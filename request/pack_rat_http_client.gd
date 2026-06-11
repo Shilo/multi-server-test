@@ -57,7 +57,7 @@ static func request(
 			http_request.cancel_request()
 			owner._set_http_request(null)
 			http_request.queue_free()
-			return PackRatHttpResponse.failed("PackRat request was canceled.")
+			return PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED)
 
 		if not download_path.is_empty():
 			owner._set_progress(http_request.get_downloaded_bytes(), http_request.get_body_size())

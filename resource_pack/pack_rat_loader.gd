@@ -15,7 +15,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	result.source_url = url
 	result.id = id
 	if request.is_canceled():
-		return PackRatResult.failed(url, "PackRat request was canceled.")
+		return PackRatResult.failed(url, PackRatResult.ERROR_CANCELED)
 	if not PackRatCachePaths.is_safe_cache_dir(options.cache_dir):
 		return PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments.")
 
@@ -45,7 +45,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	elif cached_file_exists and not should_download:
 		metadata = await PackRatHttpClient.freshness_metadata(url, options, request)
 		if request.is_canceled():
-			return PackRatResult.failed(url, "PackRat request was canceled.")
+			return PackRatResult.failed(url, PackRatResult.ERROR_CANCELED)
 
 		var freshness: String = record.freshness_against(metadata)
 		should_download = freshness == "stale"
@@ -72,7 +72,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	var download: PackRatHttpResponse = await PackRatHttpClient.request(url, part_path, options, request)
 	if request.is_canceled():
 		DirAccess.remove_absolute(part_path)
-		return PackRatResult.failed(url, "PackRat request was canceled.")
+		return PackRatResult.failed(url, PackRatResult.ERROR_CANCELED)
 
 	if not download.ok:
 		DirAccess.remove_absolute(part_path)

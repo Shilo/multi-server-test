@@ -10,6 +10,9 @@ const STATUS_DOWNLOADED: String = "downloaded"
 ## The resource pack load failed.
 const STATUS_FAILED: String = "failed"
 
+## Failure message used when [method PackRatRequest.cancel] stops a request.
+const ERROR_CANCELED: String = "PackRat request was canceled."
+
 ## [code]true[/code] when the requested content is ready.
 var ok: bool = false
 
@@ -67,6 +70,11 @@ static func failed(url: String, message: String) -> PackRatResult:
 func add_warning(message: String) -> void:
 	if not message.is_empty():
 		warnings.append(message)
+
+
+## Returns [code]true[/code] when this result came from a canceled request.
+func was_canceled() -> bool:
+	return error == ERROR_CANCELED
 
 
 ## Returns [code]true[/code] when [member entry_path] points to a loadable
