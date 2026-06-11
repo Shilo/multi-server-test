@@ -71,14 +71,14 @@ func add_warning(message: String) -> void:
 
 ## Returns [code]true[/code] when [member entry_path] points to a loadable
 ## [PackedScene] and this result completed successfully.
-func has_entry_scene() -> bool:
+func entry_scene_exists() -> bool:
 	return ok and not entry_path.is_empty() and ResourceLoader.exists(entry_path, "PackedScene")
 
 
 ## Loads [member entry_path] as a [PackedScene], or returns [code]null[/code]
 ## when this result failed, no entry path was provided, or the resource is not a scene.
 func load_entry_scene() -> PackedScene:
-	if not has_entry_scene():
+	if not entry_scene_exists():
 		return null
 
 	var scene: PackedScene = ResourceLoader.load(entry_path, "PackedScene")
