@@ -6,6 +6,8 @@ class_name PackRat extends RefCounted
 ## when each request completes or fails to start. No autoload, editor plugin,
 ## or persistent helper node is required.
 
+const _HASH_TOKEN_LENGTH: int = 12
+
 static var _mounted_paths_by_id: Dictionary = {}
 
 
@@ -33,10 +35,17 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 		_finish_request_next_frame(invalid_request, PackRatResult.failed(url, "PackRat MVP only accepts HTTP(S) URLs."))
 		return invalid_request
 
-	var id: String = _id_for_url(url, options)
-	var key: String = _cache_key(url, id, options)
+	var request_options: PackRatOptions = options.copy()
+	if not _is_safe_cache_dir(request_options.cache_dir):
+		var invalid_cache_request: PackRatRequest = PackRatRequest.new()
+		_finish_request_next_frame(invalid_cache_request, PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments."))
+		return invalid_cache_request
+	request_options.cache_dir = _normalized_cache_dir(request_options.cache_dir)
+
+	var id: String = _id_for_url(url, request_options)
+	var key: String = _cache_key(url, id, request_options)
 	var request: PackRatRequest = PackRatRequest.new()
-	request._setup(url, options, id, key)
+	request._setup(url, request_options, id, key)
 	var tree: SceneTree = Engine.get_main_loop()
 	if tree == null or tree.root == null:
 		request._finish(PackRatResult.failed(url, "PackRat needs a running SceneTree."))
@@ -53,11 +62,12 @@ static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error
 	if not _is_safe_cache_dir(options.cache_dir):
 		return ERR_INVALID_PARAMETER
 
-	var error: Error = _clear_directory(options.cache_dir)
+	var cache_dir: String = _normalized_cache_dir(options.cache_dir)
+	var error: Error = _clear_directory(cache_dir)
 	if error != OK:
 		return error
 
-	_ensure_dir(options.cache_dir)
+	_ensure_dir(cache_dir)
 	return OK
 
 
@@ -69,7 +79,8 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 	if not _is_safe_cache_dir(options.cache_dir):
 		return ERR_INVALID_PARAMETER
 
-	var cache: PackRatCache = PackRatCache.load(options.cache_dir)
+	var cache_dir: String = _normalized_cache_dir(options.cache_dir)
+	var cache: PackRatCache = PackRatCache.load(cache_dir)
 	var keys: PackedStringArray = cache.keys()
 	var matched: bool = false
 	var first_error: Error = OK
@@ -80,11 +91,11 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 			continue
 
 		matched = true
-		var remove_error: Error = _remove_cache_file(record.local_path, options.cache_dir)
+		var remove_error: Error = _remove_cache_file(record.local_path, cache_dir)
 		if remove_error != OK and remove_error != ERR_DOES_NOT_EXIST and first_error == OK:
 			first_error = remove_error
 		cache.erase_record(key)
-		if _is_cache_child_path(record.local_path.get_base_dir(), options.cache_dir):
+		if _is_cache_child_path(record.local_path.get_base_dir(), cache_dir):
 			_remove_empty_directory(record.local_path.get_base_dir())
 
 	if not matched:
@@ -166,6 +177,8 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 	result.id = id
 	if request.is_canceled():
 		return PackRatResult.failed(url, "PackRat request was canceled.")
+	if not _is_safe_cache_dir(options.cache_dir):
+		return PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments.")
 
 	_ensure_dir(options.cache_dir)
 	_ensure_dir(options.cache_dir.path_join(result.id))
@@ -183,9 +196,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 		if cached_size != options.expected_size:
 			cached_expected_size_mismatch = true
 			should_download = true
-			_remove_cache_file(record.local_path, options.cache_dir)
-			cache.erase_record(key)
-			cache.save()
+			_evict_cache_record(cache, key, record.local_path, options)
 
 	if cached_file_exists and not should_download and (options.offline_first or options.has_expected_metadata()):
 		should_download = false
@@ -206,9 +217,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 		record.apply_to_result(result)
 		var cached_result: PackRatResult = _mount_if_pack(result, options)
 		if not cached_result.ok:
-			_remove_cache_file(record.local_path, options.cache_dir)
-			cache.erase_record(key)
-			cache.save()
+			_evict_cache_record(cache, key, record.local_path, options)
 		return cached_result
 
 	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s-%d.part" % [key, request.get_instance_id()])
@@ -230,9 +239,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 			record.apply_to_result(result)
 			var fallback_result: PackRatResult = _mount_if_pack(result, options)
 			if not fallback_result.ok:
-				_remove_cache_file(record.local_path, options.cache_dir)
-				cache.erase_record(key)
-				cache.save()
+				_evict_cache_record(cache, key, record.local_path, options)
 			return fallback_result
 
 		return PackRatResult.failed(url, download.error)
@@ -263,8 +270,7 @@ static func _load_resource_pack(request: PackRatRequest) -> PackRatResult:
 			cache.save()
 			return existing_result
 
-		_remove_cache_file(local_path, options.cache_dir)
-		cache.erase_record(key)
+		_evict_cache_record(cache, key, local_path, options, false)
 
 	if FileAccess.file_exists(local_path):
 		DirAccess.remove_absolute(local_path)
@@ -425,12 +431,12 @@ static func _version_token(url: String, metadata: PackRatHttpResponse, options: 
 		return _expected_metadata_token(options)
 
 	if not metadata.etag.is_empty():
-		return metadata.etag.sha256_text().substr(0, 12)
+		return metadata.etag.sha256_text().substr(0, _HASH_TOKEN_LENGTH)
 
 	if not metadata.last_modified.is_empty() or metadata.content_length > 0:
-		return ("%s:%d" % [metadata.last_modified, metadata.content_length]).sha256_text().substr(0, 12)
+		return ("%s:%d" % [metadata.last_modified, metadata.content_length]).sha256_text().substr(0, _HASH_TOKEN_LENGTH)
 
-	return url.sha256_text().substr(0, 12)
+	return url.sha256_text().substr(0, _HASH_TOKEN_LENGTH)
 
 
 static func _id_for_url(url: String, options: PackRatOptions) -> String:
@@ -444,11 +450,11 @@ static func _cache_key(url: String, id: String, options: PackRatOptions) -> Stri
 	if options.has_expected_metadata():
 		return "%s-%s" % [id, _expected_metadata_token(options)]
 
-	return "%s-%s" % [id, url.sha256_text().substr(0, 12)]
+	return "%s-%s" % [id, url.sha256_text().substr(0, _HASH_TOKEN_LENGTH)]
 
 
 static func _expected_metadata_token(options: PackRatOptions) -> String:
-	return ("expected:%d:%d" % [options.expected_size, options.expected_modified_time]).sha256_text().substr(0, 12)
+	return ("expected:%d:%d" % [options.expected_size, options.expected_modified_time]).sha256_text().substr(0, _HASH_TOKEN_LENGTH)
 
 
 static func _extension_for_response(metadata: PackRatHttpResponse) -> String:
@@ -566,17 +572,42 @@ static func _ensure_dir(path: String) -> void:
 		push_warning("PackRat could not create %s (error %d)." % [path, error])
 
 
+static func _evict_cache_record(
+	cache: PackRatCache,
+	key: String,
+	path: String,
+	options: PackRatOptions,
+	save: bool = true
+) -> void:
+	_remove_cache_file(path, options.cache_dir)
+	cache.erase_record(key)
+	if save:
+		cache.save()
+
+
 static func _is_safe_cache_dir(path: String) -> bool:
 	var normalized: String = _normalized_cache_dir(path)
-	return normalized.begins_with("user://") and normalized != "user://"
+	return (
+		normalized.begins_with("user://")
+		and normalized != "user://"
+		and not _has_parent_directory_segment(path)
+		and not _has_parent_directory_segment(normalized)
+	)
 
 
 static func _is_cache_child_path(path: String, cache_dir: String) -> bool:
 	var normalized_cache_dir: String = _normalized_cache_dir(cache_dir)
-	if normalized_cache_dir.is_empty():
+	var normalized_path: String = _normalized_cache_dir(path)
+	if (
+		normalized_cache_dir.is_empty()
+		or _has_parent_directory_segment(path)
+		or _has_parent_directory_segment(cache_dir)
+		or _has_parent_directory_segment(normalized_path)
+		or _has_parent_directory_segment(normalized_cache_dir)
+	):
 		return false
 
-	return path.begins_with("%s/" % normalized_cache_dir)
+	return normalized_path.begins_with("%s/" % normalized_cache_dir)
 
 
 static func _remove_cache_file(path: String, cache_dir: String) -> Error:
@@ -593,11 +624,19 @@ static func _remove_cache_file(path: String, cache_dir: String) -> Error:
 
 
 static func _normalized_cache_dir(path: String) -> String:
-	var normalized: String = path.strip_edges()
+	var normalized: String = path.strip_edges().replace("\\", "/").simplify_path()
 	while normalized.ends_with("/") and normalized != "user://" and normalized != "res://":
 		normalized = normalized.trim_suffix("/")
 
 	return normalized
+
+
+static func _has_parent_directory_segment(path: String) -> bool:
+	for segment in path.replace("\\", "/").split("/", false):
+		if segment == "..":
+			return true
+
+	return false
 
 
 static func _clear_directory(path: String) -> Error:
@@ -619,11 +658,13 @@ static func _clear_directory(path: String) -> Error:
 
 		if error != OK:
 			dir.list_dir_end()
+			dir = null
 			return error
 
 		child = dir.get_next()
 
 	dir.list_dir_end()
+	dir = null
 	return OK
 
 
@@ -635,5 +676,6 @@ static func _remove_empty_directory(path: String) -> void:
 	dir.list_dir_begin()
 	var first_child: String = dir.get_next()
 	dir.list_dir_end()
+	dir = null
 	if first_child.is_empty():
 		DirAccess.remove_absolute(path)

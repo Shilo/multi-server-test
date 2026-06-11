@@ -54,3 +54,21 @@ func has_expected_modified_time() -> bool:
 ## Returns [code]true[/code] when server-provided cache identity is available.
 func has_expected_metadata() -> bool:
 	return has_expected_size() or has_expected_modified_time()
+
+
+## Returns a snapshot so async requests are not affected by later mutations.
+func copy() -> PackRatOptions:
+	var options: PackRatOptions = PackRatOptions.new()
+	options.id = id
+	options.cache_dir = cache_dir
+	options.replace_files = replace_files
+	options.offset = offset
+	options.entry_path = entry_path
+	options.expected_size = expected_size
+	options.expected_modified_time = expected_modified_time
+	options.offline_first = offline_first
+	options.request_headers = request_headers.duplicate()
+	options.timeout_seconds = timeout_seconds
+	options.max_redirects = max_redirects
+	options.always_download = always_download
+	return options
