@@ -101,6 +101,8 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 		return ERR_INVALID_PARAMETER
 
 	var cache_dir: String = PackRatCachePaths.normalized_cache_dir(options.cache_dir)
+	var clear_options: PackRatOptions = options.copy()
+	clear_options.cache_dir = cache_dir
 	var cache: PackRatCache = PackRatCache.load(cache_dir)
 	var keys: PackedStringArray = cache.keys()
 	var matched: bool = false
@@ -117,7 +119,7 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 		if not matched_ids.has(record_id):
 			matched_ids.append(record_id)
 		cache.erase_record(key)
-		PackRatLoader.forget_fast_cache(key, options)
+		PackRatLoader.forget_fast_cache(key, clear_options)
 		var remove_error: Error = PackRatCacheFiles.remove_cache_file(record.local_path, cache_dir)
 		if PackRatCacheFiles.is_real_remove_error(remove_error) and first_error == OK:
 			first_error = remove_error
@@ -141,7 +143,7 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 			continue
 
 		cache.erase_record(key)
-		PackRatLoader.forget_fast_cache(key, options)
+		PackRatLoader.forget_fast_cache(key, clear_options)
 		var remove_error: Error = PackRatCacheFiles.remove_cache_file(record.local_path, cache_dir)
 		if PackRatCacheFiles.is_real_remove_error(remove_error) and first_error == OK:
 			first_error = remove_error
