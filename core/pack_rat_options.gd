@@ -39,6 +39,10 @@ var timeout_seconds: float = 120.0
 ## usually large files.
 var download_chunk_size: int = 4 * 1024 * 1024
 
+## Captures millisecond phase timings in [member PackRatResult.timings_msec].
+## Disabled by default to keep production loads as lean as possible.
+var capture_timings: bool = false
+
 ## Maximum HTTP redirects followed by [HTTPRequest].
 var max_redirects: int = 8
 
@@ -83,6 +87,7 @@ func copy() -> PackRatOptions:
 	options.request_headers = request_headers.duplicate()
 	options.timeout_seconds = timeout_seconds
 	options.download_chunk_size = download_chunk_size
+	options.capture_timings = capture_timings
 	options.max_redirects = max_redirects
 	options.always_download = always_download
 	return options

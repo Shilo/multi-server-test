@@ -56,8 +56,8 @@ var error: String = ""
 ## Non-fatal notes, such as missing comparable freshness headers.
 var warnings: PackedStringArray = []
 
-## Millisecond timings for major PackRat phases, useful when diagnosing slow
-## downloads, filesystem writes, and resource-pack mounts.
+## Millisecond timings for major PackRat phases when
+## [member PackRatOptions.capture_timings] is enabled.
 var timings_msec: Dictionary = {}
 
 

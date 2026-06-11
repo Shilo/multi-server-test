@@ -7,61 +7,63 @@ static var _fast_cache_signatures: Dictionary = {}
 
 ## Loads, caches, and mounts the resource pack described by [param request].
 static func load(request: PackRatRequest) -> PackRatResult:
-	var total_start_msec: int = Time.get_ticks_msec()
 	var url: String = request.url
 	var options: PackRatOptions = request.options
+	var capture_timings: bool = options.capture_timings
+	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
 	var id: String = request.id
 	var key: String = request.cache_key
 	var result: PackRatResult = PackRatResult.new()
 	result.source_url = url
 	result.id = id
 	if request.is_canceled():
-		return _finish_timing(PackRatResult.failed(url, PackRatResult.ERROR_CANCELED), total_start_msec)
+		return _finish_timing(PackRatResult.failed(url, PackRatResult.ERROR_CANCELED), total_start_msec, capture_timings)
 	if not PackRatCachePaths.is_safe_cache_dir(options.cache_dir):
-		return _finish_timing(PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments."), total_start_msec)
+		return _finish_timing(PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments."), total_start_msec, capture_timings)
 
-	var ensure_cache_dir_start_msec: int = Time.get_ticks_msec()
+	var ensure_cache_dir_start_msec: int = _timing_start(capture_timings)
 	PackRatCacheFiles.ensure_dir(options.cache_dir)
-	result.timings_msec["ensure_cache_dir_msec"] = Time.get_ticks_msec() - ensure_cache_dir_start_msec
+	_record_timing(result, capture_timings, "ensure_cache_dir_msec", ensure_cache_dir_start_msec)
 
-	var load_cache_start_msec: int = Time.get_ticks_msec()
+	var load_cache_start_msec: int = _timing_start(capture_timings)
 	var cache: PackRatCache = PackRatCache.load(options.cache_dir)
-	result.timings_msec["load_cache_metadata_msec"] = Time.get_ticks_msec() - load_cache_start_msec
+	_record_timing(result, capture_timings, "load_cache_metadata_msec", load_cache_start_msec)
 	var record: PackRatCacheRecord = cache.record(key)
 	var metadata: PackRatHttpResponse = PackRatHttpResponse.new()
-	var cached_exists_start_msec: int = Time.get_ticks_msec()
+	var cached_exists_start_msec: int = _timing_start(capture_timings)
 	var cached_file_exists: bool = record.file_exists()
-	result.timings_msec["cached_file_check_msec"] = Time.get_ticks_msec() - cached_exists_start_msec
+	_record_timing(result, capture_timings, "cached_file_check_msec", cached_exists_start_msec)
 	if not record.local_path.is_empty() and not cached_file_exists:
-		var missing_record_start_msec: int = Time.get_ticks_msec()
+		var missing_record_start_msec: int = _timing_start(capture_timings)
 		cache.erase_record(key)
 		forget_fast_cache(key, options)
 		cache.save()
-		result.timings_msec["missing_cache_record_repair_msec"] = Time.get_ticks_msec() - missing_record_start_msec
+		_record_timing(result, capture_timings, "missing_cache_record_repair_msec", missing_record_start_msec)
 
 	var should_download: bool = options.always_download or not cached_file_exists
 	var cached_expected_size_mismatch: bool = false
 
 	if cached_file_exists and options.has_expected_size():
-		var cached_size_start_msec: int = Time.get_ticks_msec()
+		var cached_size_start_msec: int = _timing_start(capture_timings)
 		var cached_size: int = FileAccess.get_size(record.local_path)
-		result.timings_msec["cached_size_check_msec"] = Time.get_ticks_msec() - cached_size_start_msec
+		_record_timing(result, capture_timings, "cached_size_check_msec", cached_size_start_msec)
 		if cached_size != options.expected_size:
 			cached_expected_size_mismatch = true
 			should_download = true
-			var evict_mismatch_start_msec: int = Time.get_ticks_msec()
+			var evict_mismatch_start_msec: int = _timing_start(capture_timings)
 			_evict_cache_record(cache, key, record.local_path, options)
-			result.timings_msec["cached_size_evict_msec"] = Time.get_ticks_msec() - evict_mismatch_start_msec
+			_record_timing(result, capture_timings, "cached_size_evict_msec", evict_mismatch_start_msec)
 
 	if cached_file_exists and not should_download and (options.offline_first or options.has_expected_metadata()):
 		should_download = false
 	elif cached_file_exists and not should_download:
-		var freshness_start_msec: int = Time.get_ticks_msec()
+		var freshness_start_msec: int = _timing_start(capture_timings)
 		metadata = await PackRatHttpClient.freshness_metadata(url, options, request)
-		_merge_timings(result.timings_msec, metadata.timings_msec, "freshness_")
-		result.timings_msec["freshness_request_msec"] = Time.get_ticks_msec() - freshness_start_msec
+		if capture_timings:
+			_merge_timings(result.timings_msec, metadata.timings_msec, "freshness_")
+		_record_timing(result, capture_timings, "freshness_request_msec", freshness_start_msec)
 		if request.is_canceled():
-			return _finish_timing(PackRatResult.failed(url, PackRatResult.ERROR_CANCELED), total_start_msec)
+			return _finish_timing(PackRatResult.failed(url, PackRatResult.ERROR_CANCELED), total_start_msec, capture_timings)
 
 		var freshness: String = record.freshness_against(metadata)
 		should_download = freshness == "stale"
@@ -73,32 +75,33 @@ static func load(request: PackRatRequest) -> PackRatResult:
 		result.from_cache = true
 		result.local_path = record.local_path
 		record.apply_to_result(result)
-		var cache_mount_start_msec: int = Time.get_ticks_msec()
+		var cache_mount_start_msec: int = _timing_start(capture_timings)
 		var cached_result: PackRatResult = PackRatMountRegistry.mount_if_pack(result, options)
-		cached_result.timings_msec = result.timings_msec
-		cached_result.timings_msec["mount_msec"] = Time.get_ticks_msec() - cache_mount_start_msec
+		_copy_result_timings(cached_result, result, capture_timings)
+		_record_timing(cached_result, capture_timings, "mount_msec", cache_mount_start_msec)
 		if not cached_result.ok:
 			_evict_cache_record(cache, key, record.local_path, options)
 		else:
 			remember_fast_cache(key, url, cached_result, options)
-		return _finish_timing(cached_result, total_start_msec)
+		return _finish_timing(cached_result, total_start_msec, capture_timings)
 
-	var ensure_tmp_start_msec: int = Time.get_ticks_msec()
+	var ensure_tmp_start_msec: int = _timing_start(capture_timings)
 	PackRatCacheFiles.ensure_dir(options.cache_dir.path_join("tmp"))
-	result.timings_msec["ensure_tmp_dir_msec"] = Time.get_ticks_msec() - ensure_tmp_start_msec
+	_record_timing(result, capture_timings, "ensure_tmp_dir_msec", ensure_tmp_start_msec)
 	var part_path: String = options.cache_dir.path_join("tmp").path_join("%s-%d.part" % [key, request.get_instance_id()])
-	var part_cleanup_start_msec: int = Time.get_ticks_msec()
+	var part_cleanup_start_msec: int = _timing_start(capture_timings)
 	if FileAccess.file_exists(part_path):
 		DirAccess.remove_absolute(part_path)
-	result.timings_msec["part_cleanup_msec"] = Time.get_ticks_msec() - part_cleanup_start_msec
+	_record_timing(result, capture_timings, "part_cleanup_msec", part_cleanup_start_msec)
 
-	var download_start_msec: int = Time.get_ticks_msec()
+	var download_start_msec: int = _timing_start(capture_timings)
 	var download: PackRatHttpResponse = await PackRatHttpClient.request(url, part_path, options, request)
-	_merge_timings(result.timings_msec, download.timings_msec, "download_")
-	result.timings_msec["download_msec"] = Time.get_ticks_msec() - download_start_msec
+	if capture_timings:
+		_merge_timings(result.timings_msec, download.timings_msec, "download_")
+	_record_timing(result, capture_timings, "download_msec", download_start_msec)
 	if request.is_canceled():
 		DirAccess.remove_absolute(part_path)
-		return _failed_with_timings(url, PackRatResult.ERROR_CANCELED, result, total_start_msec)
+		return _failed_with_timings(url, PackRatResult.ERROR_CANCELED, result, total_start_msec, capture_timings)
 
 	if not download.ok:
 		DirAccess.remove_absolute(part_path)
@@ -108,38 +111,38 @@ static func load(request: PackRatRequest) -> PackRatResult:
 			result.local_path = record.local_path
 			result.add_warning("%s Using the previous cached pack." % download.error)
 			record.apply_to_result(result)
-			var fallback_mount_start_msec: int = Time.get_ticks_msec()
+			var fallback_mount_start_msec: int = _timing_start(capture_timings)
 			var fallback_result: PackRatResult = PackRatMountRegistry.mount_if_pack(result, options)
-			fallback_result.timings_msec = result.timings_msec
-			fallback_result.timings_msec["mount_msec"] = Time.get_ticks_msec() - fallback_mount_start_msec
+			_copy_result_timings(fallback_result, result, capture_timings)
+			_record_timing(fallback_result, capture_timings, "mount_msec", fallback_mount_start_msec)
 			if not fallback_result.ok:
 				_evict_cache_record(cache, key, record.local_path, options)
-			return _finish_timing(fallback_result, total_start_msec)
+			return _finish_timing(fallback_result, total_start_msec, capture_timings)
 
-		return _failed_with_timings(url, download.error, result, total_start_msec)
+		return _failed_with_timings(url, download.error, result, total_start_msec, capture_timings)
 
-	var cache_finalize_start_msec: int = Time.get_ticks_msec()
-	var file_size_start_msec: int = Time.get_ticks_msec()
+	var cache_finalize_start_msec: int = _timing_start(capture_timings)
+	var file_size_start_msec: int = _timing_start(capture_timings)
 	var file_size: int = FileAccess.get_size(part_path)
-	result.timings_msec["file_size_msec"] = Time.get_ticks_msec() - file_size_start_msec
+	_record_timing(result, capture_timings, "file_size_msec", file_size_start_msec)
 	if file_size <= 0:
 		DirAccess.remove_absolute(part_path)
-		return _failed_with_timings(url, "Downloaded pack was empty.", result, total_start_msec)
+		return _failed_with_timings(url, "Downloaded pack was empty.", result, total_start_msec, capture_timings)
 
-	var metadata_merge_start_msec: int = Time.get_ticks_msec()
+	var metadata_merge_start_msec: int = _timing_start(capture_timings)
 	metadata.merge_from(download)
-	result.timings_msec["metadata_merge_msec"] = Time.get_ticks_msec() - metadata_merge_start_msec
-	var validation_start_msec: int = Time.get_ticks_msec()
+	_record_timing(result, capture_timings, "metadata_merge_msec", metadata_merge_start_msec)
+	var validation_start_msec: int = _timing_start(capture_timings)
 	var validation_error: String = _validate_expected_metadata(options, metadata, file_size)
-	result.timings_msec["validate_metadata_msec"] = Time.get_ticks_msec() - validation_start_msec
+	_record_timing(result, capture_timings, "validate_metadata_msec", validation_start_msec)
 	if not validation_error.is_empty():
 		DirAccess.remove_absolute(part_path)
-		return _failed_with_timings(url, validation_error, result, total_start_msec)
+		return _failed_with_timings(url, validation_error, result, total_start_msec, capture_timings)
 
 	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
-	var local_path_start_msec: int = Time.get_ticks_msec()
+	var local_path_start_msec: int = _timing_start(capture_timings)
 	var local_path: String = PackRatCachePaths.local_path(url, options.cache_dir, result.id, metadata, options)
-	result.timings_msec["local_path_msec"] = Time.get_ticks_msec() - local_path_start_msec
+	_record_timing(result, capture_timings, "local_path_msec", local_path_start_msec)
 	if (
 		# This branch can happen after a parallel download produced the same cache path.
 		FileAccess.file_exists(local_path)
@@ -152,21 +155,21 @@ static func load(request: PackRatRequest) -> PackRatResult:
 		result.local_path = local_path
 		result.content_length = FileAccess.get_size(local_path)
 		metadata.apply_to_result(result)
-		result.timings_msec["cache_finalize_msec"] = Time.get_ticks_msec() - cache_finalize_start_msec
-		var existing_mount_start_msec: int = Time.get_ticks_msec()
+		_record_timing(result, capture_timings, "cache_finalize_msec", cache_finalize_start_msec)
+		var existing_mount_start_msec: int = _timing_start(capture_timings)
 		var existing_result: PackRatResult = PackRatMountRegistry.mount_if_pack(result, options)
-		existing_result.timings_msec = result.timings_msec
-		existing_result.timings_msec["mount_msec"] = Time.get_ticks_msec() - existing_mount_start_msec
+		_copy_result_timings(existing_result, result, capture_timings)
+		_record_timing(existing_result, capture_timings, "mount_msec", existing_mount_start_msec)
 		if existing_result.ok:
-			var existing_save_start_msec: int = Time.get_ticks_msec()
+			var existing_save_start_msec: int = _timing_start(capture_timings)
 			DirAccess.remove_absolute(part_path)
 			cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
 			cache.save()
-			existing_result.timings_msec["existing_cache_record_save_msec"] = Time.get_ticks_msec() - existing_save_start_msec
-			var existing_fast_cache_start_msec: int = Time.get_ticks_msec()
+			_record_timing(existing_result, capture_timings, "existing_cache_record_save_msec", existing_save_start_msec)
+			var existing_fast_cache_start_msec: int = _timing_start(capture_timings)
 			remember_fast_cache(key, url, existing_result, options)
-			existing_result.timings_msec["remember_fast_cache_msec"] = Time.get_ticks_msec() - existing_fast_cache_start_msec
-			return _finish_timing(existing_result, total_start_msec)
+			_record_timing(existing_result, capture_timings, "remember_fast_cache_msec", existing_fast_cache_start_msec)
+			return _finish_timing(existing_result, total_start_msec, capture_timings)
 
 		_evict_cache_record(cache, key, local_path, options, false)
 
@@ -174,25 +177,25 @@ static func load(request: PackRatRequest) -> PackRatResult:
 		if PackRatMountRegistry.is_mounted_path(local_path):
 			local_path = PackRatCachePaths.unused_cache_path(local_path, request.get_instance_id())
 		else:
-			var replace_cache_start_msec: int = Time.get_ticks_msec()
+			var replace_cache_start_msec: int = _timing_start(capture_timings)
 			var remove_error: Error = PackRatCacheFiles.remove_cache_file(local_path, options.cache_dir)
-			result.timings_msec["replace_cache_file_msec"] = Time.get_ticks_msec() - replace_cache_start_msec
+			_record_timing(result, capture_timings, "replace_cache_file_msec", replace_cache_start_msec)
 			if PackRatCacheFiles.is_real_remove_error(remove_error):
 				DirAccess.remove_absolute(part_path)
-				return _failed_with_timings(url, "Could not replace cached pack %s (error %d)." % [local_path, remove_error], result, total_start_msec)
+				return _failed_with_timings(url, "Could not replace cached pack %s (error %d)." % [local_path, remove_error], result, total_start_msec, capture_timings)
 
-	var move_start_msec: int = Time.get_ticks_msec()
+	var move_start_msec: int = _timing_start(capture_timings)
 	var move_error: Error = DirAccess.rename_absolute(part_path, local_path)
-	result.timings_msec["move_into_cache_msec"] = Time.get_ticks_msec() - move_start_msec
+	_record_timing(result, capture_timings, "move_into_cache_msec", move_start_msec)
 	if move_error != OK:
 		DirAccess.remove_absolute(part_path)
-		return _failed_with_timings(url, "Could not move downloaded pack into cache (error %d)." % move_error, result, total_start_msec)
+		return _failed_with_timings(url, "Could not move downloaded pack into cache (error %d)." % move_error, result, total_start_msec, capture_timings)
 
 	result.status = PackRatResult.STATUS_DOWNLOADED
 	result.local_path = local_path
 	result.content_length = file_size
 	metadata.apply_to_result(result)
-	result.timings_msec["cache_finalize_msec"] = Time.get_ticks_msec() - cache_finalize_start_msec
+	_record_timing(result, capture_timings, "cache_finalize_msec", cache_finalize_start_msec)
 
 	if not has_comparable_freshness:
 		result.add_warning("PackRat cached this URL without comparable freshness headers.")
@@ -203,13 +206,13 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	):
 		result.add_warning("PackRat could not compare expected modified time because Last-Modified was missing or invalid.")
 
-	var mount_start_msec: int = Time.get_ticks_msec()
+	var mount_start_msec: int = _timing_start(capture_timings)
 	var mounted_result: PackRatResult = PackRatMountRegistry.mount_if_pack(result, options)
-	mounted_result.timings_msec = result.timings_msec
-	mounted_result.timings_msec["mount_msec"] = Time.get_ticks_msec() - mount_start_msec
+	_copy_result_timings(mounted_result, result, capture_timings)
+	_record_timing(mounted_result, capture_timings, "mount_msec", mount_start_msec)
 	if not mounted_result.ok:
 		PackRatCacheFiles.remove_cache_file(local_path, options.cache_dir)
-		return _finish_timing(mounted_result, total_start_msec)
+		return _finish_timing(mounted_result, total_start_msec, capture_timings)
 
 	var previous_local_path: String = record.local_path
 	var previous_mounted_path: String = PackRatMountRegistry.mounted_path_for_id(result.id)
@@ -218,35 +221,36 @@ static func load(request: PackRatRequest) -> PackRatResult:
 		and previous_local_path != local_path
 		and previous_local_path != previous_mounted_path
 	):
-		var previous_cleanup_start_msec: int = Time.get_ticks_msec()
+		var previous_cleanup_start_msec: int = _timing_start(capture_timings)
 		PackRatCacheFiles.remove_cache_file(previous_local_path, options.cache_dir)
-		mounted_result.timings_msec["previous_cache_cleanup_msec"] = Time.get_ticks_msec() - previous_cleanup_start_msec
+		_record_timing(mounted_result, capture_timings, "previous_cache_cleanup_msec", previous_cleanup_start_msec)
 
-	var old_versions_start_msec: int = Time.get_ticks_msec()
+	var old_versions_start_msec: int = _timing_start(capture_timings)
 	_cleanup_old_versions(cache, key, result.id, local_path, options, result)
-	mounted_result.timings_msec["old_versions_cleanup_msec"] = Time.get_ticks_msec() - old_versions_start_msec
-	var set_record_start_msec: int = Time.get_ticks_msec()
+	_record_timing(mounted_result, capture_timings, "old_versions_cleanup_msec", old_versions_start_msec)
+	var set_record_start_msec: int = _timing_start(capture_timings)
 	cache.set_record(key, PackRatCacheRecord.from_result(url, local_path, result, options))
-	result.timings_msec["cache_record_msec"] = Time.get_ticks_msec() - set_record_start_msec
-	var save_cache_start_msec: int = Time.get_ticks_msec()
+	_record_timing(result, capture_timings, "cache_record_msec", set_record_start_msec)
+	var save_cache_start_msec: int = _timing_start(capture_timings)
 	var save_error: Error = cache.save()
-	result.timings_msec["save_cache_metadata_msec"] = Time.get_ticks_msec() - save_cache_start_msec
+	_record_timing(result, capture_timings, "save_cache_metadata_msec", save_cache_start_msec)
 	if save_error != OK:
 		result.add_warning("PackRat loaded the resource pack but could not save cache metadata (error %d)." % save_error)
 
-	var remember_start_msec: int = Time.get_ticks_msec()
+	var remember_start_msec: int = _timing_start(capture_timings)
 	remember_fast_cache(key, url, mounted_result, options)
-	mounted_result.timings_msec["remember_fast_cache_msec"] = Time.get_ticks_msec() - remember_start_msec
-	return _finish_timing(mounted_result, total_start_msec)
+	_record_timing(mounted_result, capture_timings, "remember_fast_cache_msec", remember_start_msec)
+	return _finish_timing(mounted_result, total_start_msec, capture_timings)
 
 
 ## Returns a mounted in-process cache hit, or [code]null[/code] when disk/HTTP work is needed.
 static func fast_cache_result(url: String, id: String, key: String, options: PackRatOptions) -> PackRatResult:
-	var total_start_msec: int = Time.get_ticks_msec()
+	var capture_timings: bool = options.capture_timings
+	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
 	if options.always_download or (not options.offline_first and not options.has_expected_metadata()):
 		return null
 
-	var lookup_start_msec: int = Time.get_ticks_msec()
+	var lookup_start_msec: int = _timing_start(capture_timings)
 	var fast_key: String = _fast_cache_key(key, options)
 	if not _fast_cache_records.has(fast_key):
 		return null
@@ -257,7 +261,7 @@ static func fast_cache_result(url: String, id: String, key: String, options: Pac
 		_fast_cache_signatures.erase(fast_key)
 		return null
 
-	var signature_start_msec: int = Time.get_ticks_msec()
+	var signature_start_msec: int = _timing_start(capture_timings)
 	var signature: String = PackRatMountRegistry.mount_signature(record.local_path, options)
 	if str(_fast_cache_signatures.get(fast_key, "")) != signature:
 		_fast_cache_records.erase(fast_key)
@@ -265,19 +269,19 @@ static func fast_cache_result(url: String, id: String, key: String, options: Pac
 		return null
 
 	var result: PackRatResult = PackRatResult.new()
-	result.timings_msec["fast_cache_lookup_msec"] = Time.get_ticks_msec() - lookup_start_msec
-	result.timings_msec["fast_cache_signature_msec"] = Time.get_ticks_msec() - signature_start_msec
+	_record_timing(result, capture_timings, "fast_cache_lookup_msec", lookup_start_msec)
+	_record_timing(result, capture_timings, "fast_cache_signature_msec", signature_start_msec)
 	result.source_url = url
 	result.id = id
 	result.status = PackRatResult.STATUS_CACHE_HIT
 	result.from_cache = true
 	result.local_path = record.local_path
 	record.apply_to_result(result)
-	var mount_start_msec: int = Time.get_ticks_msec()
+	var mount_start_msec: int = _timing_start(capture_timings)
 	var mounted_result: PackRatResult = PackRatMountRegistry.mount_if_pack(result, options)
-	mounted_result.timings_msec = result.timings_msec
-	mounted_result.timings_msec["mount_msec"] = Time.get_ticks_msec() - mount_start_msec
-	return _finish_timing(mounted_result, total_start_msec)
+	_copy_result_timings(mounted_result, result, capture_timings)
+	_record_timing(mounted_result, capture_timings, "mount_msec", mount_start_msec)
+	return _finish_timing(mounted_result, total_start_msec, capture_timings)
 
 
 ## Stores a successful result in the in-process cache-hit map.
@@ -309,8 +313,23 @@ static func _merge_timings(target: Dictionary, source: Dictionary, prefix: Strin
 		target["%s%s" % [prefix, str(key)]] = source[key]
 
 
-static func _finish_timing(result: PackRatResult, total_start_msec: int) -> PackRatResult:
-	result.timings_msec["total_msec"] = Time.get_ticks_msec() - total_start_msec
+static func _timing_start(capture_timings: bool) -> int:
+	return Time.get_ticks_msec() if capture_timings else 0
+
+
+static func _record_timing(result: PackRatResult, capture_timings: bool, key: String, start_msec: int) -> void:
+	if capture_timings:
+		result.timings_msec[key] = Time.get_ticks_msec() - start_msec
+
+
+static func _copy_result_timings(target: PackRatResult, source: PackRatResult, capture_timings: bool) -> void:
+	if capture_timings:
+		target.timings_msec = source.timings_msec
+
+
+static func _finish_timing(result: PackRatResult, total_start_msec: int, capture_timings: bool) -> PackRatResult:
+	if capture_timings:
+		result.timings_msec["total_msec"] = Time.get_ticks_msec() - total_start_msec
 	return result
 
 
@@ -318,12 +337,14 @@ static func _failed_with_timings(
 	url: String,
 	message: String,
 	source_result: PackRatResult,
-	total_start_msec: int
+	total_start_msec: int,
+	capture_timings: bool
 ) -> PackRatResult:
 	var failed_result: PackRatResult = PackRatResult.failed(url, message)
 	failed_result.id = source_result.id
-	failed_result.timings_msec = source_result.timings_msec.duplicate()
-	return _finish_timing(failed_result, total_start_msec)
+	if capture_timings:
+		failed_result.timings_msec = source_result.timings_msec.duplicate()
+	return _finish_timing(failed_result, total_start_msec, capture_timings)
 
 
 static func _validate_expected_metadata(
