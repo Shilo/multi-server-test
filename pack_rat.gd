@@ -29,6 +29,8 @@ static func prepare(url: String, options: PackRatOptions = PackRatOptions.new())
 	var key: String = _cache_key(url, result.id)
 	var record: Dictionary = items.get(key, {})
 	var metadata: Dictionary = await _request(url, "", options, HTTPClient.METHOD_HEAD)
+	if not bool(metadata.get("ok", false)):
+		metadata = {}
 	var cached_path: String = str(record.get("local_path", ""))
 	var cached_file_exists: bool = not cached_path.is_empty() and FileAccess.file_exists(cached_path)
 	var should_download: bool = options.always_download or not cached_file_exists
