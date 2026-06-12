@@ -1,7 +1,7 @@
 class_name PackRatOptions extends RefCounted
 ## Optional settings for [method PackRat.load_resource_pack].
 
-const _MAX_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
+const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""
@@ -49,7 +49,7 @@ var timeout_seconds: float = 120.0
 
 ## Bytes per native [HTTPRequest] read or Web [code]fetch()[/code] write chunk.
 ## PackRat defaults to Godot's maximum because resource packs are large files.
-var download_chunk_size: int = default_download_chunk_size()
+var download_chunk_size: int = _DEFAULT_DOWNLOAD_CHUNK_SIZE
 
 ## Runs native [HTTPRequest] polling on its worker thread when supported. Enable
 ## this after profiling a real native download that benefits from it. PackRat
@@ -60,10 +60,6 @@ var use_threads: bool = false
 ## available. Disable this to force Godot's [HTTPRequest] path for comparison
 ## or debugging.
 var use_web_fetch: bool = true
-
-## Maximum bytes allowed through the Web [code]fetch()[/code] fast path. A value
-## of [code]0[/code] means PackRat does not impose its own size limit.
-var web_fetch_max_bytes: int = 0
 
 ## Captures millisecond phase timings in [member PackRatResult.timings_msec].
 ## Disabled by default to keep production loads as lean as possible.
@@ -82,11 +78,6 @@ static func from_expected_metadata(expected_modified_time: int, expected_size: i
 	options.expected_modified_time = expected_modified_time
 	options.expected_size = expected_size
 	return options
-
-
-## Returns PackRat's default [member download_chunk_size].
-static func default_download_chunk_size() -> int:
-	return _MAX_DOWNLOAD_CHUNK_SIZE
 
 
 ## Returns [code]true[/code] when [member expected_size] should be checked.
@@ -122,7 +113,6 @@ func copy() -> PackRatOptions:
 	options.download_chunk_size = download_chunk_size
 	options.use_threads = use_threads
 	options.use_web_fetch = use_web_fetch
-	options.web_fetch_max_bytes = web_fetch_max_bytes
 	options.capture_timings = capture_timings
 	options.max_redirects = max_redirects
 	options.always_download = always_download

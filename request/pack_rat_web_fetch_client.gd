@@ -32,7 +32,7 @@ const _SCRIPT: String = """
 		return headers;
 	};
 
-	window.__packratWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, chunkSize, maxBytes, progressCallback, chunkCallback, doneCallback, errorCallback) {
+	window.__packratWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, chunkSize, progressCallback, chunkCallback, doneCallback, errorCallback) {
 		const key = String(id);
 		const controller = new AbortController();
 		let timeoutHandle = 0;
@@ -52,7 +52,6 @@ const _SCRIPT: String = """
 			const headers = JSON.stringify(Array.from(response.headers.entries()));
 			const total = Number(response.headers.get("content-length") || 0);
 			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
-			const maxDownloadBytes = Math.max(0, Number(maxBytes) || 0);
 
 			const exactArrayBuffer = (bytes) => {
 				if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
@@ -64,9 +63,6 @@ const _SCRIPT: String = """
 
 			if (!response.body || !response.body.getReader) {
 				const fallbackBuffer = await response.arrayBuffer();
-				if (maxDownloadBytes > 0 && fallbackBuffer.byteLength > maxDownloadBytes) {
-					throw new Error("Downloaded pack is too large for the Web fast path.");
-				}
 				const fallbackBytes = new Uint8Array(fallbackBuffer);
 				for (let offset = 0; offset < fallbackBytes.byteLength; offset += targetChunkSize) {
 					const chunk = fallbackBytes.subarray(offset, Math.min(offset + targetChunkSize, fallbackBytes.byteLength));
@@ -128,9 +124,6 @@ const _SCRIPT: String = """
 
 				const chunk = result.value;
 				received += chunk.byteLength;
-				if (maxDownloadBytes > 0 && received > maxDownloadBytes) {
-					throw new Error("Downloaded pack is too large for the Web fast path.");
-				}
 				appendChunk(chunk);
 
 				const now = performance.now();
@@ -249,11 +242,6 @@ static func download(
 			state["done"] = true
 			return
 
-		if options.web_fetch_max_bytes > 0 and int(state.get("written_bytes", 0)) + bytes.size() > options.web_fetch_max_bytes:
-			state["error"] = "Downloaded pack is too large for the Web fast path."
-			state["done"] = true
-			return
-
 		var output_file: FileAccess = state["file"]
 		if output_file == null:
 			state["error"] = "Browser fetch download file was closed before the transfer finished."
@@ -307,7 +295,6 @@ static func download(
 		header_lines_json,
 		timeout_msec,
 		effective_chunk_size,
-		options.web_fetch_max_bytes,
 		callbacks[0],
 		callbacks[1],
 		callbacks[2],
