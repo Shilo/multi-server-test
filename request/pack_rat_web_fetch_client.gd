@@ -13,6 +13,8 @@ const _SCRIPT: String = """
 		return true;
 	}
 
+	const PROGRESS_INTERVAL_MS = 100;
+
 	window.__packratWebFetchActive = new Map();
 
 	window.__packratWebFetchHeaders = function(headerLines) {
@@ -80,7 +82,7 @@ const _SCRIPT: String = """
 				}
 
 				const now = performance.now();
-				if (now - lastProgressAt >= 50 || received === total) {
+				if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || received === total) {
 					lastProgressAt = now;
 					progressCallback(key, received, total);
 				}
