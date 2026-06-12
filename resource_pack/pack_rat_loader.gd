@@ -131,6 +131,8 @@ static func load(request: PackRatRequest) -> PackRatResult:
 
 	var metadata_merge_start_msec: int = _timing_start(capture_timings)
 	metadata.merge_from(download)
+	metadata.apply_to_result(result)
+	result.content_length = file_size
 	_record_timing(result, capture_timings, "metadata_merge_msec", metadata_merge_start_msec)
 	var validation_start_msec: int = _timing_start(capture_timings)
 	var validation_error: String = _validate_expected_metadata(options, metadata, file_size)
@@ -342,6 +344,11 @@ static func _failed_with_timings(
 ) -> PackRatResult:
 	var failed_result: PackRatResult = PackRatResult.failed(url, message)
 	failed_result.id = source_result.id
+	failed_result.content_length = source_result.content_length
+	failed_result.response_code = source_result.response_code
+	failed_result.etag = source_result.etag
+	failed_result.last_modified = source_result.last_modified
+	failed_result.warnings = source_result.warnings
 	if capture_timings:
 		failed_result.timings_msec = source_result.timings_msec.duplicate()
 	return _finish_timing(failed_result, total_start_msec, capture_timings)
