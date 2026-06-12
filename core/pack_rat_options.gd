@@ -51,7 +51,8 @@ var timeout_seconds: float = 120.0
 var download_chunk_size: int = 4 * 1024 * 1024
 
 ## Runs native [HTTPRequest] polling on its worker thread when supported. Enable
-## this when profiling shows the default native path is too frame-bound.
+## this after profiling a real native download that benefits from it. PackRat
+## does not pass this through to Web [HTTPRequest].
 var use_threads: bool = false
 
 ## Uses PackRat's browser [code]fetch()[/code] downloader for Web exports when
