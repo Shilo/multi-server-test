@@ -34,8 +34,14 @@ var etag: String = ""
 ## Remote Last-Modified header used for freshness when available.
 var last_modified: String = ""
 
-## Remote Content-Length header used for freshness when available.
+## Comparable decoded byte size used for freshness when available.
 var content_length: int = 0
+
+## Raw HTTP Content-Length header. With gzip/deflate, this is transfer size.
+var transfer_content_length: int = 0
+
+## Remote Content-Encoding header, such as [code]gzip[/code] or [code]deflate[/code].
+var content_encoding: String = ""
 
 ## Remote Content-Type header used only for extensionless cache filenames.
 var content_type: String = ""
@@ -65,7 +71,10 @@ static func from_completed(
 	response.error = "HTTP request failed (result %d, response %d)." % [result, code]
 	response.etag = str(header_map.get("etag", ""))
 	response.last_modified = str(header_map.get("last-modified", ""))
-	response.content_length = int(header_map.get("content-length", "0"))
+	response.transfer_content_length = int(header_map.get("content-length", "0"))
+	response.content_encoding = str(header_map.get("content-encoding", "")).to_lower()
+	if not response.has_transfer_encoding() and response.transfer_content_length > 0:
+		response.content_length = response.transfer_content_length
 	response.content_type = str(header_map.get("content-type", ""))
 	return response
 
@@ -96,6 +105,11 @@ func has_freshness() -> bool:
 	return not etag.is_empty() or not last_modified.is_empty() or content_length > 0
 
 
+## Returns [code]true[/code] when the server sent compressed transfer bytes.
+func has_transfer_encoding() -> bool:
+	return content_encoding == "gzip" or content_encoding == "deflate"
+
+
 ## Merges response metadata from [param other], keeping existing freshness fallbacks.
 func merge_from(other: PackRatHttpResponse) -> void:
 	result_code = other.result_code
@@ -104,6 +118,10 @@ func merge_from(other: PackRatHttpResponse) -> void:
 		etag = other.etag
 	if not other.last_modified.is_empty():
 		last_modified = other.last_modified
+	if not other.content_encoding.is_empty():
+		content_encoding = other.content_encoding
+	if other.transfer_content_length > 0:
+		transfer_content_length = other.transfer_content_length
 	if other.content_length > 0:
 		content_length = other.content_length
 	if not other.content_type.is_empty():

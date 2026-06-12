@@ -131,6 +131,8 @@ static func load(request: PackRatRequest) -> PackRatResult:
 
 	var metadata_merge_start_msec: int = _timing_start(capture_timings)
 	metadata.merge_from(download)
+	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
+	metadata.content_length = file_size
 	metadata.apply_to_result(result)
 	result.content_length = file_size
 	_record_timing(result, capture_timings, "metadata_merge_msec", metadata_merge_start_msec)
@@ -141,7 +143,6 @@ static func load(request: PackRatRequest) -> PackRatResult:
 		DirAccess.remove_absolute(part_path)
 		return _failed_with_timings(url, validation_error, result, total_start_msec, capture_timings)
 
-	var has_comparable_freshness: bool = options.has_expected_metadata() or metadata.has_freshness()
 	var local_path_start_msec: int = _timing_start(capture_timings)
 	var local_path: String = PackRatCachePaths.local_path(url, options.cache_dir, result.id, metadata, options)
 	_record_timing(result, capture_timings, "local_path_msec", local_path_start_msec)
@@ -196,6 +197,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	result.status = PackRatResult.STATUS_DOWNLOADED
 	result.local_path = local_path
 	result.content_length = file_size
+	metadata.content_length = file_size
 	metadata.apply_to_result(result)
 	_record_timing(result, capture_timings, "cache_finalize_msec", cache_finalize_start_msec)
 
