@@ -62,15 +62,7 @@ const _SCRIPT: String = """
 			};
 
 			if (!response.body || !response.body.getReader) {
-				const fallbackBuffer = await response.arrayBuffer();
-				const fallbackBytes = new Uint8Array(fallbackBuffer);
-				for (let offset = 0; offset < fallbackBytes.byteLength; offset += targetChunkSize) {
-					const chunk = fallbackBytes.subarray(offset, Math.min(offset + targetChunkSize, fallbackBytes.byteLength));
-					chunkCallback(key, exactArrayBuffer(chunk));
-				}
-				progressCallback(key, fallbackBuffer.byteLength, total);
-				doneCallback(key, response.status, headers);
-				return;
+				throw new Error("Browser fetch streaming is not available.");
 			}
 
 			const reader = response.body.getReader();
@@ -166,7 +158,14 @@ const _SCRIPT: String = """
 
 ## Returns [code]true[/code] when the browser JavaScript bridge can be used.
 static func is_available() -> bool:
-	return OS.has_feature("web") and Engine.has_singleton("JavaScriptBridge")
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return false
+
+	var bridge: Object = Engine.get_singleton("JavaScriptBridge")
+	if bridge == null:
+		return false
+
+	return bool(bridge.call("eval", "typeof fetch === 'function' && typeof ReadableStream === 'function'", true))
 
 
 ## Downloads [param url] into [param download_path] using browser-native fetch.
