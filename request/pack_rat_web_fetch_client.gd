@@ -54,13 +54,25 @@ const _SCRIPT: String = """
 			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
 			const maxDownloadBytes = Math.max(0, Number(maxBytes) || 0);
 
+			const exactArrayBuffer = (bytes) => {
+				if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+					return bytes.buffer;
+				}
+
+				return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+			};
+
 			if (!response.body || !response.body.getReader) {
 				const fallbackBuffer = await response.arrayBuffer();
 				if (maxDownloadBytes > 0 && fallbackBuffer.byteLength > maxDownloadBytes) {
 					throw new Error("Downloaded pack is too large for the Web fast path.");
 				}
+				const fallbackBytes = new Uint8Array(fallbackBuffer);
+				for (let offset = 0; offset < fallbackBytes.byteLength; offset += targetChunkSize) {
+					const chunk = fallbackBytes.subarray(offset, Math.min(offset + targetChunkSize, fallbackBytes.byteLength));
+					chunkCallback(key, exactArrayBuffer(chunk));
+				}
 				progressCallback(key, fallbackBuffer.byteLength, total);
-				chunkCallback(key, fallbackBuffer);
 				doneCallback(key, response.status, headers);
 				return;
 			}
@@ -88,14 +100,24 @@ const _SCRIPT: String = """
 					}
 				}
 
-				const exactBuffer = (
-					merged.byteOffset === 0 && merged.byteLength === merged.buffer.byteLength
-						? merged.buffer
-						: merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength)
-				);
-				chunkCallback(key, exactBuffer);
+				chunkCallback(key, exactArrayBuffer(merged));
 				chunks = [];
 				buffered = 0;
+			};
+
+			const appendChunk = (chunk) => {
+				let offset = 0;
+				while (offset < chunk.byteLength) {
+					const remainingTargetBytes = targetChunkSize - buffered;
+					const remainingChunkBytes = chunk.byteLength - offset;
+					const taken = Math.min(remainingTargetBytes, remainingChunkBytes);
+					chunks.push(chunk.subarray(offset, offset + taken));
+					buffered += taken;
+					offset += taken;
+					if (buffered === targetChunkSize) {
+						flush();
+					}
+				}
 			};
 
 			while (true) {
@@ -105,15 +127,11 @@ const _SCRIPT: String = """
 				}
 
 				const chunk = result.value;
-				chunks.push(chunk);
 				received += chunk.byteLength;
-				buffered += chunk.byteLength;
 				if (maxDownloadBytes > 0 && received > maxDownloadBytes) {
 					throw new Error("Downloaded pack is too large for the Web fast path.");
 				}
-				if (buffered >= targetChunkSize) {
-					flush();
-				}
+				appendChunk(chunk);
 
 				const now = performance.now();
 				if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || received === total) {
@@ -191,12 +209,15 @@ static func download(
 	var request_id: String = "%d-%d" % [Time.get_ticks_usec(), randi()]
 	var progress_events: Array[int] = [0]
 	var write_chunks: Array[int] = [0]
+	var write_max_chunk_size: Array[int] = [0]
 	var write_msec: Array[int] = [0]
+	var effective_chunk_size: int = clampi(options.download_chunk_size, 256, 16 * 1024 * 1024)
 	var file: FileAccess = FileAccess.open(download_path, FileAccess.WRITE)
 	if file == null:
 		return _finish_timing(PackRatHttpResponse.failed("Could not open download file %s (error %d)." % [download_path, FileAccess.get_open_error()]), timings_msec, total_start_msec, capture_timings)
 
 	state["file"] = file
+	file = null
 
 	var progress_callable: Callable = func(args: Array) -> void:
 		if args.size() < 3 or String(args[0]) != request_id:
@@ -223,6 +244,11 @@ static func download(
 
 		var chunk_write_start_msec: int = _timing_start(capture_timings)
 		var bytes: PackedByteArray = bridge.call("js_buffer_to_packed_byte_array", buffer)
+		if bytes.size() > effective_chunk_size:
+			state["error"] = "Browser fetch returned a chunk larger than download_chunk_size."
+			state["done"] = true
+			return
+
 		if options.web_fetch_max_bytes > 0 and int(state.get("written_bytes", 0)) + bytes.size() > options.web_fetch_max_bytes:
 			state["error"] = "Downloaded pack is too large for the Web fast path."
 			state["done"] = true
@@ -243,6 +269,7 @@ static func download(
 
 		state["written_bytes"] = int(state.get("written_bytes", 0)) + bytes.size()
 		write_chunks[0] += 1
+		write_max_chunk_size[0] = maxi(write_max_chunk_size[0], bytes.size())
 		if capture_timings:
 			write_msec[0] += Time.get_ticks_msec() - chunk_write_start_msec
 
@@ -279,7 +306,7 @@ static func download(
 		url,
 		header_lines_json,
 		timeout_msec,
-		clampi(options.download_chunk_size, 256, 16 * 1024 * 1024),
+		effective_chunk_size,
 		options.web_fetch_max_bytes,
 		callbacks[0],
 		callbacks[1],
@@ -304,6 +331,7 @@ static func download(
 		timings_msec["http_progress_frames"] = progress_events[0]
 		timings_msec["http_write_msec"] = write_msec[0]
 		timings_msec["http_write_chunks"] = write_chunks[0]
+		timings_msec["http_write_max_chunk_size"] = write_max_chunk_size[0]
 
 	if not String(state["error"]).is_empty():
 		return _finish_timing(PackRatHttpResponse.failed(String(state["error"])), timings_msec, total_start_msec, capture_timings)

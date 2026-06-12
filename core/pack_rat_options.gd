@@ -2,8 +2,6 @@ class_name PackRatOptions extends RefCounted
 ## Optional settings for [method PackRat.load_resource_pack].
 
 const _MAX_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
-const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = _MAX_DOWNLOAD_CHUNK_SIZE / 2
-const _MOBILE_DOWNLOAD_CHUNK_SIZE: int = _MAX_DOWNLOAD_CHUNK_SIZE / 4
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""
@@ -50,9 +48,7 @@ var accept_gzip: bool = true
 var timeout_seconds: float = 120.0
 
 ## Bytes per native [HTTPRequest] read or Web [code]fetch()[/code] write chunk.
-## PackRat defaults desktop builds above Godot's small-request default for
-## faster downloads, while mobile keeps a smaller chunk to reduce peak memory
-## and frame hitches.
+## PackRat defaults to Godot's maximum because resource packs are large files.
 var download_chunk_size: int = default_download_chunk_size()
 
 ## Runs native [HTTPRequest] polling on its worker thread when supported. Enable
@@ -88,12 +84,9 @@ static func from_expected_metadata(expected_modified_time: int, expected_size: i
 	return options
 
 
-## Returns PackRat's platform-aware default [member download_chunk_size].
+## Returns PackRat's default [member download_chunk_size].
 static func default_download_chunk_size() -> int:
-	if OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
-		return _MOBILE_DOWNLOAD_CHUNK_SIZE
-
-	return _DEFAULT_DOWNLOAD_CHUNK_SIZE
+	return _MAX_DOWNLOAD_CHUNK_SIZE
 
 
 ## Returns [code]true[/code] when [member expected_size] should be checked.
