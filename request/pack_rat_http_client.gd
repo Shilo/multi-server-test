@@ -38,7 +38,7 @@ static func request(
 
 	var setup_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
 	var http_request: HTTPRequest = HTTPRequest.new()
-	http_request.accept_gzip = options.accept_gzip
+	http_request.accept_gzip = options.accept_gzip and not OS.has_feature("web")
 	http_request.download_file = download_path
 	http_request.download_chunk_size = clampi(options.download_chunk_size, 256, 16 * 1024 * 1024)
 	http_request.max_redirects = options.max_redirects

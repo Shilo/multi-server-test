@@ -31,8 +31,10 @@ var offline_first: bool = false
 ## Extra HTTP headers passed to HEAD and GET requests.
 var request_headers: PackedStringArray = []
 
-## Whether [HTTPRequest] may request gzip/deflate transfer compression.
+## Whether [HTTPRequest] may use gzip/deflate transfer compression. Native
 ## Godot decodes compressed responses before PackRat writes the cached file.
+## Web browsers decode fetch bodies before Godot reads them, so PackRat avoids
+## asking Web [HTTPRequest] to decode the same body twice.
 var accept_gzip: bool = true
 
 ## HTTP timeout in seconds. This should stay finite so stalled downloads fail.
