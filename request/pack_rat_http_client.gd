@@ -21,6 +21,9 @@ static func request(
 	owner: PackRatRequest,
 	method: HTTPClient.Method = HTTPClient.METHOD_GET
 ) -> PackRatHttpResponse:
+	if method == HTTPClient.METHOD_GET and not download_path.is_empty() and PackRatWebFetchClient.is_available():
+		return await PackRatWebFetchClient.download(url, download_path, options, owner)
+
 	var capture_timings: bool = options.capture_timings
 	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
 	var timings_msec: Dictionary = {}
