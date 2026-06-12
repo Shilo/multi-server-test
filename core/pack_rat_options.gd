@@ -2,8 +2,8 @@ class_name PackRatOptions extends RefCounted
 ## Optional settings for [method PackRat.load_resource_pack].
 
 const _MAX_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
-const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = int(_MAX_DOWNLOAD_CHUNK_SIZE * 0.5)
-const _MOBILE_DOWNLOAD_CHUNK_SIZE: int = int(_MAX_DOWNLOAD_CHUNK_SIZE * 0.25)
+const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = _MAX_DOWNLOAD_CHUNK_SIZE / 2
+const _MOBILE_DOWNLOAD_CHUNK_SIZE: int = _MAX_DOWNLOAD_CHUNK_SIZE / 4
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""
