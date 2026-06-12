@@ -13,7 +13,7 @@ const _SCRIPT: String = """
 		return true;
 	}
 
-	const PROGRESS_INTERVAL_MS = 100;
+	const PROGRESS_INTERVAL_MS = 500;
 
 	window.__packratWebFetchActive = new Map();
 
