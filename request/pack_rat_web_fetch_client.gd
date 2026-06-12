@@ -3,10 +3,9 @@ class_name PackRatWebFetchClient extends RefCounted
 ##
 ## Godot's Web HTTPClient can only advance once per engine frame, so large
 ## browser-provided chunks can still trickle into Godot slowly. This helper
-## lets the browser fetch the file at native speed, then writes the finished
-## bytes into Godot's user file system for the normal cache and mount pipeline.
+## lets the browser fetch the file at native speed, then streams byte chunks
+## into Godot's user file system for the normal cache and mount pipeline.
 
-const _MAX_DOWNLOAD_BYTES: int = 512 * 1024 * 1024
 const _SCRIPT: String = """
 (() => {
 	if (window.__packratWebFetchDownload) {
@@ -33,7 +32,7 @@ const _SCRIPT: String = """
 		return headers;
 	};
 
-	window.__packratWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, progressCallback, doneCallback, errorCallback) {
+	window.__packratWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, chunkSize, maxBytes, progressCallback, chunkCallback, doneCallback, errorCallback) {
 		const key = String(id);
 		const controller = new AbortController();
 		let timeoutHandle = 0;
@@ -52,21 +51,52 @@ const _SCRIPT: String = """
 			const response = await fetch(url, request);
 			const headers = JSON.stringify(Array.from(response.headers.entries()));
 			const total = Number(response.headers.get("content-length") || 0);
+			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
+			const maxDownloadBytes = Math.max(0, Number(maxBytes) || 0);
 
 			if (!response.body || !response.body.getReader) {
 				const fallbackBuffer = await response.arrayBuffer();
-				if (fallbackBuffer.byteLength > 536870912) {
+				if (maxDownloadBytes > 0 && fallbackBuffer.byteLength > maxDownloadBytes) {
 					throw new Error("Downloaded pack is too large for the Web fast path.");
 				}
 				progressCallback(key, fallbackBuffer.byteLength, total);
-				doneCallback(key, response.status, headers, fallbackBuffer);
+				chunkCallback(key, fallbackBuffer);
+				doneCallback(key, response.status, headers);
 				return;
 			}
 
 			const reader = response.body.getReader();
-			const chunks = [];
+			let chunks = [];
 			let received = 0;
+			let buffered = 0;
 			let lastProgressAt = 0;
+
+			const flush = () => {
+				if (buffered <= 0) {
+					return;
+				}
+
+				let merged;
+				if (chunks.length === 1 && chunks[0].byteLength === buffered) {
+					merged = chunks[0];
+				} else {
+					merged = new Uint8Array(buffered);
+					let offset = 0;
+					for (const chunk of chunks) {
+						merged.set(chunk, offset);
+						offset += chunk.byteLength;
+					}
+				}
+
+				const exactBuffer = (
+					merged.byteOffset === 0 && merged.byteLength === merged.buffer.byteLength
+						? merged.buffer
+						: merged.buffer.slice(merged.byteOffset, merged.byteOffset + merged.byteLength)
+				);
+				chunkCallback(key, exactBuffer);
+				chunks = [];
+				buffered = 0;
+			};
 
 			while (true) {
 				const result = await reader.read();
@@ -77,8 +107,12 @@ const _SCRIPT: String = """
 				const chunk = result.value;
 				chunks.push(chunk);
 				received += chunk.byteLength;
-				if (received > 536870912) {
+				buffered += chunk.byteLength;
+				if (maxDownloadBytes > 0 && received > maxDownloadBytes) {
 					throw new Error("Downloaded pack is too large for the Web fast path.");
+				}
+				if (buffered >= targetChunkSize) {
+					flush();
 				}
 
 				const now = performance.now();
@@ -88,14 +122,9 @@ const _SCRIPT: String = """
 				}
 			}
 
-			const merged = new Uint8Array(received);
-			let offset = 0;
-			for (const chunk of chunks) {
-				merged.set(chunk, offset);
-				offset += chunk.byteLength;
-			}
+			flush();
 			progressCallback(key, received, total);
-			doneCallback(key, response.status, headers, merged.buffer);
+			doneCallback(key, response.status, headers);
 		} catch (error) {
 			const message = error && error.message ? error.message : String(error);
 			errorCallback(key, message);
@@ -161,7 +190,13 @@ static func download(
 	var callbacks: Array[Variant] = []
 	var request_id: String = "%d-%d" % [Time.get_ticks_usec(), randi()]
 	var progress_events: Array[int] = [0]
-	var write_start_msec: Array[int] = [0]
+	var write_chunks: Array[int] = [0]
+	var write_msec: Array[int] = [0]
+	var file: FileAccess = FileAccess.open(download_path, FileAccess.WRITE)
+	if file == null:
+		return _finish_timing(PackRatHttpResponse.failed("Could not open download file %s (error %d)." % [download_path, FileAccess.get_open_error()]), timings_msec, total_start_msec, capture_timings)
+
+	state["file"] = file
 
 	var progress_callable: Callable = func(args: Array) -> void:
 		if args.size() < 3 or String(args[0]) != request_id:
@@ -176,36 +211,47 @@ static func download(
 			total_bytes = options.expected_size
 		owner._set_progress(downloaded_bytes, total_bytes)
 
-	var done_callable: Callable = func(args: Array) -> void:
-		if args.size() < 4 or String(args[0]) != request_id:
+	var chunk_callable: Callable = func(args: Array) -> void:
+		if args.size() < 2 or String(args[0]) != request_id:
 			return
 
-		state["response_code"] = int(args[1])
-		state["headers"] = _headers_from_json(String(args[2]))
-		var buffer: Variant = args[3]
+		var buffer: Variant = args[1]
 		if not bool(bridge.call("is_js_buffer", buffer)):
-			state["error"] = "Browser fetch did not return a byte buffer."
+			state["error"] = "Browser fetch did not return a chunk byte buffer."
 			state["done"] = true
 			return
 
-		write_start_msec[0] = _timing_start(capture_timings)
+		var chunk_write_start_msec: int = _timing_start(capture_timings)
 		var bytes: PackedByteArray = bridge.call("js_buffer_to_packed_byte_array", buffer)
-		if bytes.size() > _MAX_DOWNLOAD_BYTES:
+		if options.web_fetch_max_bytes > 0 and int(state.get("written_bytes", 0)) + bytes.size() > options.web_fetch_max_bytes:
 			state["error"] = "Downloaded pack is too large for the Web fast path."
 			state["done"] = true
 			return
 
-		var file: FileAccess = FileAccess.open(download_path, FileAccess.WRITE)
-		if file == null:
-			state["error"] = "Could not open download file %s (error %d)." % [download_path, FileAccess.get_open_error()]
+		var output_file: FileAccess = state["file"]
+		if output_file == null:
+			state["error"] = "Browser fetch download file was closed before the transfer finished."
 			state["done"] = true
 			return
 
-		file.store_buffer(bytes)
-		var file_error: Error = file.get_error()
-		file = null
+		output_file.store_buffer(bytes)
+		var file_error: Error = output_file.get_error()
 		if file_error != OK:
 			state["error"] = "Could not write download file %s (error %d)." % [download_path, file_error]
+			state["done"] = true
+			return
+
+		state["written_bytes"] = int(state.get("written_bytes", 0)) + bytes.size()
+		write_chunks[0] += 1
+		if capture_timings:
+			write_msec[0] += Time.get_ticks_msec() - chunk_write_start_msec
+
+	var done_callable: Callable = func(args: Array) -> void:
+		if args.size() < 3 or String(args[0]) != request_id:
+			return
+
+		state["response_code"] = int(args[1])
+		state["headers"] = _headers_from_json(String(args[2]))
 		state["done"] = true
 
 	var error_callable: Callable = func(args: Array) -> void:
@@ -216,6 +262,7 @@ static func download(
 		state["done"] = true
 
 	callbacks.append(bridge.call("create_callback", progress_callable))
+	callbacks.append(bridge.call("create_callback", chunk_callable))
 	callbacks.append(bridge.call("create_callback", done_callable))
 	callbacks.append(bridge.call("create_callback", error_callable))
 
@@ -232,9 +279,12 @@ static func download(
 		url,
 		header_lines_json,
 		timeout_msec,
+		clampi(options.download_chunk_size, 256, 16 * 1024 * 1024),
+		options.web_fetch_max_bytes,
 		callbacks[0],
 		callbacks[1],
-		callbacks[2]
+		callbacks[2],
+		callbacks[3]
 	)
 	_record_timing(timings_msec, capture_timings, "http_start_msec", start_request_msec)
 
@@ -242,16 +292,18 @@ static func download(
 	while not bool(state["done"]):
 		if owner.is_canceled():
 			_cancel(bridge, request_id)
+			_close_file(state)
 			_record_timing(timings_msec, capture_timings, "http_transfer_msec", transfer_start_msec)
 			timings_msec["http_progress_frames"] = progress_events[0]
 			return _finish_timing(PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED), timings_msec, total_start_msec, capture_timings)
 		await tree.process_frame
 
+	_close_file(state)
 	_record_timing(timings_msec, capture_timings, "http_transfer_msec", transfer_start_msec)
 	if capture_timings:
 		timings_msec["http_progress_frames"] = progress_events[0]
-		if write_start_msec[0] > 0:
-			_record_timing(timings_msec, capture_timings, "http_write_msec", write_start_msec[0])
+		timings_msec["http_write_msec"] = write_msec[0]
+		timings_msec["http_write_chunks"] = write_chunks[0]
 
 	if not String(state["error"]).is_empty():
 		return _finish_timing(PackRatHttpResponse.failed(String(state["error"])), timings_msec, total_start_msec, capture_timings)
@@ -298,6 +350,12 @@ static func _cancel(bridge: Object, request_id: String) -> void:
 	var web_fetch: Object = bridge.call("get_interface", "__packratWebFetchBridge")
 	if web_fetch != null:
 		web_fetch.call("cancel", request_id)
+
+
+static func _close_file(state: Dictionary) -> void:
+	var file: FileAccess = state.get("file", null)
+	if file != null:
+		state["file"] = null
 
 
 static func _timing_start(capture_timings: bool) -> int:

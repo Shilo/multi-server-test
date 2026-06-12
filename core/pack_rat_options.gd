@@ -49,9 +49,10 @@ var accept_gzip: bool = true
 ## HTTP timeout in seconds. This should stay finite so stalled downloads fail.
 var timeout_seconds: float = 120.0
 
-## Bytes read from [HTTPRequest] per engine iteration. PackRat defaults desktop
-## builds above Godot's small-request default for faster downloads, while mobile keeps a
-## smaller chunk to reduce peak memory and frame hitches.
+## Bytes per native [HTTPRequest] read or Web [code]fetch()[/code] write chunk.
+## PackRat defaults desktop builds above Godot's small-request default for
+## faster downloads, while mobile keeps a smaller chunk to reduce peak memory
+## and frame hitches.
 var download_chunk_size: int = default_download_chunk_size()
 
 ## Runs native [HTTPRequest] polling on its worker thread when supported. Enable
@@ -63,6 +64,10 @@ var use_threads: bool = false
 ## available. Disable this to force Godot's [HTTPRequest] path for comparison
 ## or debugging.
 var use_web_fetch: bool = true
+
+## Maximum bytes allowed through the Web [code]fetch()[/code] fast path. A value
+## of [code]0[/code] means PackRat does not impose its own size limit.
+var web_fetch_max_bytes: int = 0
 
 ## Captures millisecond phase timings in [member PackRatResult.timings_msec].
 ## Disabled by default to keep production loads as lean as possible.
@@ -124,6 +129,7 @@ func copy() -> PackRatOptions:
 	options.download_chunk_size = download_chunk_size
 	options.use_threads = use_threads
 	options.use_web_fetch = use_web_fetch
+	options.web_fetch_max_bytes = web_fetch_max_bytes
 	options.capture_timings = capture_timings
 	options.max_redirects = max_redirects
 	options.always_download = always_download
