@@ -170,7 +170,9 @@ static func download(
 		progress_events[0] += 1
 		var downloaded_bytes: int = int(args[1])
 		var total_bytes: int = int(args[2])
-		if options.has_expected_size():
+		if options.progress_total_size > 0:
+			total_bytes = options.progress_total_size
+		elif options.has_expected_size():
 			total_bytes = options.expected_size
 		owner._set_progress(downloaded_bytes, total_bytes)
 

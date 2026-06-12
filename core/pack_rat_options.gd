@@ -24,6 +24,11 @@ var expected_size: int = 0
 ## timestamp. A value above [code]0[/code] becomes part of the cache identity.
 var expected_modified_time: int = 0
 
+## Optional byte total used only for progress when the platform cannot report a
+## reliable HTTP body size. Unlike [member expected_size], this does not validate
+## downloads or change cache identity.
+var progress_total_size: int = 0
+
 ## Reuses an existing matching cache file immediately without checking for
 ## remote updates. Cache misses still download normally.
 var offline_first: bool = false
@@ -44,6 +49,10 @@ var timeout_seconds: float = 120.0
 ## higher than Godot's 64 KiB HTTPRequest default because resource packs are
 ## usually large files.
 var download_chunk_size: int = 4 * 1024 * 1024
+
+## Runs native [HTTPRequest] polling on its worker thread when supported. Enable
+## this when profiling shows the default native path is too frame-bound.
+var use_threads: bool = false
 
 ## Uses PackRat's browser [code]fetch()[/code] downloader for Web exports when
 ## available. Disable this to force Godot's [HTTPRequest] path for comparison
@@ -94,11 +103,13 @@ func copy() -> PackRatOptions:
 	options.entry_path = entry_path
 	options.expected_size = expected_size
 	options.expected_modified_time = expected_modified_time
+	options.progress_total_size = progress_total_size
 	options.offline_first = offline_first
 	options.request_headers = request_headers.duplicate()
 	options.accept_gzip = accept_gzip
 	options.timeout_seconds = timeout_seconds
 	options.download_chunk_size = download_chunk_size
+	options.use_threads = use_threads
 	options.use_web_fetch = use_web_fetch
 	options.capture_timings = capture_timings
 	options.max_redirects = max_redirects

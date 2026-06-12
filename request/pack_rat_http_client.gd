@@ -39,6 +39,7 @@ static func request(
 	var setup_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
 	var http_request: HTTPRequest = HTTPRequest.new()
 	http_request.accept_gzip = options.accept_gzip and not OS.has_feature("web")
+	http_request.use_threads = options.use_threads
 	http_request.download_file = download_path
 	http_request.download_chunk_size = clampi(options.download_chunk_size, 256, 16 * 1024 * 1024)
 	http_request.max_redirects = options.max_redirects
@@ -89,7 +90,9 @@ static func request(
 			if capture_timings:
 				progress_frames += 1
 			var total_bytes: int = http_request.get_body_size()
-			if total_bytes <= 0 and options.has_expected_size():
+			if total_bytes <= 0 and options.progress_total_size > 0:
+				total_bytes = options.progress_total_size
+			elif total_bytes <= 0 and options.has_expected_size():
 				total_bytes = options.expected_size
 			owner._set_progress(http_request.get_downloaded_bytes(), total_bytes)
 		await tree.process_frame
