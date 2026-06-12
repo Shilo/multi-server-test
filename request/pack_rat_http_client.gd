@@ -21,7 +21,12 @@ static func request(
 	owner: PackRatRequest,
 	method: HTTPClient.Method = HTTPClient.METHOD_GET
 ) -> PackRatHttpResponse:
-	if method == HTTPClient.METHOD_GET and not download_path.is_empty() and PackRatWebFetchClient.is_available():
+	if (
+		options.use_web_fetch
+		and method == HTTPClient.METHOD_GET
+		and not download_path.is_empty()
+		and PackRatWebFetchClient.is_available()
+	):
 		return await PackRatWebFetchClient.download(url, download_path, options, owner)
 
 	var capture_timings: bool = options.capture_timings
