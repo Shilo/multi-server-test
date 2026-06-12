@@ -165,7 +165,7 @@ static func is_available() -> bool:
 	if bridge == null:
 		return false
 
-	return bool(bridge.call("eval", "typeof fetch === 'function' && typeof ReadableStream === 'function'", true))
+	return bool(bridge.call("eval", "typeof fetch === 'function' && typeof ReadableStream === 'function' && typeof ReadableStream.prototype.getReader === 'function'", true))
 
 
 ## Downloads [param url] into [param download_path] using browser-native fetch.
