@@ -1,7 +1,15 @@
 class_name PackRatOptions extends RefCounted
 ## Optional settings for [method PackRat.load_resource_pack].
 
-const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = 8 * 1024 * 1024
+## Smallest supported download chunk size in bytes.
+const MIN_DOWNLOAD_CHUNK_SIZE: int = 256
+
+## Largest supported download chunk size in bytes. This matches Godot's
+## [HTTPRequest] maximum.
+const MAX_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
+
+## Balanced default download chunk size for DLC-sized files.
+const DEFAULT_DOWNLOAD_CHUNK_SIZE: int = 8 * 1024 * 1024
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""
@@ -44,12 +52,13 @@ var request_headers: PackedStringArray = []
 ## asking Web [HTTPRequest] to decode the same body twice.
 var accept_gzip: bool = true
 
-## HTTP timeout in seconds. This should stay finite so stalled downloads fail.
+## Total HTTP request deadline in seconds. This should stay finite so failed or
+## extremely slow downloads do not hang forever.
 var timeout_seconds: float = 120.0
 
 ## Bytes per native [HTTPRequest] read or Web [code]fetch()[/code] write chunk.
 ## PackRat defaults to a large balanced chunk for DLC-sized files.
-var download_chunk_size: int = _DEFAULT_DOWNLOAD_CHUNK_SIZE
+var download_chunk_size: int = DEFAULT_DOWNLOAD_CHUNK_SIZE
 
 ## Runs native [HTTPRequest] polling on its worker thread when supported. Enable
 ## this after profiling a real native download that benefits from it. PackRat

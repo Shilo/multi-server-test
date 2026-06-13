@@ -41,7 +41,11 @@ static func request(
 	http_request.accept_gzip = options.accept_gzip and not OS.has_feature("web")
 	http_request.use_threads = options.use_threads and not OS.has_feature("web")
 	http_request.download_file = download_path
-	http_request.download_chunk_size = clampi(options.download_chunk_size, 256, 16 * 1024 * 1024)
+	http_request.download_chunk_size = clampi(
+		options.download_chunk_size,
+		PackRatOptions.MIN_DOWNLOAD_CHUNK_SIZE,
+		PackRatOptions.MAX_DOWNLOAD_CHUNK_SIZE
+	)
 	if not download_path.is_empty() and options.has_expected_size() and not http_request.accept_gzip:
 		http_request.body_size_limit = options.expected_size
 	http_request.max_redirects = options.max_redirects

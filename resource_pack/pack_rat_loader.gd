@@ -10,7 +10,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	var url: String = request.url
 	var options: PackRatOptions = request.options
 	var capture_timings: bool = options.capture_timings
-	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	var total_start_msec: int = _timing_start(capture_timings)
 	var id: String = request.id
 	var key: String = request.cache_key
 	var result: PackRatResult = PackRatResult.new()
@@ -250,7 +250,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 ## Returns a mounted in-process cache hit, or [code]null[/code] when disk/HTTP work is needed.
 static func fast_cache_result(url: String, id: String, key: String, options: PackRatOptions) -> PackRatResult:
 	var capture_timings: bool = options.capture_timings
-	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	var total_start_msec: int = _timing_start(capture_timings)
 	if options.always_download or (not options.offline_first and not options.has_expected_metadata()):
 		return null
 

@@ -229,7 +229,11 @@ static func download(
 	var write_chunks: Array[int] = [0]
 	var write_max_chunk_size: Array[int] = [0]
 	var write_msec: Array[int] = [0]
-	var effective_chunk_size: int = clampi(options.download_chunk_size, 256, 16 * 1024 * 1024)
+	var effective_chunk_size: int = clampi(
+		options.download_chunk_size,
+		PackRatOptions.MIN_DOWNLOAD_CHUNK_SIZE,
+		PackRatOptions.MAX_DOWNLOAD_CHUNK_SIZE
+	)
 	var file: FileAccess = FileAccess.open(download_path, FileAccess.WRITE)
 	if file == null:
 		return _finish_timing(PackRatHttpResponse.failed("Could not open download file %s (error %d)." % [download_path, FileAccess.get_open_error()]), timings_msec, total_start_msec, capture_timings)
