@@ -15,6 +15,9 @@ const MAX_CHUNK_SIZE: int = 16 * 1024 * 1024
 ## Balanced default download chunk size for large files.
 const DEFAULT_CHUNK_SIZE: int = 8 * 1024 * 1024
 
+static var _active_download_paths: Dictionary = {}
+
+
 ## Returns [code]true[/code] when browser [code]fetch()[/code] streaming is available.
 static func is_available() -> bool:
 	return PackRatWebFetchBridge.is_available()
@@ -60,9 +63,14 @@ static func download_file(
 	if tree == null:
 		return _finish_timing(PackRatWebFetchResult.failed("Browser fetch needs a running SceneTree."), timings_msec, total_start_msec, capture_timings)
 
+	if not _active_download_paths.has(download_path):
+		_remove_stale_temporary_files(download_path)
+	_active_download_paths[download_path] = int(_active_download_paths.get(download_path, 0)) + 1
+
 	var temp_path: String = _temporary_path(download_path, "download")
 	var file: FileAccess = FileAccess.open(temp_path, FileAccess.WRITE)
 	if file == null:
+		_release_active_download_path(download_path)
 		return _finish_timing(PackRatWebFetchResult.failed(
 			"Could not open temporary download file %s (error %d)." % [temp_path, FileAccess.get_open_error()],
 			HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN
@@ -171,6 +179,7 @@ static func download_file(
 	if not did_start:
 		_close_file(state)
 		_remove_temp_file(state)
+		_release_active_download_path(download_path)
 		return _finish_timing(PackRatWebFetchResult.failed("Browser fetch bridge is not available."), timings_msec, total_start_msec, capture_timings)
 	_record_timing(timings_msec, capture_timings, "start_msec", start_request_msec)
 
@@ -204,6 +213,7 @@ static func download_file(
 
 	if not String(state["error"]).is_empty():
 		_remove_temp_file(state)
+		_release_active_download_path(download_path)
 		return _finish_timing(PackRatWebFetchResult.failed(
 			String(state["error"]),
 			state.get("result_code", HTTPRequest.RESULT_REQUEST_FAILED)
@@ -221,16 +231,19 @@ static func download_file(
 	if not fetch_result.ok:
 		_remove_temp_file(state)
 		fetch_result.error = "HTTP request failed (result %d, response %d)." % [fetch_result.result_code, fetch_result.response_code]
+		_release_active_download_path(download_path)
 		return _finish_timing(fetch_result, timings_msec, total_start_msec, capture_timings)
 
 	var finalize_error: Error = _finalize_temp_file(temp_path, download_path)
 	if finalize_error != OK:
 		_remove_temp_file(state)
+		_release_active_download_path(download_path)
 		return _finish_timing(PackRatWebFetchResult.failed(
 			"Could not move downloaded file into place (error %d)." % finalize_error,
 			HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR
 		), timings_msec, total_start_msec, capture_timings)
 
+	_release_active_download_path(download_path)
 	return _finish_timing(fetch_result, timings_msec, total_start_msec, capture_timings)
 
 
@@ -300,6 +313,34 @@ static func _remove_temp_file(state: Dictionary) -> void:
 	var temp_path: String = String(state.get("temp_path", ""))
 	if not temp_path.is_empty() and FileAccess.file_exists(temp_path):
 		DirAccess.remove_absolute(temp_path)
+
+
+static func _remove_stale_temporary_files(path: String) -> void:
+	var base_dir: String = path.get_base_dir()
+	var file_name: String = path.get_file()
+	var dir: DirAccess = DirAccess.open(base_dir)
+	if dir == null:
+		return
+
+	dir.list_dir_begin()
+	var entry_name: String = dir.get_next()
+	while not entry_name.is_empty():
+		if not dir.current_is_dir() and _is_download_temporary_file_for(entry_name, file_name):
+			DirAccess.remove_absolute(base_dir.path_join(entry_name))
+		entry_name = dir.get_next()
+	dir.list_dir_end()
+
+
+static func _is_download_temporary_file_for(entry_name: String, file_name: String) -> bool:
+	return entry_name.begins_with("%s.download-" % file_name) and entry_name.ends_with(".part")
+
+
+static func _release_active_download_path(path: String) -> void:
+	var active_count: int = int(_active_download_paths.get(path, 0)) - 1
+	if active_count > 0:
+		_active_download_paths[path] = active_count
+	else:
+		_active_download_paths.erase(path)
 
 
 static func _temporary_path(path: String, label: String) -> String:

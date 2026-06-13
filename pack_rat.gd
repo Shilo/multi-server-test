@@ -1,10 +1,10 @@
 class_name PackRat extends RefCounted
 ## Static facade for loading remote Godot PCK/ZIP resource packs at runtime.
 ## [br][br]
-## The main API is [method load_resource_pack]. It creates temporary
-## [HTTPRequest] nodes under the scene tree root as needed, then frees them
-## when each request completes or fails to start. No autoload, editor plugin,
-## or persistent helper node is required.
+## The main API is [method load_resource_pack]. It uses temporary [HTTPRequest]
+## nodes or browser-native fetch downloads depending on platform and options,
+## then cleans up request state when each request completes or fails to start.
+## No autoload, editor plugin, or persistent helper node is required.
 
 
 ## Downloads, freshness-checks, caches, and mounts the resource pack at [param url].

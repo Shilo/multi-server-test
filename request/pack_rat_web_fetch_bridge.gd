@@ -11,9 +11,10 @@ const BRIDGE_NAME: String = "__packRatWebFetchBridge"
 const _BRIDGE_VERSION: int = 3
 const _INSTALL_CHECK: String = "Boolean(window.__packRatWebFetchBridge && window.__packRatWebFetchBridge.version === %d && typeof window.__packRatWebFetchBridge.download === 'function' && typeof window.__packRatWebFetchBridge.cancel === 'function')" % _BRIDGE_VERSION
 const _FEATURE_CHECK: String = "typeof fetch === 'function' && typeof Headers === 'function' && typeof AbortController === 'function' && typeof ReadableStream === 'function' && typeof ReadableStream.prototype.getReader === 'function'"
-const _SCRIPT: String = """
+const _SCRIPT_VERSION_TOKEN: String = "__PACK_RAT_WEB_FETCH_BRIDGE_VERSION__"
+const _SCRIPT_TEMPLATE: String = """
 (() => {
-	const BRIDGE_VERSION = 3;
+	const BRIDGE_VERSION = __PACK_RAT_WEB_FETCH_BRIDGE_VERSION__;
 	if (
 		window.__packRatWebFetchBridge &&
 		window.__packRatWebFetchBridge.version === BRIDGE_VERSION &&
@@ -214,7 +215,7 @@ static func ensure_installed(bridge: Object) -> bool:
 	if bool(installed):
 		return true
 
-	bridge.call("eval", _SCRIPT, true)
+	bridge.call("eval", _script(), true)
 	installed = bridge.call("eval", _INSTALL_CHECK, true)
 	return bool(installed)
 
@@ -268,3 +269,7 @@ static func is_js_buffer(bridge: Object, value: Variant) -> bool:
 ## Copies a JavaScript byte buffer into a Godot [PackedByteArray].
 static func js_buffer_to_packed_byte_array(bridge: Object, value: Variant) -> PackedByteArray:
 	return bridge.call("js_buffer_to_packed_byte_array", value)
+
+
+static func _script() -> String:
+	return _SCRIPT_TEMPLATE.replace(_SCRIPT_VERSION_TOKEN, str(_BRIDGE_VERSION))
