@@ -55,7 +55,9 @@ const _SCRIPT: String = """
 			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
 			if (response.status < 200 || response.status >= 300) {
 				if (response.body && response.body.cancel) {
-					await response.body.cancel();
+					try {
+						await response.body.cancel();
+					} catch (_cancelError) {}
 				}
 				doneCallback(key, response.status, headers);
 				return;
@@ -103,7 +105,7 @@ const _SCRIPT: String = """
 
 			const appendChunk = (chunk) => {
 				let offset = 0;
-				while (offset < chunk.byteLength) {
+				while (offset < chunk.byteLength && !controller.signal.aborted) {
 					const remainingTargetBytes = targetChunkSize - buffered;
 					const remainingChunkBytes = chunk.byteLength - offset;
 					const taken = Math.min(remainingTargetBytes, remainingChunkBytes);
@@ -118,7 +120,7 @@ const _SCRIPT: String = """
 
 			while (true) {
 				const result = await reader.read();
-				if (result.done) {
+				if (result.done || controller.signal.aborted) {
 					break;
 				}
 
@@ -133,11 +135,23 @@ const _SCRIPT: String = """
 				}
 			}
 
+			if (controller.signal.aborted) {
+				throw new Error("Browser fetch aborted.");
+			}
+
 			flush();
 			progressCallback(key, received, total);
 			doneCallback(key, response.status, headers);
 		} catch (error) {
-			const message = error && error.message ? error.message : String(error);
+			let message = error && error.message ? error.message : String(error);
+			if (controller.signal.aborted) {
+				const reason = controller.signal.reason;
+				if (reason === "timeout") {
+					message = "HTTP request timed out.";
+				} else if (reason === "canceled") {
+					message = "Request canceled.";
+				}
+			}
 			errorCallback(key, message);
 		} finally {
 			window.__packratWebFetchActive.delete(key);
@@ -189,6 +203,10 @@ static func download(
 	var bridge: Object = Engine.get_singleton("JavaScriptBridge")
 	if bridge == null:
 		return _finish_timing(PackRatHttpResponse.failed("JavaScriptBridge is not available."), timings_msec, total_start_msec, capture_timings)
+
+	var invalid_header_error: String = _invalid_header_error(options.request_headers)
+	if not invalid_header_error.is_empty():
+		return _finish_timing(PackRatHttpResponse.failed(invalid_header_error), timings_msec, total_start_msec, capture_timings)
 
 	var setup_start_msec: int = _timing_start(capture_timings)
 	if not _ensure_installed(bridge):
@@ -371,6 +389,21 @@ static func _header_lines(headers: PackedStringArray) -> Array[String]:
 	for header in headers:
 		lines.append(header)
 	return lines
+
+
+static func _invalid_header_error(headers: PackedStringArray) -> String:
+	for index in range(headers.size()):
+		var sanitized: String = headers[index].strip_edges()
+		if sanitized.is_empty():
+			return "Invalid HTTP header at index %d: empty." % index
+
+		if sanitized.find(":") < 1:
+			return (
+				"Invalid HTTP header at index %d: String must contain header-value pair, delimited by ':', but was: '%s'."
+				% [index, headers[index]]
+			)
+
+	return ""
 
 
 static func _cancel(bridge: Object, request_id: String) -> void:
