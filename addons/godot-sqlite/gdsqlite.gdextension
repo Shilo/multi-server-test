@@ -1,0 +1,17 @@
+[configuration]
+
+entry_symbol = "sqlite_library_init"
+compatibility_minimum = "4.5"
+
+; Upstream (2shady4u/godot-sqlite, HEAD/v4.7) ships binaries for every platform.
+; This project only deploys to Windows x86_64 (development) and Linux x86_64
+; (the VirtuCade VPS target), so only those binaries are vendored here. Add the
+; matching binaries from the upstream bin.zip release if another export target
+; is needed later.
+
+[libraries]
+
+windows.debug.x86_64 = "res://addons/godot-sqlite/bin/libgdsqlite.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/godot-sqlite/bin/libgdsqlite.windows.template_release.x86_64.dll"
+linux.debug.x86_64 = "res://addons/godot-sqlite/bin/libgdsqlite.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://addons/godot-sqlite/bin/libgdsqlite.linux.template_release.x86_64.so"
