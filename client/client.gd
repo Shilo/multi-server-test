@@ -2,6 +2,7 @@ extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const CHAT_SCENE := preload("res://client/chat/chat.tscn")
+const LOGIN_PANEL_SCENE := preload("res://client/login/login_panel.tscn")
 const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 
@@ -29,9 +30,12 @@ var rejected_world_join := ""
 var smoke_test := false
 var chat_connected := false
 var chat: Node
+var login_panel: Node
+var resume_in_progress := false
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
+@onready var account_endpoint: Node = $MasterNet/AccountEndpoint
 @onready var world_endpoint: Node = $WorldNet/WorldEndpoint
 @onready var world_view: Node2D = $WorldNet/WorldSceneRoot
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
@@ -40,6 +44,7 @@ var chat: Node
 
 func _ready() -> void:
 	_setup_chat()
+	_setup_login_panel()
 	_setup_multiplayer_branches()
 	smoke_test = SMOKE_TEST_ARG in OS.get_cmdline_user_args()
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
@@ -49,11 +54,14 @@ func _ready() -> void:
 	master_endpoint.transfer_denied.connect(_on_transfer_denied)
 	master_endpoint.world_join_approved.connect(_on_world_join_approved)
 	master_endpoint.world_join_denied.connect(_on_world_join_denied)
-	chat_endpoint.chat_received.connect(func(sender_id: int, message: String) -> void:
+	account_endpoint.session_updated.connect(_on_session_updated)
+	account_endpoint.resume_world_requested.connect(_on_resume_world_requested)
+	account_endpoint.login_failed.connect(_on_login_failed)
+	chat_endpoint.chat_received.connect(func(sender_id: int, sender_name: String, message: String) -> void:
 		chat_echoes.append(message)
 		chat_receipts["%d:%s" % [sender_id, message]] = true
 		if chat and chat.has_method("add_chat_line"):
-			chat.add_chat_line(sender_id, message)
+			chat.add_chat_line(sender_name, message)
 	)
 	world_endpoint.world_state_received.connect(func(world_key: String) -> void:
 		if not connecting_world_key.is_empty() and world_key != connecting_world_key:
@@ -101,6 +109,59 @@ func _setup_chat() -> void:
 	chat.message_submitted.connect(_on_chat_message_submitted)
 	canvas_layer.add_child(chat)
 	_add_chat_system_line("chat starting")
+
+
+func _setup_login_panel() -> void:
+	# The smoke client runs headless and never logs in; skip the widget there.
+	if SMOKE_TEST_ARG in OS.get_cmdline_user_args():
+		return
+	login_panel = LOGIN_PANEL_SCENE.instantiate()
+	login_panel.login_submitted.connect(_on_login_submitted)
+	login_panel.logout_requested.connect(_on_logout_requested)
+	canvas_layer.add_child(login_panel)
+
+
+func _on_login_submitted(username: String) -> void:
+	if _is_master_connected():
+		account_endpoint.login.rpc_id(1, username)
+
+
+func _on_logout_requested() -> void:
+	if _is_master_connected():
+		account_endpoint.logout.rpc_id(1)
+
+
+func _on_session_updated(display_name: String, is_guest: bool, _account_id: int) -> void:
+	if login_panel and login_panel.has_method("set_identity"):
+		login_panel.set_identity(display_name, is_guest)
+
+
+func _on_login_failed(reason: String) -> void:
+	if login_panel and login_panel.has_method("show_error"):
+		login_panel.show_error(reason)
+
+
+func _on_resume_world_requested(world_key: String) -> void:
+	call_deferred("_resume_into_world", world_key)
+
+
+## Re-enter the world the master resumed us into after a login/logout. Reuses the
+## normal world-join path, so it works whether the target is the current world
+## (login while already in hub) or a different saved world.
+func _resume_into_world(world_key: String) -> void:
+	if resume_in_progress:
+		return
+	resume_in_progress = true
+	var waited := 0.0
+	while transfer_in_progress and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var ok := await _connect_transfer_world(world_key)
+	resume_in_progress = false
+	if ok:
+		print("[CLIENT] resumed into world %s" % active_world_key)
+	else:
+		push_error("[CLIENT] failed to resume into world %s" % world_key)
 
 
 func run_manual_client() -> void:
@@ -210,11 +271,11 @@ func _has_initial_world_route() -> bool:
 
 
 func _connect_world(world_key: String) -> bool:
-	if not _has_world_route(world_key):
+	var route_endpoint: Dictionary = _world_route_or_catalog(world_key)
+	if route_endpoint.is_empty():
 		push_error("[CLIENT] no registered route for world %s" % world_key)
 		return false
 
-	var route_endpoint: Dictionary = routes["worlds"][world_key]
 	var assets_ready: bool = await _prepare_world_assets(world_key, route_endpoint)
 	if not assets_ready:
 		push_error("[CLIENT] assets unavailable for world %s" % world_key)
@@ -297,6 +358,23 @@ func _has_world_route(world_key: String) -> bool:
 
 	var worlds: Dictionary = routes["worlds"]
 	return worlds.has(world_key)
+
+
+## A route good enough to prepare assets and load the scene. Prefers a live route
+## (carries url + join ticket), falls back to the master-provided world catalog,
+## then to NetConfig. The live url + ticket are filled in later by the join RPC.
+func _world_route_or_catalog(world_key: String) -> Dictionary:
+	if _has_world_route(world_key):
+		return routes["worlds"][world_key]
+	if routes.has("world_catalog"):
+		var catalog: Dictionary = routes["world_catalog"]
+		if catalog.has(world_key):
+			var endpoint: Dictionary = catalog[world_key].duplicate(true)
+			endpoint["scene"] = NET_CONFIG.world_scene_path(world_key)
+			return endpoint
+	if NET_CONFIG.is_valid_world_key(world_key):
+		return {"key": world_key, "scene": NET_CONFIG.world_scene_path(world_key)}
+	return {}
 
 
 func _known_world_keys() -> Array[String]:

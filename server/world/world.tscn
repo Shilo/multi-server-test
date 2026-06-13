@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://server/world/world.gd" id="1"]
 [ext_resource type="Script" path="res://shared/net/world_endpoint.gd" id="2"]
 [ext_resource type="Script" path="res://shared/net/master_endpoint.gd" id="3"]
+[ext_resource type="Script" path="res://shared/net/account_endpoint.gd" id="4"]
 
 [node name="WorldRoot" type="Node"]
 script = ExtResource("1")
@@ -18,3 +19,6 @@ script = ExtResource("2")
 
 [node name="MasterEndpoint" type="Node" parent="MasterNet"]
 script = ExtResource("3")
+
+[node name="AccountEndpoint" type="Node" parent="MasterNet"]
+script = ExtResource("4")

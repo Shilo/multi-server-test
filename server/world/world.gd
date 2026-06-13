@@ -5,10 +5,14 @@ const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
 const TRANSFER_REQUEST_TIMEOUT_SECONDS := 5.0
+## How often the world reports live player positions to the master for durable
+## saving. The master discards saves for guests and stale worlds.
+const POSITION_SAVE_INTERVAL_SECONDS := 3.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
 var heartbeat_timer: Timer
+var position_save_timer: Timer
 var reconnect_timer: Timer
 var master_loss_timer: Timer
 var registration_timer: Timer
@@ -54,6 +58,8 @@ func _ready() -> void:
 	)
 	world_api.peer_disconnected.connect(func(peer_id: int) -> void:
 		var was_connected := connected_players.has(peer_id)
+		if was_connected:
+			_save_player_state(peer_id)
 		pending_players.erase(peer_id)
 		connected_players.erase(peer_id)
 		authorized_join_metadata.erase(peer_id)
@@ -99,10 +105,10 @@ func _load_world_scene() -> void:
 	$WorldNet/WorldSceneRoot.add_child(world_scene)
 
 
-func _spawn_player(peer_id: int, source_world := "", target_portal := "") -> void:
+func _spawn_player(peer_id: int, spawn_position: Vector2, display_name := "", is_guest := true) -> void:
 	if world_scene and world_scene.has_method("spawn_player"):
-		world_scene.spawn_player(peer_id, source_world, target_portal)
-		print("[WORLD %s] spawned player for peer %s" % [world_key, peer_id])
+		world_scene.spawn_player(peer_id, spawn_position, display_name, is_guest)
+		print("[WORLD %s] spawned player for peer %s (%s%s)" % [world_key, peer_id, display_name, " guest" if is_guest else ""])
 
 
 func _remove_player(peer_id: int) -> void:
@@ -204,6 +210,13 @@ func _start_heartbeat() -> void:
 	heartbeat_timer.timeout.connect(_send_heartbeat)
 	add_child(heartbeat_timer)
 
+	position_save_timer = Timer.new()
+	position_save_timer.name = "PositionSaveTimer"
+	position_save_timer.wait_time = POSITION_SAVE_INTERVAL_SECONDS
+	position_save_timer.autostart = true
+	position_save_timer.timeout.connect(_save_all_player_states)
+	add_child(position_save_timer)
+
 
 func _schedule_master_reconnect() -> void:
 	if registered_with_master:
@@ -236,7 +249,7 @@ func _on_world_registered(registered_world_key: String) -> void:
 	print("WORLD_REGISTERED key=%s" % world_key)
 
 
-func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String) -> void:
+func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
 	if expected_world_key != world_key or join_ticket.is_empty():
 		return
 
@@ -245,6 +258,7 @@ func _on_world_join_expected(expected_world_key: String, join_ticket: String, ex
 		"master_peer_id": master_peer_id,
 		"source_world": source_world,
 		"target_portal": target_portal,
+		"identity": identity,
 	}
 	_expire_join_tickets()
 
@@ -294,22 +308,34 @@ func _on_world_join_authorized(peer_id: int) -> void:
 		return
 
 	var metadata: Dictionary = authorized_join_metadata.get(peer_id, {})
-	if world_scene and world_scene.has_method("spawn_position_from_entry"):
-		var spawn_position: Vector2 = world_scene.spawn_position_from_entry(
-			str(metadata.get("source_world", "")),
-			str(metadata.get("target_portal", ""))
-		)
-		if not spawn_position.is_finite():
-			print("[WORLD %s] rejected peer %s due invalid spawn entry" % [world_key, peer_id])
-			$WorldNet/WorldEndpoint.reject_world_join.rpc_id(peer_id, world_key, "invalid_spawn_entry")
-			_disconnect_world_peer(peer_id)
-			return
+	var identity: Dictionary = metadata.get("identity", {})
+	var spawn_position := _resolve_spawn_position(metadata, identity)
+	if not spawn_position.is_finite():
+		print("[WORLD %s] rejected peer %s due invalid spawn entry" % [world_key, peer_id])
+		$WorldNet/WorldEndpoint.reject_world_join.rpc_id(peer_id, world_key, "invalid_spawn_entry")
+		_disconnect_world_peer(peer_id)
+		return
 
 	pending_players.erase(peer_id)
 	connected_players[peer_id] = true
 	peer_master_ids[peer_id] = int(metadata.get("master_peer_id", peer_id))
-	_spawn_player(peer_id, str(metadata.get("source_world", "")), str(metadata.get("target_portal", "")))
+	var display_name := str(identity.get("display_name", "Player_%d" % peer_id))
+	var is_guest := bool(identity.get("is_guest", true))
+	_spawn_player(peer_id, spawn_position, display_name, is_guest)
 	_send_heartbeat()
+
+
+## Honor a server-known saved spawn (login resume) when present, otherwise fall
+## back to the portal/entry-derived spawn for this world.
+func _resolve_spawn_position(metadata: Dictionary, identity: Dictionary) -> Vector2:
+	if bool(identity.get("has_spawn", false)):
+		return Vector2(float(identity.get("spawn_x", 0.0)), float(identity.get("spawn_y", 0.0)))
+	if world_scene and world_scene.has_method("spawn_position_from_entry"):
+		return world_scene.spawn_position_from_entry(
+			str(metadata.get("source_world", "")),
+			str(metadata.get("target_portal", ""))
+		)
+	return Vector2.ZERO
 
 
 func _on_portal_use_requested(peer_id: int, portal_name: String) -> void:
@@ -368,6 +394,29 @@ func _send_heartbeat() -> void:
 		return
 
 	$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key, connected_players.size())
+
+
+func _save_all_player_states() -> void:
+	for peer_id in connected_players.keys():
+		_save_player_state(int(peer_id))
+
+
+## Report one player's live position to the master so it can be persisted. The
+## world is the position authority; the master decides whether the account is
+## durable (guests are skipped) and whether the world matches the player's
+## current session.
+func _save_player_state(peer_id: int) -> void:
+	if not registered_with_master:
+		return
+	var master_peer_id := int(peer_master_ids.get(peer_id, 0))
+	if master_peer_id <= 0:
+		return
+	if not world_scene or not world_scene.has_method("player_position"):
+		return
+	var position: Vector2 = world_scene.player_position(peer_id)
+	if not position.is_finite():
+		return
+	$MasterNet/MasterEndpoint.save_player_state.rpc_id(1, master_peer_id, world_key, position.x, position.y)
 
 
 func _has_no_player_activity() -> bool:

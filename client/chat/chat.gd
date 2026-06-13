@@ -19,8 +19,8 @@ func add_system_line(message: String) -> void:
 	_append_line("[color=gray]%s[/color]" % _escape_bbcode(message))
 
 
-func add_chat_line(sender_id: int, message: String) -> void:
-	_append_line("[b]%d:[/b] %s" % [sender_id, _escape_bbcode(message)])
+func add_chat_line(sender_name: String, message: String) -> void:
+	_append_line("[b]%s:[/b] %s" % [_escape_bbcode(sender_name), _escape_bbcode(message)])
 
 
 func _append_line(message: String) -> void:

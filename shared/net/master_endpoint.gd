@@ -7,7 +7,7 @@ signal world_join_approved(world_key: String, endpoint: Dictionary)
 signal world_join_denied(world_key: String, reason: String)
 signal world_registered(world_key: String)
 signal world_shutdown_requested(reason: String)
-signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String)
+signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary)
 signal world_transfer_result_received(master_peer_id: int, target_world: String, approved: bool)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
@@ -20,6 +20,7 @@ var peer_worlds := {}
 var world_last_seen := {}
 var pending_world_join_intents := {}
 var world_process_manager: Node
+var account_endpoint: Node
 
 
 func _ready() -> void:
@@ -33,6 +34,16 @@ func _ready() -> void:
 
 func configure_world_process_manager(manager: Node) -> void:
 	world_process_manager = manager
+
+
+func configure_account_endpoint(endpoint: Node) -> void:
+	account_endpoint = endpoint
+
+
+## Called by AccountEndpoint after a login/logout so the next world join for this
+## peer targets the resumed world, optionally at a server-known saved position.
+func set_login_resume_intent(peer_id: int, world_key: String, has_spawn: bool, spawn_x: float, spawn_y: float) -> void:
+	_set_pending_world_join_intent(peer_id, world_key, "", "", has_spawn, spawn_x, spawn_y)
 
 
 func unregister_peer(peer_id: int) -> void:
@@ -204,6 +215,18 @@ func world_heartbeat(world_key: String, player_count: int) -> void:
 		world_process_manager.update_world_player_count(world_key, player_count)
 
 
+@rpc("any_peer", "call_remote", "reliable")
+func save_player_state(master_peer_id: int, world_key: String, pos_x: float, pos_y: float) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	# Only the registered world server for this key may report saves for it.
+	if peer_worlds.get(sender_id, "") != world_key:
+		return
+	if account_endpoint and account_endpoint.has_method("save_position"):
+		account_endpoint.save_position(master_peer_id, world_key, pos_x, pos_y)
+
+
 @rpc("authority", "call_remote", "reliable")
 func world_registered_ack(world_key: String) -> void:
 	if multiplayer.is_server():
@@ -268,11 +291,11 @@ func shutdown_world(reason: String) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func expect_world_join(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String) -> void:
+func expect_world_join(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
 
-	world_join_expected.emit(world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal)
+	world_join_expected.emit(world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal, identity)
 
 
 func _send_routes_when_available(sender_id: int, world_key: String) -> void:
@@ -316,7 +339,8 @@ func _approve_world_join_when_available(sender_id: int, world_key: String) -> vo
 		sender_id,
 		world_key,
 		str(intent.get("source_world", "")),
-		str(intent.get("target_portal", ""))
+		str(intent.get("target_portal", "")),
+		intent
 	)
 	if str(endpoint.get("join_ticket", "")).is_empty():
 		deny_world_join.rpc_id(sender_id, world_key, "ticket_unavailable")
@@ -377,7 +401,7 @@ func _wait_for_world_stop(world_key: String) -> bool:
 	return not world_process_manager.is_world_stopping(world_key)
 
 
-func _endpoint_with_join_ticket(sender_id: int, world_key: String, source_world: String, target_portal: String) -> Dictionary:
+func _endpoint_with_join_ticket(sender_id: int, world_key: String, source_world: String, target_portal: String, intent: Dictionary) -> Dictionary:
 	var endpoint: Dictionary = registered_worlds[world_key].duplicate(true)
 	if not world_process_manager or not world_process_manager.has_method("reserve_world_join"):
 		return endpoint
@@ -392,22 +416,38 @@ func _endpoint_with_join_ticket(sender_id: int, world_key: String, source_world:
 	endpoint["join_ticket_expires_at"] = expires_at
 	endpoint["source_world"] = source_world
 	endpoint["target_portal"] = target_portal
-	_send_join_ticket_to_world(world_key, join_ticket, expires_at, sender_id, source_world, target_portal)
+	_send_join_ticket_to_world(world_key, join_ticket, expires_at, sender_id, source_world, target_portal, _join_identity(sender_id, world_key, intent))
 	return endpoint
 
 
-func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String) -> void:
+## Identity payload baked into the player's spawn data by the world. Combines the
+## master-owned session identity (name/guest) with any server-known saved spawn
+## position carried by a login resume intent.
+func _join_identity(sender_id: int, world_key: String, intent: Dictionary) -> Dictionary:
+	var identity := {"display_name": "Player_%d" % sender_id, "is_guest": true}
+	if account_endpoint and account_endpoint.has_method("get_join_identity"):
+		identity = account_endpoint.get_join_identity(sender_id, world_key)
+	identity["has_spawn"] = bool(intent.get("has_spawn", false))
+	identity["spawn_x"] = float(intent.get("spawn_x", 0.0))
+	identity["spawn_y"] = float(intent.get("spawn_y", 0.0))
+	return identity
+
+
+func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal)
+			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal, identity)
 			return
 
 
-func _set_pending_world_join_intent(sender_id: int, target_world: String, source_world: String, target_portal: String) -> void:
+func _set_pending_world_join_intent(sender_id: int, target_world: String, source_world: String, target_portal: String, has_spawn := false, spawn_x := 0.0, spawn_y := 0.0) -> void:
 	pending_world_join_intents[str(sender_id)] = {
 		"target_world": target_world,
 		"source_world": source_world,
 		"target_portal": target_portal,
+		"has_spawn": has_spawn,
+		"spawn_x": spawn_x,
+		"spawn_y": spawn_y,
 		"expires_at": Time.get_unix_time_from_system() + WORLD_JOIN_INTENT_SECONDS,
 	}
 
