@@ -2,14 +2,14 @@ class_name PackRatOptions extends RefCounted
 ## Optional settings for [method PackRat.load_resource_pack].
 
 ## Smallest supported download chunk size in bytes.
-const MIN_DOWNLOAD_CHUNK_SIZE: int = 256
+const MIN_DOWNLOAD_CHUNK_SIZE: int = PackRatWebFetch.MIN_CHUNK_SIZE
 
 ## Largest supported download chunk size in bytes. This matches Godot's
 ## [HTTPRequest] maximum.
-const MAX_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
+const MAX_DOWNLOAD_CHUNK_SIZE: int = PackRatWebFetch.MAX_CHUNK_SIZE
 
 ## Balanced default download chunk size for DLC-sized files.
-const DEFAULT_DOWNLOAD_CHUNK_SIZE: int = 8 * 1024 * 1024
+const DEFAULT_DOWNLOAD_CHUNK_SIZE: int = PackRatWebFetch.DEFAULT_CHUNK_SIZE
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""

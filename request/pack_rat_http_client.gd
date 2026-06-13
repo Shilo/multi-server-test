@@ -25,9 +25,9 @@ static func request(
 		options.use_web_fetch
 		and method == HTTPClient.METHOD_GET
 		and not download_path.is_empty()
-		and PackRatWebFetchClient.is_available()
+		and PackRatWebFetch.is_available()
 	):
-		return await PackRatWebFetchClient.download(url, download_path, options, owner)
+		return await _fetch_request(url, download_path, options, owner)
 
 	var capture_timings: bool = options.capture_timings
 	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
@@ -119,6 +119,60 @@ static func request(
 	if OS.has_feature("web"):
 		response.content_length = 0
 	return _finish_timing(response, timings_msec, total_start_msec, capture_timings)
+
+
+static func _fetch_request(
+	url: String,
+	download_path: String,
+	options: PackRatOptions,
+	owner: PackRatRequest
+) -> PackRatHttpResponse:
+	var progress_callback: Callable = func(downloaded_bytes: int, total_bytes: int) -> void:
+		if options.progress_total_size > 0:
+			total_bytes = options.progress_total_size
+		elif total_bytes <= 0 and options.has_expected_size():
+			total_bytes = options.expected_size
+		owner._set_progress(downloaded_bytes, total_bytes)
+
+	var fetch_result: PackRatWebFetchResult = await PackRatWebFetch.download_file(
+		url,
+		download_path,
+		options.request_headers,
+		options.timeout_seconds,
+		options.download_chunk_size,
+		options.max_redirects,
+		progress_callback,
+		owner.is_canceled,
+		options.expected_size,
+		options.capture_timings
+	)
+
+	var response: PackRatHttpResponse
+	if fetch_result.response_code > 0:
+		response = PackRatHttpResponse.from_completed(
+			fetch_result.result_code,
+			fetch_result.response_code,
+			fetch_result.headers
+		)
+	else:
+		response = PackRatHttpResponse.failed(fetch_result.error)
+		response.result_code = fetch_result.result_code
+
+	if not fetch_result.ok and not fetch_result.error.is_empty():
+		response.error = fetch_result.error
+	if response.error == PackRatWebFetchResult.ERROR_CANCELED:
+		response.error = PackRatResult.ERROR_CANCELED
+
+	response.content_length = 0
+	response.timings_msec = _packrat_fetch_timings(fetch_result.timings_msec)
+	return response
+
+
+static func _packrat_fetch_timings(timings_msec: Dictionary) -> Dictionary:
+	var output: Dictionary = {}
+	for key in timings_msec.keys():
+		output["http_%s" % String(key)] = timings_msec[key]
+	return output
 
 
 static func _record_timing(timings_msec: Dictionary, capture_timings: bool, key: String, start_msec: int) -> void:
