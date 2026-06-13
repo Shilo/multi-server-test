@@ -1,7 +1,7 @@
 class_name PackRatOptions extends RefCounted
 ## Optional settings for [method PackRat.load_resource_pack].
 
-const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = 16 * 1024 * 1024
+const _DEFAULT_DOWNLOAD_CHUNK_SIZE: int = 8 * 1024 * 1024
 
 ## Cache ID used for the URL. Empty means PackRat derives one from the filename.
 var id: String = ""
@@ -48,7 +48,7 @@ var accept_gzip: bool = true
 var timeout_seconds: float = 120.0
 
 ## Bytes per native [HTTPRequest] read or Web [code]fetch()[/code] write chunk.
-## PackRat defaults to Godot's maximum because resource packs are large files.
+## PackRat defaults to a large balanced chunk for DLC-sized files.
 var download_chunk_size: int = _DEFAULT_DOWNLOAD_CHUNK_SIZE
 
 ## Runs native [HTTPRequest] polling on its worker thread when supported. Enable

@@ -32,7 +32,7 @@ const _SCRIPT: String = """
 		return headers;
 	};
 
-	window.__packratWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, chunkSize, progressCallback, chunkCallback, doneCallback, errorCallback) {
+	window.__packratWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, chunkSize, maxRedirects, progressCallback, chunkCallback, doneCallback, errorCallback) {
 		const key = String(id);
 		const controller = new AbortController();
 		let timeoutHandle = 0;
@@ -42,6 +42,7 @@ const _SCRIPT: String = """
 			const headerLines = JSON.parse(headerLinesJson || "[]");
 			const request = {
 				headers: window.__packratWebFetchHeaders(headerLines),
+				redirect: Number(maxRedirects) === 0 ? "error" : "follow",
 				signal: controller.signal,
 			};
 			if (timeoutMs > 0) {
@@ -50,8 +51,15 @@ const _SCRIPT: String = """
 
 			const response = await fetch(url, request);
 			const headers = JSON.stringify(Array.from(response.headers.entries()));
-			const total = Number(response.headers.get("content-length") || 0);
+			const total = 0;
 			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
+			if (response.status < 200 || response.status >= 300) {
+				if (response.body && response.body.cancel) {
+					await response.body.cancel();
+				}
+				doneCallback(key, response.status, headers);
+				return;
+			}
 
 			const exactArrayBuffer = (bytes) => {
 				if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
@@ -212,7 +220,7 @@ static func download(
 	file = null
 
 	var progress_callable: Callable = func(args: Array) -> void:
-		if args.size() < 3 or String(args[0]) != request_id:
+		if bool(state["done"]) or args.size() < 3 or String(args[0]) != request_id:
 			return
 
 		progress_events[0] += 1
@@ -225,43 +233,44 @@ static func download(
 		owner._set_progress(downloaded_bytes, total_bytes)
 
 	var chunk_callable: Callable = func(args: Array) -> void:
-		if args.size() < 2 or String(args[0]) != request_id:
+		if bool(state["done"]) or args.size() < 2 or String(args[0]) != request_id:
 			return
 
 		var buffer: Variant = args[1]
 		if not bool(bridge.call("is_js_buffer", buffer)):
-			state["error"] = "Browser fetch did not return a chunk byte buffer."
-			state["done"] = true
+			_fail_active_download(state, bridge, request_id, "Browser fetch did not return a chunk byte buffer.")
 			return
 
 		var chunk_write_start_msec: int = _timing_start(capture_timings)
 		var bytes: PackedByteArray = bridge.call("js_buffer_to_packed_byte_array", buffer)
 		if bytes.size() > effective_chunk_size:
-			state["error"] = "Browser fetch returned a chunk larger than download_chunk_size."
-			state["done"] = true
+			_fail_active_download(state, bridge, request_id, "Browser fetch returned a chunk larger than download_chunk_size.")
+			return
+
+		var next_written_bytes: int = int(state.get("written_bytes", 0)) + bytes.size()
+		if options.has_expected_size() and next_written_bytes > options.expected_size:
+			_fail_active_download(state, bridge, request_id, "Downloaded pack size exceeded expected_size: expected %d bytes." % options.expected_size)
 			return
 
 		var output_file: FileAccess = state["file"]
 		if output_file == null:
-			state["error"] = "Browser fetch download file was closed before the transfer finished."
-			state["done"] = true
+			_fail_active_download(state, bridge, request_id, "Browser fetch download file was closed before the transfer finished.")
 			return
 
 		output_file.store_buffer(bytes)
 		var file_error: Error = output_file.get_error()
 		if file_error != OK:
-			state["error"] = "Could not write download file %s (error %d)." % [download_path, file_error]
-			state["done"] = true
+			_fail_active_download(state, bridge, request_id, "Could not write download file %s (error %d)." % [download_path, file_error])
 			return
 
-		state["written_bytes"] = int(state.get("written_bytes", 0)) + bytes.size()
+		state["written_bytes"] = next_written_bytes
 		write_chunks[0] += 1
 		write_max_chunk_size[0] = maxi(write_max_chunk_size[0], bytes.size())
 		if capture_timings:
 			write_msec[0] += Time.get_ticks_msec() - chunk_write_start_msec
 
 	var done_callable: Callable = func(args: Array) -> void:
-		if args.size() < 3 or String(args[0]) != request_id:
+		if bool(state["done"]) or args.size() < 3 or String(args[0]) != request_id:
 			return
 
 		state["response_code"] = int(args[1])
@@ -269,10 +278,11 @@ static func download(
 		state["done"] = true
 
 	var error_callable: Callable = func(args: Array) -> void:
-		if args.size() < 2 or String(args[0]) != request_id:
+		if bool(state["done"]) or args.size() < 2 or String(args[0]) != request_id:
 			return
 
-		state["error"] = String(args[1])
+		if String(state["error"]).is_empty():
+			state["error"] = String(args[1])
 		state["done"] = true
 
 	callbacks.append(bridge.call("create_callback", progress_callable))
@@ -285,6 +295,7 @@ static func download(
 	var timeout_msec: int = roundi(options.timeout_seconds * 1000.0)
 	var web_fetch: Object = bridge.call("get_interface", "__packratWebFetchBridge")
 	if web_fetch == null:
+		_close_file(state)
 		return _finish_timing(PackRatHttpResponse.failed("PackRat browser fetch bridge is not available."), timings_msec, total_start_msec, capture_timings)
 
 	web_fetch.call(
@@ -294,6 +305,7 @@ static func download(
 		header_lines_json,
 		timeout_msec,
 		effective_chunk_size,
+		options.max_redirects,
 		callbacks[0],
 		callbacks[1],
 		callbacks[2],
@@ -327,6 +339,7 @@ static func download(
 		int(state["response_code"]),
 		state["headers"] as PackedStringArray
 	)
+	response.content_length = 0
 	return _finish_timing(response, timings_msec, total_start_msec, capture_timings)
 
 
@@ -364,6 +377,14 @@ static func _cancel(bridge: Object, request_id: String) -> void:
 	var web_fetch: Object = bridge.call("get_interface", "__packratWebFetchBridge")
 	if web_fetch != null:
 		web_fetch.call("cancel", request_id)
+
+
+static func _fail_active_download(state: Dictionary, bridge: Object, request_id: String, message: String) -> void:
+	if String(state["error"]).is_empty():
+		state["error"] = message
+	state["done"] = true
+	_close_file(state)
+	_cancel(bridge, request_id)
 
 
 static func _close_file(state: Dictionary) -> void:

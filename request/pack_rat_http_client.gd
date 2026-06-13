@@ -42,6 +42,8 @@ static func request(
 	http_request.use_threads = options.use_threads and not OS.has_feature("web")
 	http_request.download_file = download_path
 	http_request.download_chunk_size = clampi(options.download_chunk_size, 256, 16 * 1024 * 1024)
+	if not download_path.is_empty() and options.has_expected_size() and not http_request.accept_gzip:
+		http_request.body_size_limit = options.expected_size
 	http_request.max_redirects = options.max_redirects
 	http_request.timeout = options.timeout_seconds
 	_record_timing(timings_msec, capture_timings, "http_setup_msec", setup_start_msec)
@@ -109,7 +111,10 @@ static func request(
 	var response_code: int = completed[1]
 	var headers: PackedStringArray = completed[2]
 
-	return _finish_timing(PackRatHttpResponse.from_completed(result_code, response_code, headers), timings_msec, total_start_msec, capture_timings)
+	var response: PackRatHttpResponse = PackRatHttpResponse.from_completed(result_code, response_code, headers)
+	if OS.has_feature("web"):
+		response.content_length = 0
+	return _finish_timing(response, timings_msec, total_start_msec, capture_timings)
 
 
 static func _record_timing(timings_msec: Dictionary, capture_timings: bool, key: String, start_msec: int) -> void:
