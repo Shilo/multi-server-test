@@ -8,12 +8,12 @@ class_name PackRatWebFetchBridge extends RefCounted
 ## Name of the browser global object installed by this bridge.
 const BRIDGE_NAME: String = "__packRatWebFetchBridge"
 
-const _BRIDGE_VERSION: int = 2
+const _BRIDGE_VERSION: int = 3
 const _INSTALL_CHECK: String = "Boolean(window.__packRatWebFetchBridge && window.__packRatWebFetchBridge.version === %d && typeof window.__packRatWebFetchBridge.download === 'function' && typeof window.__packRatWebFetchBridge.cancel === 'function')" % _BRIDGE_VERSION
-const _FEATURE_CHECK: String = "typeof fetch === 'function' && typeof AbortController === 'function' && typeof ReadableStream === 'function' && typeof ReadableStream.prototype.getReader === 'function'"
+const _FEATURE_CHECK: String = "typeof fetch === 'function' && typeof Headers === 'function' && typeof AbortController === 'function' && typeof ReadableStream === 'function' && typeof ReadableStream.prototype.getReader === 'function'"
 const _SCRIPT: String = """
 (() => {
-	const BRIDGE_VERSION = 2;
+	const BRIDGE_VERSION = 3;
 	if (
 		window.__packRatWebFetchBridge &&
 		window.__packRatWebFetchBridge.version === BRIDGE_VERSION &&
@@ -28,7 +28,7 @@ const _SCRIPT: String = """
 	window.__packRatWebFetchActive = new Map();
 
 	window.__packRatWebFetchHeaders = function(headerLines) {
-		const headers = {};
+		const headers = new Headers();
 		for (const line of headerLines) {
 			const separator = String(line).indexOf(":");
 			if (separator <= 0) {
@@ -37,7 +37,7 @@ const _SCRIPT: String = """
 			const key = String(line).slice(0, separator).trim();
 			const value = String(line).slice(separator + 1).trim();
 			if (key) {
-				headers[key] = value;
+				headers.append(key, value);
 			}
 		}
 		return headers;
