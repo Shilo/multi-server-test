@@ -181,6 +181,24 @@ static func github_release_url(owner: String, repo: String, filename: String, ta
 	]
 
 
+## Builds a GitHub Pages project URL without using the GitHub API.
+static func github_pages_url(owner: String, repo: String, path: String = "") -> String:
+	var clean_path: String = path.strip_edges().trim_prefix("/")
+	var url: String = "https://%s.github.io/%s" % [
+		_url_segment(owner),
+		_url_segment(repo),
+	]
+	if clean_path.is_empty():
+		return url
+
+	return "%s/%s" % [url, _url_path(clean_path)]
+
+
+## Returns whether direct GitHub Release asset downloads are suitable here.
+static func can_download_github_releases() -> bool:
+	return not OS.has_feature("web")
+
+
 ## Joins a static host base URL and path with slash cleanup only.
 static func join_url(base_url: String, path: String) -> String:
 	var clean_base: String = base_url.strip_edges().trim_suffix("/")
@@ -236,3 +254,10 @@ static func _finish_request_next_frame(request: PackRatRequest, result: PackRatR
 
 static func _url_segment(value: String) -> String:
 	return value.strip_edges().trim_prefix("/").trim_suffix("/").uri_encode()
+
+
+static func _url_path(path: String) -> String:
+	var segments: PackedStringArray = path.split("/", false)
+	for index in range(segments.size()):
+		segments[index] = segments[index].uri_encode()
+	return "/".join(segments)
