@@ -322,17 +322,64 @@ static func _remove_stale_temporary_files(path: String) -> void:
 	if dir == null:
 		return
 
+	var download_paths: Array[String] = []
+	var backup_paths: Array[String] = []
 	dir.list_dir_begin()
 	var entry_name: String = dir.get_next()
 	while not entry_name.is_empty():
 		if not dir.current_is_dir() and _is_download_temporary_file_for(entry_name, file_name):
-			DirAccess.remove_absolute(base_dir.path_join(entry_name))
+			download_paths.append(base_dir.path_join(entry_name))
+		elif not dir.current_is_dir() and _is_backup_temporary_file_for(entry_name, file_name):
+			backup_paths.append(base_dir.path_join(entry_name))
 		entry_name = dir.get_next()
 	dir.list_dir_end()
+
+	for download_path in download_paths:
+		DirAccess.remove_absolute(download_path)
+
+	if FileAccess.file_exists(path):
+		_remove_paths(backup_paths)
+		return
+
+	var restored_backup_path: String = _restore_newest_backup(path, backup_paths)
+	if not restored_backup_path.is_empty():
+		backup_paths.erase(restored_backup_path)
+		_remove_paths(backup_paths)
 
 
 static func _is_download_temporary_file_for(entry_name: String, file_name: String) -> bool:
 	return entry_name.begins_with("%s.download-" % file_name) and entry_name.ends_with(".part")
+
+
+static func _is_backup_temporary_file_for(entry_name: String, file_name: String) -> bool:
+	return entry_name.begins_with("%s.backup-" % file_name) and entry_name.ends_with(".part")
+
+
+static func _restore_newest_backup(path: String, backup_paths: Array[String]) -> String:
+	var backup_path: String = _newest_file_path(backup_paths)
+	if backup_path.is_empty():
+		return ""
+
+	if DirAccess.rename_absolute(backup_path, path) != OK:
+		return ""
+	return backup_path
+
+
+static func _newest_file_path(paths: Array[String]) -> String:
+	var newest_path: String = ""
+	var newest_modified_time: int = -1
+	for path in paths:
+		var modified_time: int = FileAccess.get_modified_time(path)
+		if modified_time > newest_modified_time:
+			newest_path = path
+			newest_modified_time = modified_time
+	return newest_path
+
+
+static func _remove_paths(paths: Array[String]) -> void:
+	for path in paths:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
 
 
 static func _release_active_download_path(path: String) -> void:
