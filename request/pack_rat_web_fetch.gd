@@ -15,189 +15,9 @@ const MAX_CHUNK_SIZE: int = 16 * 1024 * 1024
 ## Balanced default download chunk size for large files.
 const DEFAULT_CHUNK_SIZE: int = 8 * 1024 * 1024
 
-const _BRIDGE_NAME: String = "__packRatWebFetchBridge"
-const _SCRIPT: String = """
-(() => {
-	if (window.__packRatWebFetchDownload) {
-		return true;
-	}
-
-	const PROGRESS_INTERVAL_MS = 500;
-
-	window.__packRatWebFetchActive = new Map();
-
-	window.__packRatWebFetchHeaders = function(headerLines) {
-		const headers = {};
-		for (const line of headerLines) {
-			const separator = String(line).indexOf(":");
-			if (separator <= 0) {
-				continue;
-			}
-			const key = String(line).slice(0, separator).trim();
-			const value = String(line).slice(separator + 1).trim();
-			if (key) {
-				headers[key] = value;
-			}
-		}
-		return headers;
-	};
-
-	window.__packRatWebFetchDownload = async function(id, url, headerLinesJson, timeoutMs, chunkSize, maxRedirects, progressCallback, chunkCallback, doneCallback, errorCallback) {
-		const key = String(id);
-		const controller = new AbortController();
-		let timeoutHandle = 0;
-		window.__packRatWebFetchActive.set(key, controller);
-
-		try {
-			const headerLines = JSON.parse(headerLinesJson || "[]");
-			const request = {
-				headers: window.__packRatWebFetchHeaders(headerLines),
-				redirect: Number(maxRedirects) === 0 ? "error" : "follow",
-				signal: controller.signal,
-			};
-			if (timeoutMs > 0) {
-				timeoutHandle = setTimeout(() => controller.abort("timeout"), timeoutMs);
-			}
-
-			const response = await fetch(url, request);
-			const headers = JSON.stringify(Array.from(response.headers.entries()));
-			const total = 0;
-			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
-			if (response.status < 200 || response.status >= 300) {
-				if (response.body && response.body.cancel) {
-					try {
-						await response.body.cancel();
-					} catch (_cancelError) {}
-				}
-				doneCallback(key, response.status, headers);
-				return;
-			}
-
-			const exactArrayBuffer = (bytes) => {
-				if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
-					return bytes.buffer;
-				}
-
-				return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-			};
-
-			if (!response.body || !response.body.getReader) {
-				throw new Error("Browser fetch streaming is not available.");
-			}
-
-			const reader = response.body.getReader();
-			let chunks = [];
-			let received = 0;
-			let buffered = 0;
-			let lastProgressAt = 0;
-
-			const flush = () => {
-				if (buffered <= 0) {
-					return;
-				}
-
-				let merged;
-				if (chunks.length === 1 && chunks[0].byteLength === buffered) {
-					merged = chunks[0];
-				} else {
-					merged = new Uint8Array(buffered);
-					let offset = 0;
-					for (const chunk of chunks) {
-						merged.set(chunk, offset);
-						offset += chunk.byteLength;
-					}
-				}
-
-				chunkCallback(key, exactArrayBuffer(merged));
-				chunks = [];
-				buffered = 0;
-			};
-
-			const appendChunk = (chunk) => {
-				let offset = 0;
-				while (offset < chunk.byteLength && !controller.signal.aborted) {
-					const remainingTargetBytes = targetChunkSize - buffered;
-					const remainingChunkBytes = chunk.byteLength - offset;
-					const taken = Math.min(remainingTargetBytes, remainingChunkBytes);
-					chunks.push(chunk.subarray(offset, offset + taken));
-					buffered += taken;
-					offset += taken;
-					if (buffered === targetChunkSize) {
-						flush();
-					}
-				}
-			};
-
-			while (true) {
-				const result = await reader.read();
-				if (result.done || controller.signal.aborted) {
-					break;
-				}
-
-				const chunk = result.value;
-				received += chunk.byteLength;
-				appendChunk(chunk);
-
-				const now = performance.now();
-				if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || received === total) {
-					lastProgressAt = now;
-					progressCallback(key, received, total);
-				}
-			}
-
-			if (controller.signal.aborted) {
-				throw new Error("Browser fetch aborted.");
-			}
-
-			flush();
-			progressCallback(key, received, total);
-			doneCallback(key, response.status, headers);
-		} catch (error) {
-			let message = error && error.message ? error.message : String(error);
-			if (controller.signal.aborted) {
-				const reason = controller.signal.reason;
-				if (reason === "timeout") {
-					message = "HTTP request timed out.";
-				} else if (reason === "canceled") {
-					message = "Request canceled.";
-				}
-			}
-			errorCallback(key, message);
-		} finally {
-			window.__packRatWebFetchActive.delete(key);
-			if (timeoutHandle) {
-				clearTimeout(timeoutHandle);
-			}
-		}
-	};
-
-	window.__packRatWebFetchCancel = function(id) {
-		const controller = window.__packRatWebFetchActive.get(String(id));
-		if (controller) {
-			controller.abort("canceled");
-		}
-	};
-
-	window.__packRatWebFetchBridge = {
-		download: window.__packRatWebFetchDownload,
-		cancel: window.__packRatWebFetchCancel,
-	};
-
-	return true;
-})()
-"""
-
-
 ## Returns [code]true[/code] when browser [code]fetch()[/code] streaming is available.
 static func is_available() -> bool:
-	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
-		return false
-
-	var bridge: Object = Engine.get_singleton("JavaScriptBridge")
-	if bridge == null:
-		return false
-
-	return bool(bridge.call("eval", "typeof fetch === 'function' && typeof ReadableStream === 'function' && typeof ReadableStream.prototype.getReader === 'function'", true))
+	return PackRatWebFetchBridge.is_available()
 
 
 ## Downloads [param url] into [param download_path].
@@ -223,7 +43,7 @@ static func download_file(
 ) -> PackRatWebFetchResult:
 	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
 	var timings_msec: Dictionary = {}
-	var bridge: Object = Engine.get_singleton("JavaScriptBridge")
+	var bridge: Object = PackRatWebFetchBridge.javascript_bridge()
 	if bridge == null:
 		return _finish_timing(PackRatWebFetchResult.failed("JavaScriptBridge is not available."), timings_msec, total_start_msec, capture_timings)
 
@@ -232,7 +52,7 @@ static func download_file(
 		return _finish_timing(PackRatWebFetchResult.failed(invalid_header_error), timings_msec, total_start_msec, capture_timings)
 
 	var setup_start_msec: int = _timing_start(capture_timings)
-	if not _ensure_installed(bridge):
+	if not PackRatWebFetchBridge.ensure_installed(bridge):
 		return _finish_timing(PackRatWebFetchResult.failed("Browser fetch helper could not be installed."), timings_msec, total_start_msec, capture_timings)
 	_record_timing(timings_msec, capture_timings, "setup_msec", setup_start_msec)
 
@@ -240,10 +60,11 @@ static func download_file(
 	if tree == null:
 		return _finish_timing(PackRatWebFetchResult.failed("Browser fetch needs a running SceneTree."), timings_msec, total_start_msec, capture_timings)
 
-	var file: FileAccess = FileAccess.open(download_path, FileAccess.WRITE)
+	var temp_path: String = _temporary_path(download_path, "download")
+	var file: FileAccess = FileAccess.open(temp_path, FileAccess.WRITE)
 	if file == null:
 		return _finish_timing(PackRatWebFetchResult.failed(
-			"Could not open download file %s (error %d)." % [download_path, FileAccess.get_open_error()],
+			"Could not open temporary download file %s (error %d)." % [temp_path, FileAccess.get_open_error()],
 			HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN
 		), timings_msec, total_start_msec, capture_timings)
 
@@ -253,6 +74,7 @@ static func download_file(
 		"response_code": 0,
 		"headers": PackedStringArray(),
 		"file": file,
+		"temp_path": temp_path,
 		"written_bytes": 0,
 	}
 	file = null
@@ -278,12 +100,12 @@ static func download_file(
 			return
 
 		var buffer: Variant = args[1]
-		if not bool(bridge.call("is_js_buffer", buffer)):
+		if not PackRatWebFetchBridge.is_js_buffer(bridge, buffer):
 			_fail_active_download(state, bridge, request_id, "Browser fetch did not return a chunk byte buffer.", HTTPRequest.RESULT_REQUEST_FAILED)
 			return
 
 		var chunk_write_start_msec: int = _timing_start(capture_timings)
-		var bytes: PackedByteArray = bridge.call("js_buffer_to_packed_byte_array", buffer)
+		var bytes: PackedByteArray = PackRatWebFetchBridge.js_buffer_to_packed_byte_array(bridge, buffer)
 		if bytes.size() > effective_chunk_size:
 			_fail_active_download(state, bridge, request_id, "Browser fetch returned a chunk larger than download_chunk_size.", HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED)
 			return
@@ -333,13 +155,8 @@ static func download_file(
 	callbacks.append(bridge.call("create_callback", error_callable))
 
 	var start_request_msec: int = _timing_start(capture_timings)
-	var web_fetch: Object = bridge.call("get_interface", _BRIDGE_NAME)
-	if web_fetch == null:
-		_close_file(state)
-		return _finish_timing(PackRatWebFetchResult.failed("Browser fetch bridge is not available."), timings_msec, total_start_msec, capture_timings)
-
-	web_fetch.call(
-		"download",
+	var did_start: bool = PackRatWebFetchBridge.start_download(
+		bridge,
 		request_id,
 		url,
 		JSON.stringify(_header_lines(request_headers)),
@@ -351,15 +168,28 @@ static func download_file(
 		callbacks[2],
 		callbacks[3]
 	)
+	if not did_start:
+		_close_file(state)
+		_remove_temp_file(state)
+		return _finish_timing(PackRatWebFetchResult.failed("Browser fetch bridge is not available."), timings_msec, total_start_msec, capture_timings)
 	_record_timing(timings_msec, capture_timings, "start_msec", start_request_msec)
 
 	var transfer_start_msec: int = _timing_start(capture_timings)
+	var deadline_msec: int = Time.get_ticks_msec() + roundi(timeout_seconds * 1000.0) if timeout_seconds > 0.0 else 0
 	while not bool(state["done"]):
 		if cancel_callback.is_valid() and bool(cancel_callback.call()):
 			_cancel(bridge, request_id)
 			_close_file(state)
 			state["error"] = PackRatWebFetchResult.ERROR_CANCELED
 			state["result_code"] = HTTPRequest.RESULT_REQUEST_FAILED
+			state["done"] = true
+			break
+
+		if deadline_msec > 0 and Time.get_ticks_msec() >= deadline_msec:
+			_cancel(bridge, request_id)
+			_close_file(state)
+			state["error"] = "HTTP request timed out."
+			state["result_code"] = HTTPRequest.RESULT_TIMEOUT
 			state["done"] = true
 			break
 		await tree.process_frame
@@ -373,31 +203,35 @@ static func download_file(
 		timings_msec["write_max_chunk_size"] = write_max_chunk_size[0]
 
 	if not String(state["error"]).is_empty():
+		_remove_temp_file(state)
 		return _finish_timing(PackRatWebFetchResult.failed(
 			String(state["error"]),
 			state.get("result_code", HTTPRequest.RESULT_REQUEST_FAILED)
 		), timings_msec, total_start_msec, capture_timings)
 
 	var fetch_result: PackRatWebFetchResult = PackRatWebFetchResult.new()
+	fetch_result.result_code = HTTPRequest.RESULT_SUCCESS
 	fetch_result.response_code = int(state["response_code"])
 	fetch_result.headers = state["headers"] as PackedStringArray
 	fetch_result.ok = fetch_result.response_code >= 200 and fetch_result.response_code < 300
-	fetch_result.error = "HTTP request failed (result %d, response %d)." % [fetch_result.result_code, fetch_result.response_code]
 	fetch_result.downloaded_bytes = int(state["written_bytes"])
 	fetch_result.download_path = download_path
 	fetch_result.write_chunks = write_chunks[0]
 	fetch_result.write_max_chunk_size = write_max_chunk_size[0]
+	if not fetch_result.ok:
+		_remove_temp_file(state)
+		fetch_result.error = "HTTP request failed (result %d, response %d)." % [fetch_result.result_code, fetch_result.response_code]
+		return _finish_timing(fetch_result, timings_msec, total_start_msec, capture_timings)
+
+	var finalize_error: Error = _finalize_temp_file(temp_path, download_path)
+	if finalize_error != OK:
+		_remove_temp_file(state)
+		return _finish_timing(PackRatWebFetchResult.failed(
+			"Could not move downloaded file into place (error %d)." % finalize_error,
+			HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR
+		), timings_msec, total_start_msec, capture_timings)
+
 	return _finish_timing(fetch_result, timings_msec, total_start_msec, capture_timings)
-
-
-static func _ensure_installed(bridge: Object) -> bool:
-	var installed: Variant = bridge.call("eval", "Boolean(window.__packRatWebFetchDownload)", true)
-	if bool(installed):
-		return true
-
-	bridge.call("eval", _SCRIPT, true)
-	installed = bridge.call("eval", "Boolean(window.__packRatWebFetchDownload)", true)
-	return bool(installed)
 
 
 static func _headers_from_json(headers_json: String) -> PackedStringArray:
@@ -436,9 +270,7 @@ static func _invalid_header_error(headers: PackedStringArray) -> String:
 
 
 static func _cancel(bridge: Object, request_id: String) -> void:
-	var web_fetch: Object = bridge.call("get_interface", _BRIDGE_NAME)
-	if web_fetch != null:
-		web_fetch.call("cancel", request_id)
+	PackRatWebFetchBridge.cancel(bridge, request_id)
 
 
 static func _fail_active_download(
@@ -459,7 +291,38 @@ static func _fail_active_download(
 static func _close_file(state: Dictionary) -> void:
 	var file: FileAccess = state.get("file", null)
 	if file != null:
+		file.flush()
+		file.close()
 		state["file"] = null
+
+
+static func _remove_temp_file(state: Dictionary) -> void:
+	var temp_path: String = String(state.get("temp_path", ""))
+	if not temp_path.is_empty() and FileAccess.file_exists(temp_path):
+		DirAccess.remove_absolute(temp_path)
+
+
+static func _temporary_path(path: String, label: String) -> String:
+	return "%s.%s-%d-%d.part" % [path, label, Time.get_ticks_usec(), randi()]
+
+
+static func _finalize_temp_file(temp_path: String, path: String) -> Error:
+	var backup_path: String = _temporary_path(path, "backup")
+	var had_existing_file: bool = FileAccess.file_exists(path)
+	if had_existing_file:
+		var backup_error: Error = DirAccess.rename_absolute(path, backup_path)
+		if backup_error != OK:
+			return backup_error
+
+	var rename_error: Error = DirAccess.rename_absolute(temp_path, path)
+	if rename_error != OK:
+		if had_existing_file and FileAccess.file_exists(backup_path):
+			DirAccess.rename_absolute(backup_path, path)
+		return rename_error
+
+	if had_existing_file and FileAccess.file_exists(backup_path):
+		DirAccess.remove_absolute(backup_path)
+	return OK
 
 
 static func _result_code_for_error(message: String) -> HTTPRequest.Result:
