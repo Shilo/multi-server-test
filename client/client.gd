@@ -5,6 +5,7 @@ const CHAT_SCENE := preload("res://client/chat/chat.tscn")
 const LOGIN_PANEL_SCENE := preload("res://client/login/login_panel.tscn")
 const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
+const DB_PERSIST_TEST_ARG := "db_persist_test"
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -32,6 +33,9 @@ var chat_connected := false
 var chat: Node
 var login_panel: Node
 var resume_in_progress := false
+var resume_target := ""
+var session_display_name := ""
+var session_is_guest := true
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -80,7 +84,10 @@ func _ready() -> void:
 			requested_transfer_target = ""
 	)
 
-	if smoke_test:
+	var user_args := OS.get_cmdline_user_args()
+	if DB_PERSIST_TEST_ARG in user_args and user_args.size() >= 3:
+		run_db_persist_test(str(user_args[1]), str(user_args[2]))
+	elif smoke_test:
 		run_smoke_test()
 	else:
 		run_manual_client()
@@ -132,6 +139,8 @@ func _on_logout_requested() -> void:
 
 
 func _on_session_updated(display_name: String, is_guest: bool, _account_id: int) -> void:
+	session_display_name = display_name
+	session_is_guest = is_guest
 	if login_panel and login_panel.has_method("set_identity"):
 		login_panel.set_identity(display_name, is_guest)
 
@@ -142,6 +151,7 @@ func _on_login_failed(reason: String) -> void:
 
 
 func _on_resume_world_requested(world_key: String) -> void:
+	resume_target = world_key
 	call_deferred("_resume_into_world", world_key)
 
 
@@ -195,6 +205,114 @@ func run_smoke_test() -> void:
 	await get_tree().create_timer(1.0).timeout
 	print("SMOKE_PASS")
 	get_tree().quit(0)
+
+
+## Two-phase persistence test driven over the real network stack.
+##   phase1 <name>: log in (creating the account), travel to left_world, park at
+##                  a known position, and wait for it to persist.
+##   phase2 <name>: log in again and assert we resumed into left_world at that
+##                  same position. Run as two client processes sharing a master.
+const DB_TEST_WORLD := "left_world"
+const DB_TEST_POSITION := Vector2(213, 147)
+
+func run_db_persist_test(phase: String, username: String) -> void:
+	print("DBTEST_STEP start phase=%s name=%s" % [phase, username])
+	if not await _bootstrap_connections(false):
+		_db_test_fail("bootstrap failed")
+		return
+
+	account_endpoint.login.rpc_id(1, username)
+	if not await _wait_until(func() -> bool: return not session_is_guest, 5.0, "login"):
+		_db_test_fail("login did not complete")
+		return
+
+	# Let the master-issued resume run and settle.
+	await get_tree().create_timer(0.3).timeout
+	if not await _wait_until(func() -> bool: return not resume_in_progress and not active_world_key.is_empty(), 8.0, "resume settle"):
+		_db_test_fail("resume did not settle")
+		return
+	print("DBTEST_STEP logged in as %s, resumed world=%s" % [session_display_name, active_world_key])
+
+	if phase == "phase1":
+		await _db_test_phase1()
+	elif phase == "phase2":
+		await _db_test_phase2()
+	else:
+		_db_test_fail("unknown phase %s" % phase)
+
+
+func _db_test_phase1() -> void:
+	if active_world_key != DB_TEST_WORLD:
+		if not await _wait_until(func() -> bool: return _local_player() != null, 3.0, "local player spawn"):
+			_db_test_fail("local player never spawned in %s" % active_world_key)
+			return
+		if not await _manual_travel(DB_TEST_WORLD):
+			_db_test_fail("travel to %s failed" % DB_TEST_WORLD)
+			return
+	if not _set_local_player_position(DB_TEST_POSITION):
+		_db_test_fail("could not place local player")
+		return
+	print("DBTEST_STEP parked at %s pos=(%s,%s)" % [active_world_key, DB_TEST_POSITION.x, DB_TEST_POSITION.y])
+	# Wait past one position-save interval (3s on the world) so it persists.
+	await get_tree().create_timer(4.5).timeout
+	print("DBTEST_PHASE1_DONE world=%s" % active_world_key)
+	get_tree().quit(0)
+
+
+func _db_test_phase2() -> void:
+	if active_world_key != DB_TEST_WORLD:
+		_db_test_fail("expected resume into %s, got %s" % [DB_TEST_WORLD, active_world_key])
+		return
+	await get_tree().create_timer(0.5).timeout
+	var pos := _local_player_position()
+	print("DBTEST_PHASE2 world=%s pos=(%s,%s)" % [active_world_key, pos.x, pos.y])
+	if not pos.is_finite() or pos.distance_to(DB_TEST_POSITION) > 24.0:
+		_db_test_fail("position not resumed (got %s, expected %s)" % [pos, DB_TEST_POSITION])
+		return
+	print("DBTEST_PASS")
+	get_tree().quit(0)
+
+
+## Manual-mode travel: walk the local player into the portal and let the normal
+## manual transfer auto-complete (client.gd's _on_transfer_approved) land us.
+func _manual_travel(target_world: String) -> bool:
+	if not current_world_scene or not current_world_scene.has_method("activate_portal_to"):
+		return false
+	if current_world_scene.has_method("move_local_player_to_portal"):
+		current_world_scene.move_local_player_to_portal(target_world)
+		await get_tree().create_timer(0.5).timeout
+	current_world_scene.activate_portal_to(target_world)
+	return await _wait_until(func() -> bool: return active_world_key == target_world, 8.0, "travel to %s" % target_world)
+
+
+func _db_test_fail(reason: String) -> void:
+	print("DBTEST_FAIL %s" % reason)
+	get_tree().quit(1)
+
+
+func _local_player() -> Node2D:
+	if not current_world_scene:
+		return null
+	var spawn_root := current_world_scene.get_node_or_null("SpawnRoot")
+	if not spawn_root:
+		return null
+	for child in spawn_root.get_children():
+		if child is CharacterBody2D and child.is_multiplayer_authority():
+			return child
+	return null
+
+
+func _set_local_player_position(pos: Vector2) -> bool:
+	var player := _local_player()
+	if not player:
+		return false
+	player.position = pos
+	return true
+
+
+func _local_player_position() -> Vector2:
+	var player := _local_player()
+	return player.position if player else Vector2.INF
 
 
 func _smoke_transfer_sequence() -> Array[String]:
@@ -559,7 +677,11 @@ func _wait_until(predicate: Callable, timeout_seconds: float, label: String, rep
 
 
 func _load_world_scene(world_key: String, endpoint: Dictionary) -> bool:
+	# Detach synchronously (not just queue_free) so re-entering the SAME world
+	# does not collide names with the still-pending old scene, which would make
+	# Godot rename the new root and break MultiplayerSpawner path matching.
 	for child in world_view.get_children():
+		world_view.remove_child(child)
 		child.queue_free()
 
 	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
