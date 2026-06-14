@@ -19,15 +19,15 @@ config/icon="res://icon.svg"
 
 RunInstanceGrid="*res://editor/run_instance_grid.gd"
 
-[editor_plugins]
-
-enabled=PackedStringArray("res://addons/godot-sqlite/plugin.cfg")
-
 [display]
 
 window/size/viewport_width=800
 window/size/viewport_height=520
 window/stretch/mode="canvas_items"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot-sqlite/plugin.cfg")
 
 [input]
 
