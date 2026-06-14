@@ -25,6 +25,10 @@ window/size/viewport_width=800
 window/size/viewport_height=520
 window/stretch/mode="canvas_items"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot-sqlite/plugin.cfg")
+
 [input]
 
 ui_left={

@@ -1,6 +1,7 @@
 param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
     [switch]$UseExported,
+    [switch]$UsePackRatWorldPacks,
     [int]$TimeoutSeconds = 30,
     [int]$ClientCount = 1
 )
@@ -9,9 +10,15 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $LogRoot = Join-Path $ProjectRoot ".logs\smoke"
 $BuildRoot = Join-Path $ProjectRoot "builds"
+$WorldPackRoot = Join-Path $BuildRoot "world_packs"
+$WorldPackPort = 19100
 
 Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
+
+if ($UsePackRatWorldPacks -and $UseExported) {
+    throw "-UsePackRatWorldPacks currently requires editor/headless smoke mode so tools/export_world_packs.gd is available"
+}
 
 function Get-Executable($name) {
     if (-not $UseExported) {
@@ -46,6 +53,82 @@ function Start-Scene($name, $scenePath, $userArgs = @(), [switch]$Headless) {
     }
     Write-Host "SMOKE_LAUNCH $name"
     return Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+}
+
+function Export-WorldPacks {
+    Refresh-ScriptClassCache
+    Remove-Item -Recurse -Force -Path $WorldPackRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $WorldPackRoot | Out-Null
+    $out = Join-Path $LogRoot "world_pack_export.out.log"
+    $err = Join-Path $LogRoot "world_pack_export.err.log"
+    $args = @(
+        "--headless",
+        "--path", $ProjectRoot,
+        "--script", "res://tools/export_world_packs.gd",
+        "--",
+        "--output-dir=$WorldPackRoot"
+    )
+    Write-Host "SMOKE_EXPORT_WORLD_PACKS"
+    $process = Start-Process -FilePath $Godot -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+    $process.WaitForExit(30000) | Out-Null
+    $process.Refresh()
+    if (-not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force
+        throw "World pack export timed out"
+    }
+    if ($null -ne $process.ExitCode -and $process.ExitCode -ne 0) {
+        if (Test-Path $out) { Write-Host (Get-Content $out -Raw) }
+        if (Test-Path $err) { Write-Host (Get-Content $err -Raw) }
+        throw "World pack export failed with exit code $($process.ExitCode)"
+    }
+    Wait-LogMarker "world_pack_export" "WORLD_PACK_EXPORT_DONE" 1
+}
+
+function Refresh-ScriptClassCache {
+    $cachePath = Join-Path $ProjectRoot ".godot\global_script_class_cache.cfg"
+    if ((Test-Path $cachePath) -and (Select-String -Path $cachePath -SimpleMatch 'class": &"PackRat"' -Quiet)) {
+        return
+    }
+
+    $out = Join-Path $LogRoot "script_cache_refresh.out.log"
+    $err = Join-Path $LogRoot "script_cache_refresh.err.log"
+    $args = @("--headless", "--path", $ProjectRoot, "--editor", "--quit")
+    Write-Host "SMOKE_REFRESH_SCRIPT_CACHE"
+    $process = Start-Process -FilePath $Godot -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+    $process.WaitForExit(30000) | Out-Null
+    $process.Refresh()
+    if (-not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force
+        throw "Script class cache refresh timed out"
+    }
+    if (-not (Test-Path $cachePath) -or -not (Select-String -Path $cachePath -SimpleMatch 'class": &"PackRat"' -Quiet)) {
+        if (Test-Path $out) { Write-Host (Get-Content $out -Raw) }
+        if (Test-Path $err) { Write-Host (Get-Content $err -Raw) }
+        throw "Script class cache refresh did not discover PackRat"
+    }
+}
+
+function Start-WorldPackServer {
+    $existing = Get-CimInstance Win32_Process | Where-Object {
+        ($_.Name -like "python*" -or $_.Name -like "py.exe") -and $_.CommandLine -like "*http.server*$WorldPackPort*"
+    } | Select-Object -First 1
+    if ($existing) {
+        Write-Host "SMOKE_REUSE world_pack_http pid=$($existing.ProcessId)"
+        return $null
+    }
+
+    $out = Join-Path $LogRoot "world_pack_http.out.log"
+    $err = Join-Path $LogRoot "world_pack_http.err.log"
+    $args = @("-m", "http.server", "$WorldPackPort", "--bind", "127.0.0.1", "--directory", $BuildRoot)
+    Write-Host "SMOKE_LAUNCH world_pack_http"
+    $process = Start-Process -FilePath "python" -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+    Start-Sleep -Milliseconds 500
+    if ($process.HasExited) {
+        if (Test-Path $out) { Write-Host (Get-Content $out -Raw) }
+        if (Test-Path $err) { Write-Host (Get-Content $err -Raw) }
+        throw "World pack HTTP server exited early"
+    }
+    return $process
 }
 
 function Wait-LogMarker($name, $marker, $timeoutSeconds = 10) {
@@ -126,16 +209,30 @@ if (-not ($worldKeys -contains "hub")) {
 
 $servers = @()
 $clients = @()
+$helpers = @()
 $expectedChatMessages = 0
 try {
+    Refresh-ScriptClassCache
+
+    if ($UsePackRatWorldPacks) {
+        Export-WorldPacks
+        $env:MULTI_SERVER_WORLD_PACK_BASE_URL = "http://127.0.0.1:$WorldPackPort/world_packs"
+        $env:MULTI_SERVER_WORLD_PACK_DIR = $WorldPackRoot
+        $helpers += Start-WorldPackServer
+    }
+
     $servers += Start-Scene "master" "res://server/master/master.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY"
 
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
+        $clientArgs = @("smoke_test")
+        if ($UsePackRatWorldPacks) {
+            $clientArgs += "force_packrat_world_packs"
+        }
         $clients += @{
             Name = $clientName
-            Process = Start-Scene $clientName "res://client/client.tscn" @("smoke_test") -Headless
+            Process = Start-Scene $clientName "res://client/client.tscn" $clientArgs -Headless
         }
     }
 
@@ -157,6 +254,10 @@ try {
                 Write-Host (Get-Content $clientErrPath -Raw)
             }
             throw "Smoke test did not produce SMOKE_PASS for $clientName"
+        }
+        if ($UsePackRatWorldPacks -and -not $clientLog.Contains("WORLD_PACK_READY")) {
+            Write-Host $clientLog
+            throw "PackRat smoke did not load any world packs for $clientName"
         }
 
         $transferCount = (Select-String -Path $clientLogPath -SimpleMatch "SMOKE_STEP transfer ").Count
@@ -196,7 +297,11 @@ try {
     $cleanupMaster = Start-Scene "master_cleanup" "res://server/master/master.tscn" @() -Headless
     $servers += $cleanupMaster
     Wait-LogMarker "master_cleanup" "MASTER_READY"
-    $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" @("smoke_test") -Headless
+    $cleanupClientArgs = @("smoke_test")
+    if ($UsePackRatWorldPacks) {
+        $cleanupClientArgs += "force_packrat_world_packs"
+    }
+    $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" $cleanupClientArgs -Headless
     $clients += @{
         Name = "client_cleanup"
         Process = $cleanupClient
@@ -223,6 +328,11 @@ finally {
     foreach ($server in $servers) {
         if ($server -and -not $server.HasExited) {
             Stop-Process -Id $server.Id -Force
+        }
+    }
+    foreach ($helper in $helpers) {
+        if ($helper -and -not $helper.HasExited) {
+            Stop-Process -Id $helper.Id -Force
         }
     }
 }

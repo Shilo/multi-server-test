@@ -5,10 +5,14 @@ const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
 const TRANSFER_REQUEST_TIMEOUT_SECONDS := 5.0
+## How often the world reports live player positions to the master for durable
+## saving. The master discards saves for guests and stale worlds.
+const POSITION_SAVE_INTERVAL_SECONDS := 3.0
 
 var world_api: MultiplayerAPI
 var master_api: MultiplayerAPI
 var heartbeat_timer: Timer
+var position_save_timer: Timer
 var reconnect_timer: Timer
 var master_loss_timer: Timer
 var registration_timer: Timer
@@ -50,16 +54,18 @@ func _ready() -> void:
 	_load_world_scene()
 	world_api.peer_connected.connect(func(peer_id: int) -> void:
 		pending_players[peer_id] = true
-		print("[WORLD %s] peer connected: %s" % [world_key, peer_id])
+		NetLog.print_line("[WORLD %s] peer connected: %s" % [world_key, peer_id])
 	)
 	world_api.peer_disconnected.connect(func(peer_id: int) -> void:
 		var was_connected := connected_players.has(peer_id)
+		if was_connected:
+			_save_player_state(peer_id)
 		pending_players.erase(peer_id)
 		connected_players.erase(peer_id)
 		authorized_join_metadata.erase(peer_id)
 		peer_master_ids.erase(peer_id)
 		pending_transfers.erase(peer_id)
-		print("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
+		NetLog.print_line("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
 		_remove_player(peer_id)
 		if was_connected:
 			_send_heartbeat()
@@ -74,7 +80,7 @@ func _ready() -> void:
 		return
 
 	world_api.multiplayer_peer = peer
-	print("WORLD_READY key=%s port=%d scene=%s" % [world_key, port, NET_CONFIG.world_scene_path(world_key)])
+	NetLog.print_line("WORLD_READY key=%s port=%d scene=%s" % [world_key, port, NET_CONFIG.world_scene_path(world_key)])
 	_connect_to_master()
 
 
@@ -99,10 +105,10 @@ func _load_world_scene() -> void:
 	$WorldNet/WorldSceneRoot.add_child(world_scene)
 
 
-func _spawn_player(peer_id: int, source_world := "", target_portal := "") -> void:
+func _spawn_player(peer_id: int, spawn_position: Vector2, display_name := "", is_guest := true) -> void:
 	if world_scene and world_scene.has_method("spawn_player"):
-		world_scene.spawn_player(peer_id, source_world, target_portal)
-		print("[WORLD %s] spawned player for peer %s" % [world_key, peer_id])
+		world_scene.spawn_player(peer_id, spawn_position, display_name, is_guest)
+		NetLog.print_line("[WORLD %s] spawned player for peer %s (%s%s)" % [world_key, peer_id, display_name, " guest" if is_guest else ""])
 
 
 func _remove_player(peer_id: int) -> void:
@@ -114,11 +120,11 @@ func _connect_to_master() -> void:
 	if master_connection_started:
 		return
 	if launch_token.is_empty():
-		print("[WORLD %s] no master launch token; running without master registration" % world_key)
+		NetLog.print_line("[WORLD %s] no master launch token; running without master registration" % world_key)
 		return
 
 	master_api.connected_to_server.connect(func() -> void:
-		print("[WORLD %s] connected to master registry" % world_key)
+		NetLog.print_line("[WORLD %s] connected to master registry" % world_key)
 		_register_with_master()
 	)
 	master_api.connection_failed.connect(func() -> void:
@@ -130,9 +136,9 @@ func _connect_to_master() -> void:
 		_start_master_loss_timer()
 	)
 	master_api.server_disconnected.connect(func() -> void:
-		print("[WORLD %s] master registry disconnected" % world_key)
+		NetLog.print_line("[WORLD %s] master registry disconnected" % world_key)
 		if _has_no_player_activity():
-			print("WORLD_STOPPING key=%s reason=idle" % world_key)
+			NetLog.print_line("WORLD_STOPPING key=%s reason=idle" % world_key)
 			get_tree().quit(0)
 			return
 
@@ -160,7 +166,7 @@ func _try_connect_to_master() -> void:
 		return
 
 	master_api.multiplayer_peer = peer
-	print("[WORLD %s] registering with master at %s" % [world_key, NET_CONFIG.master_url()])
+	NetLog.print_line("[WORLD %s] registering with master at %s" % [world_key, NET_CONFIG.master_url()])
 	_wait_for_master_connection(peer)
 
 
@@ -204,6 +210,13 @@ func _start_heartbeat() -> void:
 	heartbeat_timer.timeout.connect(_send_heartbeat)
 	add_child(heartbeat_timer)
 
+	position_save_timer = Timer.new()
+	position_save_timer.name = "PositionSaveTimer"
+	position_save_timer.wait_time = POSITION_SAVE_INTERVAL_SECONDS
+	position_save_timer.autostart = true
+	position_save_timer.timeout.connect(_save_all_player_states)
+	add_child(position_save_timer)
+
 
 func _schedule_master_reconnect() -> void:
 	if registered_with_master:
@@ -233,10 +246,10 @@ func _on_world_registered(registered_world_key: String) -> void:
 	_stop_master_loss_timer()
 	_start_heartbeat()
 	_send_heartbeat()
-	print("WORLD_REGISTERED key=%s" % world_key)
+	NetLog.print_line("WORLD_REGISTERED key=%s" % world_key)
 
 
-func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String) -> void:
+func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
 	if expected_world_key != world_key or join_ticket.is_empty():
 		return
 
@@ -245,6 +258,7 @@ func _on_world_join_expected(expected_world_key: String, join_ticket: String, ex
 		"master_peer_id": master_peer_id,
 		"source_world": source_world,
 		"target_portal": target_portal,
+		"identity": identity,
 	}
 	_expire_join_tickets()
 
@@ -267,7 +281,7 @@ func _authorize_join(peer_id: int, join_ticket: String) -> bool:
 		await get_tree().create_timer(0.05).timeout
 		elapsed += 0.05
 
-	print("[WORLD %s] rejected peer %s without valid join ticket" % [world_key, peer_id])
+	NetLog.print_line("[WORLD %s] rejected peer %s without valid join ticket" % [world_key, peer_id])
 	return false
 
 
@@ -294,28 +308,40 @@ func _on_world_join_authorized(peer_id: int) -> void:
 		return
 
 	var metadata: Dictionary = authorized_join_metadata.get(peer_id, {})
-	if world_scene and world_scene.has_method("spawn_position_from_entry"):
-		var spawn_position: Vector2 = world_scene.spawn_position_from_entry(
-			str(metadata.get("source_world", "")),
-			str(metadata.get("target_portal", ""))
-		)
-		if not spawn_position.is_finite():
-			print("[WORLD %s] rejected peer %s due invalid spawn entry" % [world_key, peer_id])
-			$WorldNet/WorldEndpoint.reject_world_join.rpc_id(peer_id, world_key, "invalid_spawn_entry")
-			_disconnect_world_peer(peer_id)
-			return
+	var identity: Dictionary = metadata.get("identity", {})
+	var spawn_position := _resolve_spawn_position(metadata, identity)
+	if not spawn_position.is_finite():
+		NetLog.print_line("[WORLD %s] rejected peer %s due invalid spawn entry" % [world_key, peer_id])
+		$WorldNet/WorldEndpoint.reject_world_join.rpc_id(peer_id, world_key, "invalid_spawn_entry")
+		_disconnect_world_peer(peer_id)
+		return
 
 	pending_players.erase(peer_id)
 	connected_players[peer_id] = true
 	peer_master_ids[peer_id] = int(metadata.get("master_peer_id", peer_id))
-	_spawn_player(peer_id, str(metadata.get("source_world", "")), str(metadata.get("target_portal", "")))
+	var display_name := str(identity.get("display_name", "Player_%d" % peer_id))
+	var is_guest := bool(identity.get("is_guest", true))
+	_spawn_player(peer_id, spawn_position, display_name, is_guest)
 	_send_heartbeat()
+
+
+## Honor a server-known saved spawn (login resume) when present, otherwise fall
+## back to the portal/entry-derived spawn for this world.
+func _resolve_spawn_position(metadata: Dictionary, identity: Dictionary) -> Vector2:
+	if bool(identity.get("has_spawn", false)):
+		return Vector2(float(identity.get("spawn_x", 0.0)), float(identity.get("spawn_y", 0.0)))
+	if world_scene and world_scene.has_method("spawn_position_from_entry"):
+		return world_scene.spawn_position_from_entry(
+			str(metadata.get("source_world", "")),
+			str(metadata.get("target_portal", ""))
+		)
+	return Vector2.ZERO
 
 
 func _on_portal_use_requested(peer_id: int, portal_name: String) -> void:
 	_expire_pending_transfers()
 	if pending_transfers.has(peer_id):
-		print("[WORLD %s] ignoring duplicate portal request peer=%s portal=%s" % [world_key, peer_id, portal_name])
+		NetLog.print_line("[WORLD %s] ignoring duplicate portal request peer=%s portal=%s" % [world_key, peer_id, portal_name])
 		return
 
 	if not connected_players.has(peer_id):
@@ -345,7 +371,7 @@ func _on_portal_use_requested(peer_id: int, portal_name: String) -> void:
 		return
 
 	pending_transfers[peer_id] = Time.get_unix_time_from_system() + TRANSFER_REQUEST_TIMEOUT_SECONDS
-	print("[WORLD %s] server-approved portal peer=%s master_peer=%s portal=%s target=%s target_portal=%s" % [world_key, peer_id, master_peer_id, portal_name, target_world, target_portal])
+	NetLog.print_line("[WORLD %s] server-approved portal peer=%s master_peer=%s portal=%s target=%s target_portal=%s" % [world_key, peer_id, master_peer_id, portal_name, target_world, target_portal])
 	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world, target_portal)
 
 
@@ -368,6 +394,29 @@ func _send_heartbeat() -> void:
 		return
 
 	$MasterNet/MasterEndpoint.world_heartbeat.rpc_id(1, world_key, connected_players.size())
+
+
+func _save_all_player_states() -> void:
+	for peer_id in connected_players.keys():
+		_save_player_state(int(peer_id))
+
+
+## Report one player's live position to the master so it can be persisted. The
+## world is the position authority; the master decides whether the account is
+## durable (guests are skipped) and whether the world matches the player's
+## current session.
+func _save_player_state(peer_id: int) -> void:
+	if not registered_with_master:
+		return
+	var master_peer_id := int(peer_master_ids.get(peer_id, 0))
+	if master_peer_id <= 0:
+		return
+	if not world_scene or not world_scene.has_method("player_position"):
+		return
+	var position: Vector2 = world_scene.player_position(peer_id)
+	if not position.is_finite():
+		return
+	$MasterNet/MasterEndpoint.save_player_state.rpc_id(1, master_peer_id, world_key, position.x, position.y)
 
 
 func _has_no_player_activity() -> bool:
@@ -399,7 +448,7 @@ func _start_master_loss_timer() -> void:
 	master_loss_timer.one_shot = true
 	master_loss_timer.wait_time = MASTER_LOSS_SHUTDOWN_SECONDS
 	master_loss_timer.timeout.connect(func() -> void:
-		print("WORLD_STOPPING key=%s reason=master_lost" % world_key)
+		NetLog.print_line("WORLD_STOPPING key=%s reason=master_lost" % world_key)
 		get_tree().quit(20)
 	)
 	add_child(master_loss_timer)
@@ -424,7 +473,7 @@ func _start_registration_timer() -> void:
 	registration_timer.one_shot = true
 	registration_timer.wait_time = MASTER_REGISTRATION_TIMEOUT_SECONDS
 	registration_timer.timeout.connect(func() -> void:
-		print("WORLD_STOPPING key=%s reason=registration_timeout" % world_key)
+		NetLog.print_line("WORLD_STOPPING key=%s reason=registration_timeout" % world_key)
 		get_tree().quit(21)
 	)
 	add_child(registration_timer)
@@ -441,5 +490,5 @@ func _stop_registration_timer() -> void:
 
 
 func _on_world_shutdown_requested(reason: String) -> void:
-	print("WORLD_STOPPING key=%s reason=%s" % [world_key, reason])
+	NetLog.print_line("WORLD_STOPPING key=%s reason=%s" % [world_key, reason])
 	get_tree().quit(0)

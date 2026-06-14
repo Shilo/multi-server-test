@@ -16,7 +16,7 @@ func _ready() -> void:
 	_cache_portals()
 
 
-func spawn_player(peer_id: int, source_world := "", target_portal := "") -> Node:
+func spawn_player(peer_id: int, spawn_position: Vector2, display_name := "", is_guest := true) -> Node:
 	var spawn_root := get_node(SPAWN_ROOT_PATH)
 	var player_name := "Player_%d" % peer_id
 	if spawn_root.has_node(player_name):
@@ -25,9 +25,9 @@ func spawn_player(peer_id: int, source_world := "", target_portal := "") -> Node
 	var spawner := get_node(SPAWNER_PATH) as MultiplayerSpawner
 	return spawner.spawn({
 		"peer_id": peer_id,
-		"position": spawn_position_from_entry(source_world, target_portal),
-		"source_world": source_world,
-		"target_portal": target_portal,
+		"position": spawn_position,
+		"display_name": display_name,
+		"is_guest": is_guest,
 	})
 
 
@@ -36,6 +36,16 @@ func remove_player(peer_id: int) -> void:
 	var player_name := "Player_%d" % peer_id
 	if spawn_root.has_node(player_name):
 		spawn_root.get_node(player_name).queue_free()
+
+
+## Live position of a connected player in SpawnRoot-local space, matching the
+## coordinate space used by spawn data. Vector2.INF if the player is absent.
+func player_position(peer_id: int) -> Vector2:
+	var spawn_root := get_node(SPAWN_ROOT_PATH)
+	var player_name := "Player_%d" % peer_id
+	if spawn_root.has_node(player_name):
+		return (spawn_root.get_node(player_name) as Node2D).position
+	return Vector2.INF
 
 
 func activate_portal_to(target_world: String) -> void:
@@ -131,6 +141,8 @@ func _spawn_player_from_data(data: Variant) -> Node:
 	var player := PLAYER_SCENE.instantiate()
 	player.name = "Player_%d" % peer_id
 	player.position = spawn_position
+	player.display_name = str(spawn_data.get("display_name", ""))
+	player.is_guest = bool(spawn_data.get("is_guest", true))
 	player.set_multiplayer_authority(peer_id, true)
 	return player
 

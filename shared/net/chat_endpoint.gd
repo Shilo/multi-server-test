@@ -1,6 +1,6 @@
 extends Node
 
-signal chat_received(sender_id: int, message: String)
+signal chat_received(sender_id: int, sender_name: String, message: String)
 
 const MAX_MESSAGE_LENGTH := 200
 const RATE_WINDOW_SECONDS := 3.0
@@ -9,10 +9,15 @@ const NET_UTIL := preload("res://shared/net/net_util.gd")
 
 var peer_message_times := {}
 var master_endpoint: Node
+var account_endpoint: Node
 
 
 func configure_master_endpoint(endpoint: Node) -> void:
 	master_endpoint = endpoint
+
+
+func configure_account_endpoint(endpoint: Node) -> void:
+	account_endpoint = endpoint
 
 
 func unregister_peer(peer_id: int) -> void:
@@ -26,33 +31,40 @@ func send_chat(message: String) -> void:
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	if not _allow_message(sender_id):
-		print("[CHAT] rate limited peer %s" % sender_id)
+		NetLog.print_line("[CHAT] rate limited peer %s" % sender_id)
 		return
 
 	var sanitized_message := message.strip_edges().left(MAX_MESSAGE_LENGTH)
 	if sanitized_message.is_empty():
 		return
 
-	print("[CHAT] received from peer %s: %s" % [sender_id, sanitized_message])
-	_broadcast_chat(sender_id, sanitized_message)
+	var sender_name := _display_name_for(sender_id)
+	NetLog.print_line("[CHAT] received from peer %s (%s): %s" % [sender_id, sender_name, sanitized_message])
+	_broadcast_chat(sender_id, sender_name, sanitized_message)
 
 
 @rpc("authority", "call_remote", "reliable")
-func receive_chat(sender_id: int, message: String) -> void:
+func receive_chat(sender_id: int, sender_name: String, message: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] chat from %d: %s" % [sender_id, message])
-	chat_received.emit(sender_id, message)
+	NetLog.print_line("[CLIENT] chat from %s: %s" % [sender_name, message])
+	chat_received.emit(sender_id, sender_name, message)
 
 
-func _broadcast_chat(sender_id: int, message: String) -> void:
+func _broadcast_chat(sender_id: int, sender_name: String, message: String) -> void:
 	for peer_id in multiplayer.get_peers():
 		if _is_world_peer(peer_id):
 			continue
 		if not _is_peer_open(peer_id):
 			continue
-		receive_chat.rpc_id(peer_id, sender_id, message)
+		receive_chat.rpc_id(peer_id, sender_id, sender_name, message)
+
+
+func _display_name_for(sender_id: int) -> String:
+	if account_endpoint and account_endpoint.has_method("session_display_name"):
+		return account_endpoint.session_display_name(sender_id)
+	return "Peer-%d" % sender_id
 
 
 func _is_world_peer(peer_id: int) -> bool:

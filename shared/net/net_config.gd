@@ -1,5 +1,8 @@
 const HOST := "127.0.0.1"
 const MASTER_PORT := 19080
+const DEFAULT_WORLD_PACK_BASE_URL := "http://127.0.0.1:19100/world_packs"
+const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
+const WORLD_PACK_DIR_ENV := "MULTI_SERVER_WORLD_PACK_DIR"
 const DEFAULT_WORLD_KEY := "hub"
 const WORLD_SCENE_DIR := "res://server/worlds"
 
@@ -52,6 +55,30 @@ static func world_port(world_key: String) -> int:
 
 static func world_scene_path(world_key: String) -> String:
 	return "%s/%s/%s.tscn" % [WORLD_SCENE_DIR, world_key, world_key]
+
+
+static func world_pack_base_url() -> String:
+	var value := OS.get_environment(WORLD_PACK_BASE_URL_ENV).strip_edges()
+	if value.is_empty():
+		return DEFAULT_WORLD_PACK_BASE_URL
+	return value.trim_suffix("/")
+
+
+static func world_pack_file_path(world_key: String) -> String:
+	return world_pack_dir().path_join("%s.pck" % world_key)
+
+
+static func world_pack_dir() -> String:
+	var value := OS.get_environment(WORLD_PACK_DIR_ENV).strip_edges()
+	if not value.is_empty():
+		return value
+	if OS.has_feature("editor"):
+		return ProjectSettings.globalize_path("res://builds/world_packs")
+	return OS.get_executable_path().get_base_dir().get_base_dir().path_join("world_packs")
+
+
+static func world_pack_url(world_key: String) -> String:
+	return "%s/%s.pck" % [world_pack_base_url(), world_key.uri_encode()]
 
 
 static func world_endpoint(world_key: String) -> Dictionary:

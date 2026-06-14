@@ -81,7 +81,7 @@ func mark_world_registered(world_key: String) -> void:
 	state["state"] = "running"
 	_refresh_idle_state(world_key, state, Time.get_unix_time_from_system())
 	worlds[world_key] = state
-	print("MASTER_WORLD_RUNNING key=%s pid=%d" % [world_key, int(state.get("pid", -1))])
+	NetLog.print_line("MASTER_WORLD_RUNNING key=%s pid=%d" % [world_key, int(state.get("pid", -1))])
 
 
 func reserve_world_join(world_key: String, peer_id: int, source_world := "", target_portal := "") -> Dictionary:
@@ -103,7 +103,7 @@ func reserve_world_join(world_key: String, peer_id: int, source_world := "", tar
 	state["join_reservations"] = reservations
 	state["idle_since"] = -1.0
 	worlds[world_key] = state
-	print("MASTER_WORLD_JOIN_RESERVED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
+	NetLog.print_line("MASTER_WORLD_JOIN_RESERVED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
 	return reservation
 
 
@@ -143,7 +143,7 @@ func release_world_join(world_key: String, peer_id: int) -> void:
 	state["join_reservations"] = reservations
 	_refresh_idle_state(world_key, state, Time.get_unix_time_from_system())
 	worlds[world_key] = state
-	print("MASTER_WORLD_JOIN_RELEASED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
+	NetLog.print_line("MASTER_WORLD_JOIN_RELEASED key=%s peer=%d pending=%d" % [world_key, peer_id, reservations.size()])
 
 
 func release_join_reservations_for_peer(peer_id: int) -> void:
@@ -162,7 +162,7 @@ func update_world_player_count(world_key: String, player_count: int) -> void:
 	_refresh_idle_state(world_key, state, Time.get_unix_time_from_system())
 	worlds[world_key] = state
 	if previous_count != clamped_count:
-		print("MASTER_WORLD_PLAYERS key=%s count=%d" % [world_key, clamped_count])
+		NetLog.print_line("MASTER_WORLD_PLAYERS key=%s count=%d" % [world_key, clamped_count])
 
 
 func request_world_stop(world_key: String, reason: String) -> void:
@@ -177,7 +177,7 @@ func request_world_stop(world_key: String, reason: String) -> void:
 	state["stop_reason"] = reason
 	state["stop_requested_at"] = Time.get_unix_time_from_system()
 	worlds[world_key] = state
-	print("MASTER_WORLD_STOP_REQUESTED key=%s reason=%s" % [world_key, reason])
+	NetLog.print_line("MASTER_WORLD_STOP_REQUESTED key=%s reason=%s" % [world_key, reason])
 
 	if master_endpoint and master_endpoint.has_method("shutdown_registered_world"):
 		master_endpoint.shutdown_registered_world(world_key, reason)
@@ -193,7 +193,7 @@ func stop_all_worlds(reason: String) -> void:
 		var pid := int(state.get("pid", -1))
 		if pid > 0 and OS.is_process_running(pid):
 			OS.kill(pid)
-			print("MASTER_WORLD_KILLED key=%s pid=%d reason=%s" % [world_key, pid, reason])
+			NetLog.print_line("MASTER_WORLD_KILLED key=%s pid=%d reason=%s" % [world_key, pid, reason])
 
 
 func world_start_timeout_seconds() -> float:
@@ -224,7 +224,7 @@ func _launch_world(world_key: String) -> bool:
 		"stop_requested_at": -1.0,
 		"stop_reason": "",
 	}
-	print("MASTER_WORLD_STARTED key=%s pid=%d" % [world_key, pid])
+	NetLog.print_line("MASTER_WORLD_STARTED key=%s pid=%d" % [world_key, pid])
 	return true
 
 
@@ -280,7 +280,7 @@ func _poll_world_processes() -> void:
 			var stop_requested_at := float(state.get("stop_requested_at", -1.0))
 			if not bool(state.get("kill_requested", false)) and stop_requested_at >= 0.0 and now - stop_requested_at >= WORLD_STOP_KILL_SECONDS:
 				var err := OS.kill(pid)
-				print("MASTER_WORLD_KILLED key=%s pid=%d err=%s" % [world_key, pid, err])
+				NetLog.print_line("MASTER_WORLD_KILLED key=%s pid=%d err=%s" % [world_key, pid, err])
 				state["kill_requested"] = true
 				worlds[world_key] = state
 			continue
@@ -297,7 +297,7 @@ func _poll_world_processes() -> void:
 func _on_world_process_exited(world_key: String, state: Dictionary) -> void:
 	var pid := int(state.get("pid", -1))
 	var reason := str(state.get("stop_reason", "process_exited"))
-	print("MASTER_WORLD_STOPPED key=%s pid=%d reason=%s" % [world_key, pid, reason])
+	NetLog.print_line("MASTER_WORLD_STOPPED key=%s pid=%d reason=%s" % [world_key, pid, reason])
 	worlds.erase(world_key)
 	if master_endpoint and master_endpoint.has_method("unregister_world_by_key"):
 		master_endpoint.unregister_world_by_key(world_key, "process_exited")
@@ -313,7 +313,7 @@ func _refresh_idle_state(world_key: String, state: Dictionary, now: float) -> vo
 
 	if float(state.get("idle_since", -1.0)) < 0.0:
 		state["idle_since"] = now
-		print("MASTER_WORLD_IDLE key=%s players=0" % world_key)
+		NetLog.print_line("MASTER_WORLD_IDLE key=%s players=0" % world_key)
 
 
 func _expire_join_reservations(state: Dictionary, now: float) -> void:

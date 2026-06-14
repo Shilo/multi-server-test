@@ -24,7 +24,7 @@ func request_world_state(join_ticket := "") -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	print("[WORLD %s] state request from peer %s" % [server_world_key, sender_id])
+	NetLog.print_line("[WORLD %s] state request from peer %s" % [server_world_key, sender_id])
 	var is_admitted := await _is_join_admitted(sender_id, join_ticket)
 	if not is_admitted:
 		reject_world_join.rpc_id(sender_id, server_world_key, "admission_denied")
@@ -40,7 +40,7 @@ func receive_world_state(world_key: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] confirmed world %s" % world_key)
+	NetLog.print_line("[CLIENT] confirmed world %s" % world_key)
 	world_state_received.emit(world_key)
 
 
@@ -49,7 +49,7 @@ func reject_world_join(world_key: String, reason: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] world join rejected key=%s reason=%s" % [world_key, reason])
+	NetLog.print_line("[CLIENT] world join rejected key=%s reason=%s" % [world_key, reason])
 	world_join_rejected.emit(world_key, reason)
 
 
@@ -67,7 +67,7 @@ func deny_portal_use(portal_name: String, reason: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] portal use denied portal=%s reason=%s" % [portal_name, reason])
+	NetLog.print_line("[CLIENT] portal use denied portal=%s reason=%s" % [portal_name, reason])
 	portal_use_denied.emit(portal_name, reason)
 
 

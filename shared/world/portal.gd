@@ -37,7 +37,7 @@ func _process(_delta: float) -> void:
 
 
 func activate() -> void:
-	print("[CLIENT] portal use requested: portal=%s target_world=%s" % [name, target_world])
+	NetLog.print_line("[CLIENT] portal use requested: portal=%s target_world=%s" % [name, target_world])
 	portal_used.emit(str(name), target_world)
 
 

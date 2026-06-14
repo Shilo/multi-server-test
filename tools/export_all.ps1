@@ -44,6 +44,20 @@ function Wait-FileStable($path, $timeoutSeconds = 30) {
     throw "File did not become stable: $path"
 }
 
+function Export-WorldPacks() {
+    $worldPackRoot = Join-Path $BuildRoot "world_packs"
+    Remove-Item -Recurse -Force -Path $worldPackRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $worldPackRoot | Out-Null
+
+    Write-Host "EXPORT_WORLD_PACKS_START $worldPackRoot"
+    & $Godot --headless --path $ProjectRoot --script "res://tools/export_world_packs.gd" -- "--output-dir=$worldPackRoot"
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($exitCode -ne 0) {
+        throw "World pack export failed with exit code $exitCode"
+    }
+    Write-Host "EXPORT_WORLD_PACKS_DONE"
+}
+
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
 try {
     Remove-EditorAutoloadForExport
@@ -67,6 +81,8 @@ try {
         }
         Write-Host "EXPORT_DONE $($target.Name)"
     }
+
+    Export-WorldPacks
 }
 finally {
     Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline
