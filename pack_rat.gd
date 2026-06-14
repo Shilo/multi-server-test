@@ -199,6 +199,30 @@ static func can_download_github_releases() -> bool:
 	return not OS.has_feature("web")
 
 
+## Adds a stable content-version query value to [param url].
+static func versioned_url(url: String, version: Variant, version_key: String = "v") -> String:
+	var clean_key: String = version_key.strip_edges()
+	var clean_version: String = str(version).strip_edges()
+	if clean_key.is_empty() or clean_version.is_empty():
+		return url
+
+	var fragment: String = ""
+	var base_url: String = url
+	var fragment_index: int = url.find("#")
+	if fragment_index >= 0:
+		base_url = url.substr(0, fragment_index)
+		fragment = url.substr(fragment_index)
+
+	var separator: String = "?" if not base_url.contains("?") else "&"
+	return "%s%s%s=%s%s" % [
+		base_url,
+		separator,
+		clean_key.uri_encode(),
+		clean_version.uri_encode(),
+		fragment,
+	]
+
+
 ## Joins a static host base URL and path with slash cleanup only.
 static func join_url(base_url: String, path: String) -> String:
 	var clean_base: String = base_url.strip_edges().trim_suffix("/")
