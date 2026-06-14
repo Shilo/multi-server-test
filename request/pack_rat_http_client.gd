@@ -46,6 +46,8 @@ static func request(
 		PackRatOptions.MIN_DOWNLOAD_CHUNK_SIZE,
 		PackRatOptions.MAX_DOWNLOAD_CHUNK_SIZE
 	)
+	# Godot checks body_size_limit against compressed Content-Length before gzip
+	# decoding, so decoded expected_size limits are only safe when gzip is off.
 	if not download_path.is_empty() and options.has_expected_size() and not http_request.accept_gzip:
 		http_request.body_size_limit = options.expected_size
 	http_request.max_redirects = options.max_redirects
