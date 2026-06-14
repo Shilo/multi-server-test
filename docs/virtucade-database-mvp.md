@@ -135,9 +135,10 @@ The master decides what is durable in `AccountEndpoint.save_position`:
   currently believes the player is in (`active_world_key`).
 
 That second check kills a classic race: a naive "save on disconnect" writes the
-world you are *leaving* as your current world. Because the master sets
-`active_world_key` when it grants entry to a world, a late save from the
-previous world is rejected, and your current world stays correct.
+world you are *leaving* as your current world. The master commits
+`active_world_key` only after the target world confirms the join ticket was
+consumed, so a late save from the previous world is rejected without moving the
+session ahead of a failed resume or transfer.
 
 ### Resume on login
 

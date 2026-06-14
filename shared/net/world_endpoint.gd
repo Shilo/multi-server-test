@@ -1,7 +1,7 @@
 extends Node
 
 signal world_state_received(world_key: String)
-signal world_join_authorized(peer_id: int)
+signal world_join_authorized(peer_id: int, join_ticket: String)
 signal world_join_rejected(world_key: String, reason: String)
 signal portal_use_requested(peer_id: int, portal_name: String)
 signal portal_use_denied(portal_name: String, reason: String)
@@ -31,7 +31,7 @@ func request_world_state(join_ticket := "") -> void:
 		_disconnect_peer(sender_id)
 		return
 
-	world_join_authorized.emit(sender_id)
+	world_join_authorized.emit(sender_id, join_ticket)
 	receive_world_state.rpc_id(sender_id, server_world_key)
 
 

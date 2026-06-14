@@ -291,6 +291,8 @@ entry:
 5. Master starts the world process if needed.
 6. Master issues a short-lived one-use join ticket to the client and world.
 7. Client connects to the world with the join ticket.
+8. Target world confirms admission to master after consuming the ticket.
+9. Master commits active-world state and clears the source-world transfer lock.
 ```
 
 This avoids wasting world-server lifetime while a client is downloading a pack

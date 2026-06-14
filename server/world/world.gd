@@ -5,7 +5,8 @@ const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
 ## Fallback only. Normal portal transfers clear when the master reports the
-## TravelLease was redeemed or failed; this just prevents permanent local locks.
+## exact TravelLease was admitted or failed; this prevents permanent local locks
+## if the master disappears before returning a lease.
 const TRANSFER_REQUEST_TIMEOUT_SECONDS := 30.0
 ## How often the world reports live player positions to the master for durable
 ## saving. The master discards saves for guests and stale worlds.
@@ -48,6 +49,7 @@ func _ready() -> void:
 	$MasterNet/MasterEndpoint.world_registered.connect(_on_world_registered)
 	$MasterNet/MasterEndpoint.world_shutdown_requested.connect(_on_world_shutdown_requested)
 	$MasterNet/MasterEndpoint.world_join_expected.connect(_on_world_join_expected)
+	$MasterNet/MasterEndpoint.world_transfer_lease_created_received.connect(_on_world_transfer_lease_created_received)
 	$MasterNet/MasterEndpoint.world_transfer_result_received.connect(_on_world_transfer_result_received)
 	$WorldNet/WorldEndpoint.world_join_authorized.connect(_on_world_join_authorized)
 	$WorldNet/WorldEndpoint.portal_use_requested.connect(_on_portal_use_requested)
@@ -251,15 +253,18 @@ func _on_world_registered(registered_world_key: String) -> void:
 	NetLog.print_line("WORLD_REGISTERED key=%s" % world_key)
 
 
-func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
+func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary, transfer_request_id: String, travel_lease_id: String) -> void:
 	if expected_world_key != world_key or join_ticket.is_empty():
 		return
 
 	expected_join_tickets[join_ticket] = {
 		"expires_at": expires_at,
+		"join_ticket": join_ticket,
 		"master_peer_id": master_peer_id,
 		"source_world": source_world,
 		"target_portal": target_portal,
+		"transfer_request_id": transfer_request_id,
+		"travel_lease_id": travel_lease_id,
 		"identity": identity,
 	}
 	_expire_join_tickets()
@@ -305,7 +310,7 @@ func _expire_join_tickets() -> void:
 			expected_join_tickets.erase(join_ticket)
 
 
-func _on_world_join_authorized(peer_id: int) -> void:
+func _on_world_join_authorized(peer_id: int, join_ticket: String) -> void:
 	if connected_players.has(peer_id):
 		return
 
@@ -325,6 +330,17 @@ func _on_world_join_authorized(peer_id: int) -> void:
 	var is_guest := bool(identity.get("is_guest", true))
 	_spawn_player(peer_id, spawn_position, display_name, is_guest)
 	_send_heartbeat()
+	var master_peer_id := int(metadata.get("master_peer_id", -1))
+	if registered_with_master and master_peer_id > 0:
+		$MasterNet/MasterEndpoint.confirm_world_join.rpc_id(
+			1,
+			master_peer_id,
+			world_key,
+			join_ticket,
+			str(metadata.get("source_world", "")),
+			str(metadata.get("transfer_request_id", "")),
+			str(metadata.get("travel_lease_id", ""))
+		)
 
 
 ## Honor a server-known saved spawn (login resume) when present, otherwise fall
@@ -372,14 +388,46 @@ func _on_portal_use_requested(peer_id: int, portal_name: String) -> void:
 		$WorldNet/WorldEndpoint.deny_portal_use.rpc_id(peer_id, portal_name, "missing_master_peer")
 		return
 
-	pending_transfers[peer_id] = Time.get_unix_time_from_system() + TRANSFER_REQUEST_TIMEOUT_SECONDS
+	var transfer_request_id := _new_transfer_request_id()
+	pending_transfers[peer_id] = {
+		"master_peer_id": master_peer_id,
+		"target_world": target_world,
+		"target_portal": target_portal,
+		"transfer_request_id": transfer_request_id,
+		"travel_lease_id": "",
+		"expires_at": Time.get_unix_time_from_system() + TRANSFER_REQUEST_TIMEOUT_SECONDS,
+	}
 	NetLog.print_line("[WORLD %s] server-approved portal peer=%s master_peer=%s portal=%s target=%s target_portal=%s" % [world_key, peer_id, master_peer_id, portal_name, target_world, target_portal])
-	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world, target_portal)
+	$MasterNet/MasterEndpoint.request_world_transfer.rpc_id(1, world_key, master_peer_id, target_world, target_portal, transfer_request_id)
 
 
-func _on_world_transfer_result_received(master_peer_id: int, _target_world: String, _approved: bool) -> void:
+func _on_world_transfer_lease_created_received(master_peer_id: int, target_world: String, transfer_request_id: String, travel_lease_id: String, hard_expires_at: float) -> void:
+	for peer_id in pending_transfers.keys():
+		var transfer: Dictionary = pending_transfers[peer_id]
+		if (
+			int(transfer.get("master_peer_id", 0)) == master_peer_id
+			and str(transfer.get("target_world", "")) == target_world
+			and str(transfer.get("transfer_request_id", "")) == transfer_request_id
+		):
+			transfer["travel_lease_id"] = travel_lease_id
+			transfer["expires_at"] = hard_expires_at
+			pending_transfers[peer_id] = transfer
+			return
+
+
+func _on_world_transfer_result_received(master_peer_id: int, target_world: String, _approved: bool, transfer_request_id: String, travel_lease_id: String) -> void:
 	for peer_id in peer_master_ids.keys():
-		if int(peer_master_ids[peer_id]) == master_peer_id:
+		if not pending_transfers.has(peer_id):
+			continue
+		var transfer: Dictionary = pending_transfers[peer_id]
+		var expected_lease_id := str(transfer.get("travel_lease_id", ""))
+		var expected_request_id := str(transfer.get("transfer_request_id", ""))
+		if (
+			int(peer_master_ids[peer_id]) == master_peer_id
+			and str(transfer.get("target_world", "")) == target_world
+			and expected_request_id == transfer_request_id
+			and expected_lease_id == travel_lease_id
+		):
 			pending_transfers.erase(peer_id)
 			return
 
@@ -387,8 +435,16 @@ func _on_world_transfer_result_received(master_peer_id: int, _target_world: Stri
 func _expire_pending_transfers() -> void:
 	var now := Time.get_unix_time_from_system()
 	for peer_id in pending_transfers.keys():
-		if float(pending_transfers[peer_id]) <= now:
+		var transfer: Dictionary = pending_transfers[peer_id]
+		if float(transfer.get("expires_at", 0.0)) <= now:
 			pending_transfers.erase(peer_id)
+
+
+func _new_transfer_request_id() -> String:
+	var token := ""
+	for byte in OS.get_entropy(16):
+		token += str(int(byte)).pad_zeros(3)
+	return token
 
 
 func _send_heartbeat() -> void:

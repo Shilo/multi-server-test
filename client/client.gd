@@ -9,6 +9,7 @@ const DB_PERSIST_TEST_ARG := "db_persist_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
 const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
 const TRAVEL_LEASE_REDEEM_GRACE_SECONDS := 5.0
+const WORLD_JOIN_TICKET_TIMEOUT_SECONDS := 12.0
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -416,18 +417,18 @@ func _connect_world(world_key: String) -> bool:
 		push_error("[CLIENT] assets unavailable for world %s" % world_key)
 		return false
 
+	var endpoint := await _request_world_join(world_key, route_endpoint)
+	_stop_travel_lease_keepalive(str(route_endpoint.get("travel_lease_id", "")))
+	if endpoint.is_empty():
+		connecting_world_key = ""
+		return false
+
 	world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
 	active_world_key = ""
 	connecting_world_key = world_key
 	rejected_world_join = ""
 	if not _load_world_scene(world_key, route_endpoint):
-		_release_travel_lease(route_endpoint)
-		connecting_world_key = ""
-		return false
-
-	var endpoint := await _request_world_join(world_key, route_endpoint)
-	_stop_travel_lease_keepalive(str(route_endpoint.get("travel_lease_id", "")))
-	if endpoint.is_empty():
+		_cancel_world_join(world_key, route_endpoint)
 		connecting_world_key = ""
 		return false
 
@@ -435,7 +436,7 @@ func _connect_world(world_key: String) -> bool:
 	var ok := await _connect_api(world_api, endpoint["url"], "world-%s" % world_key)
 	if not ok:
 		connecting_world_key = ""
-		_stop_join_keepalive(world_key, false)
+		_stop_join_keepalive(world_key, false, str(route_endpoint.get("travel_lease_id", "")))
 		return false
 	world_endpoint.request_world_state.rpc_id(1, str(endpoint.get("join_ticket", "")))
 	ok = await _wait_until(
@@ -445,8 +446,9 @@ func _connect_world(world_key: String) -> bool:
 		"world %s state" % world_key
 	)
 	connecting_world_key = ""
-	_stop_join_keepalive(world_key, ok)
-	return ok and rejected_world_join != world_key
+	var joined := ok and rejected_world_join != world_key
+	_stop_join_keepalive(world_key, joined, str(route_endpoint.get("travel_lease_id", "")))
+	return joined
 
 
 func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
@@ -570,11 +572,14 @@ func _request_world_join(world_key: String, route_endpoint: Dictionary) -> Dicti
 				str(pending_join_endpoint.get("key", "")) == world_key
 				or denied_join_world == world_key
 			),
-		5.0,
+		WORLD_JOIN_TICKET_TIMEOUT_SECONDS,
 		"join ticket for %s" % world_key
 	)
 	pending_join_world = ""
-	if not ok or denied_join_world == world_key:
+	if not ok:
+		_cancel_world_join(world_key, route_endpoint)
+		return {}
+	if denied_join_world == world_key:
 		if not denied_join_reason.is_empty():
 			push_error("[CLIENT] join denied for %s: %s" % [world_key, denied_join_reason])
 		return {}
@@ -757,14 +762,20 @@ func _start_join_keepalive(world_key: String) -> void:
 	call_deferred("_run_join_keepalive", world_key)
 
 
-func _stop_join_keepalive(world_key: String, _completed: bool) -> void:
+func _stop_join_keepalive(world_key: String, completed: bool, travel_lease_id := "") -> void:
 	if join_keepalive_world != world_key:
 		return
 
 	join_keepalive_active = false
 	join_keepalive_world = ""
-	if _is_master_connected():
-		master_endpoint.release_world_join.rpc_id(1, world_key)
+	if not completed:
+		_cancel_world_join(world_key, {"travel_lease_id": travel_lease_id})
+
+
+func _cancel_world_join(world_key: String, endpoint: Dictionary) -> void:
+	if not _is_master_connected():
+		return
+	master_endpoint.release_world_join.rpc_id(1, world_key, str(endpoint.get("travel_lease_id", "")))
 
 
 func _run_join_keepalive(world_key: String) -> void:

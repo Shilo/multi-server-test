@@ -47,20 +47,27 @@ func drop_session(peer_id: int) -> void:
 	sessions.erase(peer_id)
 
 
-## Identity the world should bake into the player's spawn data. Also records the
-## world the master now believes this peer is entering, which gates position
-## saves (a save from a world the player already left is rejected).
+## Identity the world should bake into the player's spawn data. The active world
+## is committed only after the target world confirms the join ticket was used.
 func get_join_identity(peer_id: int, world_key: String) -> Dictionary:
 	var session: Dictionary = sessions.get(peer_id, {})
 	if session.is_empty():
 		return {"display_name": "Player_%d" % peer_id, "is_guest": true}
 
-	session["active_world_key"] = world_key
-	sessions[peer_id] = session
 	return {
 		"display_name": str(session["display_name"]),
 		"is_guest": bool(session["is_guest"]),
 	}
+
+
+func commit_active_world(peer_id: int, world_key: String) -> void:
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		return
+	var session: Dictionary = sessions.get(peer_id, {})
+	if session.is_empty():
+		return
+	session["active_world_key"] = world_key
+	sessions[peer_id] = session
 
 
 func session_display_name(peer_id: int) -> String:
@@ -114,7 +121,6 @@ func login(raw_username: String) -> void:
 	session["account_id"] = int(account["id"])
 	session["display_name"] = str(account["username"])
 	session["is_guest"] = false
-	session["active_world_key"] = world_key
 	sessions[sender_id] = session
 
 	var has_position := int(account.get("has_position", 0)) == 1
@@ -140,7 +146,6 @@ func logout() -> void:
 	session["account_id"] = 0
 	session["display_name"] = "Guest-%d" % _guest_counter
 	session["is_guest"] = true
-	session["active_world_key"] = hub
 	sessions[sender_id] = session
 
 	var endpoint := _create_resume_lease(sender_id, hub, false, 0.0, 0.0)

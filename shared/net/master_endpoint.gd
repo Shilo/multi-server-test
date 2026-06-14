@@ -7,8 +7,9 @@ signal world_join_approved(world_key: String, endpoint: Dictionary)
 signal world_join_denied(world_key: String, reason: String)
 signal world_registered(world_key: String)
 signal world_shutdown_requested(reason: String)
-signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary)
-signal world_transfer_result_received(master_peer_id: int, target_world: String, approved: bool)
+signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary, transfer_request_id: String, travel_lease_id: String)
+signal world_transfer_lease_created_received(master_peer_id: int, target_world: String, transfer_request_id: String, travel_lease_id: String, hard_expires_at: float)
+signal world_transfer_result_received(master_peer_id: int, target_world: String, approved: bool, transfer_request_id: String, travel_lease_id: String)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
@@ -16,11 +17,15 @@ const HEARTBEAT_TIMEOUT_SECONDS := 5.0
 const TRAVEL_LEASE_REFRESH_SECONDS := 120.0
 const TRAVEL_LEASE_MAX_SECONDS := 3600.0
 const MAX_TRAVEL_LEASES_PER_PEER := 8
+const MAX_TRAVEL_LEASES_TOTAL := 2048
+const MAX_PENDING_WORLD_ADMISSIONS_TOTAL := 2048
 
 var registered_worlds := {}
 var peer_worlds := {}
 var world_last_seen := {}
 var travel_leases := {}
+var active_world_join_requests := {}
+var pending_world_admissions := {}
 var world_process_manager: Node
 var account_endpoint: Node
 
@@ -143,7 +148,7 @@ func register_world(world_key: String, launch_token: String) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func request_world_transfer(source_world: String, master_peer_id: int, target_world: String, target_portal := "") -> void:
+func request_world_transfer(source_world: String, master_peer_id: int, target_world: String, target_portal := "", transfer_request_id := "") -> void:
 	if not multiplayer.is_server():
 		return
 
@@ -158,7 +163,7 @@ func request_world_transfer(source_world: String, master_peer_id: int, target_wo
 		return
 
 	NetLog.print_line("[MASTER] world-approved transfer peer=%s from=%s to=%s" % [master_peer_id, source_world, target_world])
-	call_deferred("_approve_transfer_when_available", master_peer_id, target_world, source_world, target_portal)
+	call_deferred("_approve_transfer_when_available", master_peer_id, target_world, source_world, target_portal, transfer_request_id)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -211,10 +216,16 @@ func redeem_travel_lease(travel_lease_id: String, expected_world_key := "") -> v
 		deny_world_join.rpc_id(sender_id, expected_world_key, "invalid_travel_lease")
 		return
 	if not expected_world_key.is_empty() and str(lease.get("target_world", "")) != expected_world_key:
-		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, str(lease.get("target_world", "")), false)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, str(lease.get("target_world", "")), false, str(lease.get("transfer_request_id", "")), travel_lease_id)
 		deny_world_join.rpc_id(sender_id, expected_world_key, "travel_lease_target_mismatch")
 		return
 
+	active_world_join_requests[travel_lease_id] = {
+		"peer_id": sender_id,
+		"world_key": str(lease.get("target_world", "")),
+		"source_world": str(lease.get("source_world", "")),
+		"transfer_request_id": str(lease.get("transfer_request_id", "")),
+	}
 	NetLog.print_line("[MASTER] WORLD_JOIN_REQUEST_RECEIVED key=%s peer=%s lease=%s" % [
 		str(lease.get("target_world", "")),
 		sender_id,
@@ -237,7 +248,47 @@ func release_travel_lease(travel_lease_id: String) -> void:
 		str(lease.get("source_world", "")),
 		sender_id,
 		str(lease.get("target_world", "")),
-		false
+		false,
+		str(lease.get("transfer_request_id", "")),
+		travel_lease_id
+	)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func confirm_world_join(master_peer_id: int, world_key: String, join_ticket: String, source_world := "", transfer_request_id := "", travel_lease_id := "") -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if peer_worlds.get(sender_id, "") != world_key:
+		return
+	if join_ticket.is_empty() or master_peer_id <= 0:
+		return
+
+	var admission := {
+		"peer_id": master_peer_id,
+		"world_key": world_key,
+		"source_world": source_world,
+		"transfer_request_id": transfer_request_id,
+		"travel_lease_id": travel_lease_id,
+	}
+	if pending_world_admissions.has(join_ticket):
+		admission = pending_world_admissions[join_ticket]
+		if int(admission.get("peer_id", 0)) != master_peer_id or str(admission.get("world_key", "")) != world_key:
+			return
+		pending_world_admissions.erase(join_ticket)
+
+	if account_endpoint and account_endpoint.has_method("commit_active_world"):
+		account_endpoint.commit_active_world(master_peer_id, world_key)
+	if world_process_manager and world_process_manager.has_method("release_world_join"):
+		world_process_manager.release_world_join(world_key, master_peer_id)
+	_notify_source_world_transfer_completed(
+		str(admission.get("source_world", "")),
+		master_peer_id,
+		world_key,
+		true,
+		str(admission.get("transfer_request_id", "")),
+		str(admission.get("travel_lease_id", ""))
 	)
 
 
@@ -254,13 +305,15 @@ func refresh_world_join(world_key: String) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func release_world_join(world_key: String) -> void:
+func release_world_join(world_key: String, travel_lease_id := "") -> void:
 	if not multiplayer.is_server():
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		return
+	_cancel_active_world_join_request(sender_id, world_key, travel_lease_id)
+	_cancel_pending_world_admission(sender_id, world_key, travel_lease_id)
 	if world_process_manager and world_process_manager.has_method("release_world_join"):
 		world_process_manager.release_world_join(world_key, sender_id)
 
@@ -371,14 +424,24 @@ func shutdown_world(reason: String) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func expect_world_join(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
+func expect_world_join(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary, transfer_request_id := "", travel_lease_id := "") -> void:
 	if multiplayer.is_server():
 		return
 
-	world_join_expected.emit(world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal, identity)
+	world_join_expected.emit(world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal, identity, transfer_request_id, travel_lease_id)
+
+
+@rpc("authority", "call_remote", "reliable")
+func world_transfer_lease_created(master_peer_id: int, target_world: String, transfer_request_id: String, travel_lease_id: String, hard_expires_at: float) -> void:
+	if multiplayer.is_server():
+		return
+
+	world_transfer_lease_created_received.emit(master_peer_id, target_world, transfer_request_id, travel_lease_id, hard_expires_at)
 
 
 func _send_routes_when_available(sender_id: int, world_key: String) -> void:
+	if not _is_peer_open(sender_id):
+		return
 	var routes := live_routes()
 	var worlds: Dictionary = routes["worlds"]
 	var lease := _create_travel_lease(sender_id, world_key, "", "")
@@ -387,32 +450,53 @@ func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 	receive_routes.rpc_id(sender_id, routes)
 
 
-func _approve_transfer_when_available(sender_id: int, target_world: String, source_world: String, target_portal: String) -> void:
+func _approve_transfer_when_available(sender_id: int, target_world: String, source_world: String, target_portal: String, transfer_request_id: String) -> void:
+	if not _is_peer_open(sender_id):
+		_notify_source_world_transfer_completed(source_world, sender_id, target_world, false, transfer_request_id, "")
+		return
 	if world_process_manager and world_process_manager.is_world_stopping(target_world):
 		var stopped := await _wait_for_world_stop(target_world)
+		if not _is_peer_open(sender_id):
+			_notify_source_world_transfer_completed(source_world, sender_id, target_world, false, transfer_request_id, "")
+			return
 		if not stopped:
 			deny_transfer.rpc_id(sender_id, target_world)
-			_notify_source_world_transfer_completed(source_world, sender_id, target_world, false)
+			_notify_source_world_transfer_completed(source_world, sender_id, target_world, false, transfer_request_id, "")
 			return
 
 	if not NET_CONFIG.is_valid_world_key(target_world):
 		deny_transfer.rpc_id(sender_id, target_world)
-		_notify_source_world_transfer_completed(source_world, sender_id, target_world, false)
+		_notify_source_world_transfer_completed(source_world, sender_id, target_world, false, transfer_request_id, "")
 		return
 
-	var lease := _create_travel_lease(sender_id, target_world, source_world, target_portal)
+	var lease := _create_travel_lease(sender_id, target_world, source_world, target_portal, false, 0.0, 0.0, transfer_request_id)
+	_notify_source_world_transfer_lease_created(source_world, sender_id, target_world, transfer_request_id, str(lease.get("id", "")), float(lease.get("hard_expires_at", 0.0)))
 	grant_travel_lease.rpc_id(sender_id, target_world, _endpoint_for_travel_lease(lease))
 
 
 func _approve_world_join_when_available(sender_id: int, lease: Dictionary) -> void:
 	var world_key := str(lease.get("target_world", ""))
+	var travel_lease_id := str(lease.get("id", ""))
+	var transfer_request_id := str(lease.get("transfer_request_id", ""))
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
+		active_world_join_requests.erase(travel_lease_id)
+		return
+	if not _is_peer_open(sender_id):
+		active_world_join_requests.erase(travel_lease_id)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false, transfer_request_id, travel_lease_id)
 		return
 
 	var ok := await _ensure_world_available(world_key)
+	if not _is_active_world_join_request(sender_id, world_key, travel_lease_id):
+		return
+	if not _is_peer_open(sender_id):
+		active_world_join_requests.erase(travel_lease_id)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false, transfer_request_id, travel_lease_id)
+		return
 	if not ok or not registered_worlds.has(world_key):
-		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false)
+		active_world_join_requests.erase(travel_lease_id)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false, transfer_request_id, travel_lease_id)
 		deny_world_join.rpc_id(sender_id, world_key, "world_unavailable")
 		return
 
@@ -424,13 +508,14 @@ func _approve_world_join_when_available(sender_id: int, lease: Dictionary) -> vo
 		lease
 	)
 	if str(endpoint.get("join_ticket", "")).is_empty():
-		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false)
+		active_world_join_requests.erase(travel_lease_id)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false, transfer_request_id, travel_lease_id)
 		deny_world_join.rpc_id(sender_id, world_key, "ticket_unavailable")
 		return
 
+	active_world_join_requests.erase(travel_lease_id)
 	NetLog.print_line("[MASTER] WORLD_JOIN_APPROVED key=%s peer=%s" % [world_key, sender_id])
 	approve_world_join.rpc_id(sender_id, world_key, endpoint)
-	_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, true)
 
 
 func _ensure_world_available(world_key: String) -> bool:
@@ -518,7 +603,27 @@ func _endpoint_with_join_ticket(sender_id: int, world_key: String, source_world:
 	endpoint["join_ticket_expires_at"] = expires_at
 	endpoint["source_world"] = source_world
 	endpoint["target_portal"] = target_portal
-	_send_join_ticket_to_world(world_key, join_ticket, expires_at, sender_id, source_world, target_portal, _join_identity(sender_id, world_key, intent))
+	pending_world_admissions[join_ticket] = {
+		"peer_id": sender_id,
+		"world_key": world_key,
+		"source_world": source_world,
+		"target_portal": target_portal,
+		"transfer_request_id": str(intent.get("transfer_request_id", "")),
+		"travel_lease_id": str(intent.get("id", "")),
+		"expires_at": expires_at,
+	}
+	_trim_pending_world_admissions()
+	_send_join_ticket_to_world(
+		world_key,
+		join_ticket,
+		expires_at,
+		sender_id,
+		source_world,
+		target_portal,
+		_join_identity(sender_id, world_key, intent),
+		str(intent.get("transfer_request_id", "")),
+		str(intent.get("id", ""))
+	)
 	return endpoint
 
 
@@ -535,16 +640,17 @@ func _join_identity(sender_id: int, world_key: String, intent: Dictionary) -> Di
 	return identity
 
 
-func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary) -> void:
+func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary, transfer_request_id: String, travel_lease_id: String) -> void:
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == world_key:
-			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal, identity)
+			expect_world_join.rpc_id(int(peer_id), world_key, join_ticket, expires_at, master_peer_id, source_world, target_portal, identity, transfer_request_id, travel_lease_id)
 			return
 
 
-func _create_travel_lease(sender_id: int, target_world: String, source_world: String, target_portal: String, has_spawn := false, spawn_x := 0.0, spawn_y := 0.0) -> Dictionary:
+func _create_travel_lease(sender_id: int, target_world: String, source_world: String, target_portal: String, has_spawn := false, spawn_x := 0.0, spawn_y := 0.0, transfer_request_id := "") -> Dictionary:
 	_remove_matching_travel_leases(sender_id, target_world, source_world, target_portal)
 	_trim_peer_travel_leases(sender_id)
+	_trim_global_travel_leases()
 	var now := Time.get_unix_time_from_system()
 	var lease_id := _new_travel_lease_id()
 	var lease := {
@@ -553,6 +659,7 @@ func _create_travel_lease(sender_id: int, target_world: String, source_world: St
 		"target_world": target_world,
 		"source_world": source_world,
 		"target_portal": target_portal,
+		"transfer_request_id": transfer_request_id,
 		"has_spawn": has_spawn,
 		"spawn_x": spawn_x,
 		"spawn_y": spawn_y,
@@ -601,6 +708,24 @@ func _trim_peer_travel_leases(sender_id: int) -> void:
 			_expire_travel_lease(oldest_id, travel_leases[oldest_id])
 
 
+func _trim_global_travel_leases() -> void:
+	if travel_leases.size() < MAX_TRAVEL_LEASES_TOTAL:
+		return
+
+	var lease_ids: Array[String] = []
+	for travel_lease_id in travel_leases.keys():
+		lease_ids.append(str(travel_lease_id))
+	lease_ids.sort_custom(func(a: String, b: String) -> bool:
+		var a_lease: Dictionary = travel_leases.get(a, {})
+		var b_lease: Dictionary = travel_leases.get(b, {})
+		return float(a_lease.get("expires_at", 0.0)) < float(b_lease.get("expires_at", 0.0))
+	)
+	while lease_ids.size() >= MAX_TRAVEL_LEASES_TOTAL:
+		var oldest_id: String = lease_ids.pop_front()
+		if travel_leases.has(oldest_id):
+			_expire_travel_lease(oldest_id, travel_leases[oldest_id])
+
+
 func _new_travel_lease_id() -> String:
 	var token := ""
 	for byte in OS.get_entropy(16):
@@ -641,6 +766,119 @@ func _release_peer_travel_leases(peer_id: int) -> void:
 		var lease: Dictionary = travel_leases[travel_lease_id]
 		if int(lease.get("peer_id", 0)) == peer_id:
 			_expire_travel_lease(str(travel_lease_id), lease)
+	_cancel_all_pending_world_admissions_for_peer(peer_id)
+
+
+func _is_active_world_join_request(peer_id: int, world_key: String, travel_lease_id: String) -> bool:
+	if travel_lease_id.is_empty() or not active_world_join_requests.has(travel_lease_id):
+		return false
+	var request: Dictionary = active_world_join_requests[travel_lease_id]
+	return int(request.get("peer_id", 0)) == peer_id and str(request.get("world_key", "")) == world_key
+
+
+func _cancel_active_world_join_request(peer_id: int, world_key: String, travel_lease_id: String) -> void:
+	for active_id in active_world_join_requests.keys():
+		if not travel_lease_id.is_empty() and str(active_id) != travel_lease_id:
+			continue
+		var request: Dictionary = active_world_join_requests[active_id]
+		if int(request.get("peer_id", 0)) == peer_id and str(request.get("world_key", "")) == world_key:
+			active_world_join_requests.erase(active_id)
+			_notify_source_world_transfer_completed(
+				str(request.get("source_world", "")),
+				peer_id,
+				world_key,
+				false,
+				str(request.get("transfer_request_id", "")),
+				str(active_id)
+			)
+			return
+
+
+func _cancel_pending_world_admission(peer_id: int, world_key: String, travel_lease_id: String) -> void:
+	for join_ticket in pending_world_admissions.keys():
+		var admission: Dictionary = pending_world_admissions[join_ticket]
+		if (
+			int(admission.get("peer_id", 0)) == peer_id
+			and str(admission.get("world_key", "")) == world_key
+			and (travel_lease_id.is_empty() or str(admission.get("travel_lease_id", "")) == travel_lease_id)
+		):
+			pending_world_admissions.erase(join_ticket)
+			_notify_source_world_transfer_completed(
+				str(admission.get("source_world", "")),
+				peer_id,
+				world_key,
+				false,
+				str(admission.get("transfer_request_id", "")),
+				str(admission.get("travel_lease_id", ""))
+			)
+			return
+
+
+func _cancel_all_pending_world_admissions_for_peer(peer_id: int) -> void:
+	for join_ticket in pending_world_admissions.keys():
+		var admission: Dictionary = pending_world_admissions[join_ticket]
+		if int(admission.get("peer_id", 0)) == peer_id:
+			pending_world_admissions.erase(join_ticket)
+			_notify_source_world_transfer_completed(
+				str(admission.get("source_world", "")),
+				peer_id,
+				str(admission.get("world_key", "")),
+				false,
+				str(admission.get("transfer_request_id", "")),
+				str(admission.get("travel_lease_id", ""))
+			)
+
+
+func _expire_pending_world_admissions() -> void:
+	var now := Time.get_unix_time_from_system()
+	for join_ticket in pending_world_admissions.keys():
+		var admission: Dictionary = pending_world_admissions[join_ticket]
+		if float(admission.get("expires_at", 0.0)) > now:
+			continue
+		pending_world_admissions.erase(join_ticket)
+		var world_key := str(admission.get("world_key", ""))
+		var peer_id := int(admission.get("peer_id", 0))
+		if world_process_manager and world_process_manager.has_method("release_world_join") and NET_CONFIG.is_valid_world_key(world_key):
+			world_process_manager.release_world_join(world_key, peer_id)
+		_notify_source_world_transfer_completed(
+			str(admission.get("source_world", "")),
+			peer_id,
+			world_key,
+			false,
+			str(admission.get("transfer_request_id", "")),
+			str(admission.get("travel_lease_id", ""))
+		)
+
+
+func _trim_pending_world_admissions() -> void:
+	if pending_world_admissions.size() < MAX_PENDING_WORLD_ADMISSIONS_TOTAL:
+		return
+	var join_tickets: Array[String] = []
+	for join_ticket in pending_world_admissions.keys():
+		join_tickets.append(str(join_ticket))
+	join_tickets.sort_custom(func(a: String, b: String) -> bool:
+		var a_admission: Dictionary = pending_world_admissions.get(a, {})
+		var b_admission: Dictionary = pending_world_admissions.get(b, {})
+		return float(a_admission.get("expires_at", 0.0)) < float(b_admission.get("expires_at", 0.0))
+	)
+	while join_tickets.size() >= MAX_PENDING_WORLD_ADMISSIONS_TOTAL:
+		var oldest_ticket: String = join_tickets.pop_front()
+		if not pending_world_admissions.has(oldest_ticket):
+			continue
+		var admission: Dictionary = pending_world_admissions[oldest_ticket]
+		pending_world_admissions.erase(oldest_ticket)
+		var world_key := str(admission.get("world_key", ""))
+		var peer_id := int(admission.get("peer_id", 0))
+		if world_process_manager and world_process_manager.has_method("release_world_join") and NET_CONFIG.is_valid_world_key(world_key):
+			world_process_manager.release_world_join(world_key, peer_id)
+		_notify_source_world_transfer_completed(
+			str(admission.get("source_world", "")),
+			peer_id,
+			world_key,
+			false,
+			str(admission.get("transfer_request_id", "")),
+			str(admission.get("travel_lease_id", ""))
+		)
 
 
 func _expire_travel_leases() -> void:
@@ -657,23 +895,36 @@ func _expire_travel_lease(travel_lease_id: String, lease: Dictionary) -> void:
 		str(lease.get("source_world", "")),
 		int(lease.get("peer_id", 0)),
 		str(lease.get("target_world", "")),
-		false
+		false,
+		str(lease.get("transfer_request_id", "")),
+		travel_lease_id
 	)
 
 
-func _notify_source_world_transfer_completed(source_world: String, master_peer_id: int, target_world: String, approved: bool) -> void:
+func _notify_source_world_transfer_lease_created(source_world: String, master_peer_id: int, target_world: String, transfer_request_id: String, travel_lease_id: String, hard_expires_at: float) -> void:
+	if source_world.is_empty():
+		return
 	for peer_id in peer_worlds.keys():
 		if str(peer_worlds[peer_id]) == source_world and _is_peer_open(int(peer_id)):
-			world_transfer_completed.rpc_id(int(peer_id), master_peer_id, target_world, approved)
+			world_transfer_lease_created.rpc_id(int(peer_id), master_peer_id, target_world, transfer_request_id, travel_lease_id, hard_expires_at)
+			return
+
+
+func _notify_source_world_transfer_completed(source_world: String, master_peer_id: int, target_world: String, approved: bool, transfer_request_id: String, travel_lease_id: String) -> void:
+	if source_world.is_empty():
+		return
+	for peer_id in peer_worlds.keys():
+		if str(peer_worlds[peer_id]) == source_world and _is_peer_open(int(peer_id)):
+			world_transfer_completed.rpc_id(int(peer_id), master_peer_id, target_world, approved, transfer_request_id, travel_lease_id)
 			return
 
 
 @rpc("authority", "call_remote", "reliable")
-func world_transfer_completed(master_peer_id: int, target_world: String, approved: bool) -> void:
+func world_transfer_completed(master_peer_id: int, target_world: String, approved: bool, transfer_request_id := "", travel_lease_id := "") -> void:
 	if multiplayer.is_server():
 		return
 
-	world_transfer_result_received.emit(master_peer_id, target_world, approved)
+	world_transfer_result_received.emit(master_peer_id, target_world, approved, transfer_request_id, travel_lease_id)
 
 
 func _is_peer_open(peer_id: int) -> bool:
@@ -689,6 +940,7 @@ func _expire_stale_worlds() -> void:
 		return
 
 	_expire_travel_leases()
+	_expire_pending_world_admissions()
 	var now := Time.get_unix_time_from_system()
 	for world_key in world_last_seen.keys():
 		if now - float(world_last_seen[world_key]) <= HEARTBEAT_TIMEOUT_SECONDS:
