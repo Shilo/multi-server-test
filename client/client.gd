@@ -37,6 +37,8 @@ var resume_in_progress := false
 var resume_target := ""
 var session_display_name := ""
 var session_is_guest := true
+var world_pack_last_logged_percent := -10
+var world_pack_last_logged_msec := 0
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -45,6 +47,7 @@ var session_is_guest := true
 @onready var world_view: Node2D = $WorldNet/WorldSceneRoot
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
 @onready var status_label: Label = $CanvasLayer/StatusLabel
+@onready var world_pack_progress: ProgressBar = $CanvasLayer/WorldPackProgress
 
 
 func _ready() -> void:
@@ -449,8 +452,22 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	options.entry_path = scene_path
 	options.progress_total_size = expected_size
 
-	_set_status("Downloading %s" % world_key)
-	var result: PackRatResult = await PackRat.load_resource_pack(pack_url, options)
+	print("[CLIENT] WORLD_PACK_START key=%s url=%s size=%d modified_time=%d" % [
+		world_key,
+		pack_url,
+		expected_size,
+		expected_modified_time,
+	])
+	_show_world_pack_progress(world_key, expected_size)
+	var request: PackRatRequest = PackRat.load_resource_pack_async(pack_url, options)
+	request.progress_changed.connect(func(downloaded_bytes: int, total_bytes: int) -> void:
+		_update_world_pack_progress(world_key, downloaded_bytes, total_bytes)
+	)
+	if not request.is_completed():
+		await request.completed
+
+	var result: PackRatResult = request.result
+	_hide_world_pack_progress()
 	for warning in result.warnings:
 		print("[CLIENT] PackRat warning for %s: %s" % [world_key, warning])
 	if not result.ok:
@@ -461,14 +478,50 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 		return false
 
 	print(
-		"[CLIENT] WORLD_PACK_READY key=%s status=%s cache=%s path=%s" %
-		[world_key, result.status, str(result.from_cache), result.local_path]
+		"[CLIENT] WORLD_PACK_READY key=%s status=%s cache=%s bytes=%d path=%s" %
+		[world_key, result.status, str(result.from_cache), result.content_length, result.local_path]
 	)
 	return true
 
 
 func _force_packrat_world_packs() -> bool:
 	return FORCE_PACKRAT_WORLD_PACKS_ARG in OS.get_cmdline_user_args()
+
+
+func _show_world_pack_progress(world_key: String, expected_size: int) -> void:
+	_set_status("Downloading %s" % world_key)
+	world_pack_last_logged_percent = -10
+	world_pack_last_logged_msec = Time.get_ticks_msec()
+	world_pack_progress.visible = true
+	world_pack_progress.value = 0.0
+	world_pack_progress.max_value = 100.0
+	if expected_size > 0:
+		world_pack_progress.max_value = expected_size
+
+
+func _update_world_pack_progress(world_key: String, downloaded_bytes: int, total_bytes: int) -> void:
+	var total := total_bytes
+	if total <= 0:
+		total = int(world_pack_progress.max_value)
+	if total > 0:
+		world_pack_progress.max_value = total
+		world_pack_progress.value = clamp(downloaded_bytes, 0, total)
+		var percent := int(round(float(downloaded_bytes) * 100.0 / float(total)))
+		status_label.text = "Downloading %s %d%%" % [world_key, percent]
+		if percent >= world_pack_last_logged_percent + 10 or percent >= 100:
+			world_pack_last_logged_percent = percent
+			print("[CLIENT] WORLD_PACK_PROGRESS key=%s percent=%d bytes=%d total=%d" % [world_key, percent, downloaded_bytes, total_bytes])
+	else:
+		world_pack_progress.value = 0.0
+		status_label.text = "Downloading %s" % world_key
+		var now := Time.get_ticks_msec()
+		if now - world_pack_last_logged_msec >= 1000:
+			world_pack_last_logged_msec = now
+			print("[CLIENT] WORLD_PACK_PROGRESS key=%s bytes=%d total=%d" % [world_key, downloaded_bytes, total_bytes])
+
+
+func _hide_world_pack_progress() -> void:
+	world_pack_progress.visible = false
 
 
 func _request_world_join(world_key: String) -> Dictionary:

@@ -35,3 +35,11 @@ offset_top = 14.0
 offset_right = 540.0
 offset_bottom = 42.0
 text = "Starting client..."
+
+[node name="WorldPackProgress" type="ProgressBar" parent="CanvasLayer"]
+visible = false
+offset_left = 18.0
+offset_top = 46.0
+offset_right = 300.0
+offset_bottom = 62.0
+show_percentage = false
