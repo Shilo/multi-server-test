@@ -80,7 +80,7 @@ func unregister_world_by_key(world_key: String, reason: String) -> void:
 
 	registered_worlds.erase(world_key)
 	world_last_seen.erase(world_key)
-	print("MASTER_WORLD_DEREGISTERED key=%s reason=%s" % [world_key, reason])
+	NetLog.print_line("MASTER_WORLD_DEREGISTERED key=%s reason=%s" % [world_key, reason])
 
 
 func live_routes() -> Dictionary:
@@ -111,7 +111,7 @@ func request_routes() -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	print("[MASTER] route request from peer %s; registered_worlds=%d" % [sender_id, registered_world_count()])
+	NetLog.print_line("[MASTER] route request from peer %s; registered_worlds=%d" % [sender_id, registered_world_count()])
 	call_deferred("_send_routes_when_available", sender_id, NET_CONFIG.initial_world())
 
 
@@ -132,7 +132,7 @@ func register_world(world_key: String, launch_token: String) -> void:
 	registered_worlds[world_key] = normalized_endpoint
 	peer_worlds[sender_id] = world_key
 	world_last_seen[world_key] = Time.get_unix_time_from_system()
-	print("MASTER_WORLD_REGISTERED key=%s peer=%s url=%s" % [world_key, sender_id, normalized_endpoint["url"]])
+	NetLog.print_line("MASTER_WORLD_REGISTERED key=%s peer=%s url=%s" % [world_key, sender_id, normalized_endpoint["url"]])
 	world_process_manager.mark_world_registered(world_key)
 	world_registered_ack.rpc_id(sender_id, world_key)
 
@@ -152,7 +152,7 @@ func request_world_transfer(source_world: String, master_peer_id: int, target_wo
 	if not _is_peer_open(master_peer_id):
 		return
 
-	print("[MASTER] world-approved transfer peer=%s from=%s to=%s" % [master_peer_id, source_world, target_world])
+	NetLog.print_line("[MASTER] world-approved transfer peer=%s from=%s to=%s" % [master_peer_id, source_world, target_world])
 	call_deferred("_approve_transfer_when_available", master_peer_id, target_world, source_world, target_portal)
 
 
@@ -162,6 +162,7 @@ func request_world_join(world_key: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	NetLog.print_line("[MASTER] WORLD_JOIN_REQUEST_RECEIVED key=%s peer=%s" % [world_key, sender_id])
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
 		return
@@ -240,7 +241,7 @@ func world_registered_ack(world_key: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[WORLD %s] master registration acknowledged" % world_key)
+	NetLog.print_line("[WORLD %s] master registration acknowledged" % world_key)
 	world_registered.emit(world_key)
 
 
@@ -249,7 +250,7 @@ func receive_routes(routes: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] received master routes")
+	NetLog.print_line("[CLIENT] received master routes")
 	routes_received.emit(routes)
 
 
@@ -258,7 +259,7 @@ func approve_transfer(target_world: String, endpoint: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] transfer approved to %s" % target_world)
+	NetLog.print_line("[CLIENT] transfer approved to %s" % target_world)
 	transfer_approved.emit(target_world, endpoint)
 
 
@@ -267,7 +268,7 @@ func approve_world_join(world_key: String, endpoint: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] join approved for %s" % world_key)
+	NetLog.print_line("[CLIENT] join approved for %s" % world_key)
 	world_join_approved.emit(world_key, endpoint)
 
 
@@ -276,7 +277,7 @@ func deny_transfer(target_world: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] transfer denied to %s" % target_world)
+	NetLog.print_line("[CLIENT] transfer denied to %s" % target_world)
 	transfer_denied.emit(target_world)
 
 
@@ -285,7 +286,7 @@ func deny_world_join(world_key: String, reason: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] join denied for %s: %s" % [world_key, reason])
+	NetLog.print_line("[CLIENT] join denied for %s: %s" % [world_key, reason])
 	world_join_denied.emit(world_key, reason)
 
 
@@ -294,7 +295,7 @@ func shutdown_world(reason: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[WORLD] shutdown requested by master: %s" % reason)
+	NetLog.print_line("[WORLD] shutdown requested by master: %s" % reason)
 	world_shutdown_requested.emit(reason)
 
 
@@ -330,7 +331,6 @@ func _approve_transfer_when_available(sender_id: int, target_world: String, sour
 
 	_set_pending_world_join_intent(sender_id, target_world, source_world, target_portal)
 	approve_transfer.rpc_id(sender_id, target_world, _endpoint_without_join_ticket(target_world))
-	_notify_source_world_transfer_completed(source_world, sender_id, target_world, true)
 
 
 func _approve_world_join_when_available(sender_id: int, world_key: String) -> void:
@@ -341,6 +341,7 @@ func _approve_world_join_when_available(sender_id: int, world_key: String) -> vo
 
 	var ok := await _ensure_world_available(world_key)
 	if not ok or not registered_worlds.has(world_key):
+		_notify_source_world_transfer_completed(str(intent.get("source_world", "")), sender_id, world_key, false)
 		deny_world_join.rpc_id(sender_id, world_key, "world_unavailable")
 		return
 
@@ -352,10 +353,13 @@ func _approve_world_join_when_available(sender_id: int, world_key: String) -> vo
 		intent
 	)
 	if str(endpoint.get("join_ticket", "")).is_empty():
+		_notify_source_world_transfer_completed(str(intent.get("source_world", "")), sender_id, world_key, false)
 		deny_world_join.rpc_id(sender_id, world_key, "ticket_unavailable")
 		return
 
+	NetLog.print_line("[MASTER] WORLD_JOIN_APPROVED key=%s peer=%s" % [world_key, sender_id])
 	approve_world_join.rpc_id(sender_id, world_key, endpoint)
+	_notify_source_world_transfer_completed(str(intent.get("source_world", "")), sender_id, world_key, true)
 
 
 func _ensure_world_available(world_key: String) -> bool:
@@ -542,4 +546,4 @@ func _expire_stale_worlds() -> void:
 			world_process_manager.request_world_stop(str(world_key), "heartbeat_timeout")
 		else:
 			unregister_world_by_key(str(world_key), "heartbeat_timeout")
-		print("MASTER_WORLD_EXPIRED key=%s" % world_key)
+		NetLog.print_line("MASTER_WORLD_EXPIRED key=%s" % world_key)

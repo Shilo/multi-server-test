@@ -120,7 +120,7 @@ func login(raw_username: String) -> void:
 	var has_position := int(account.get("has_position", 0)) == 1
 	_set_resume_intent(sender_id, world_key, has_position, float(account.get("pos_x", 0.0)), float(account.get("pos_y", 0.0)))
 
-	print("MASTER_LOGIN peer=%d account=%d world=%s" % [sender_id, int(account["id"]), world_key])
+	NetLog.print_line("MASTER_LOGIN peer=%d account=%d world=%s" % [sender_id, int(account["id"]), world_key])
 	_push_session(sender_id)
 	push_resume_world.rpc_id(sender_id, world_key)
 
@@ -144,7 +144,7 @@ func logout() -> void:
 	sessions[sender_id] = session
 
 	_set_resume_intent(sender_id, hub, false, 0.0, 0.0)
-	print("MASTER_LOGOUT peer=%d" % sender_id)
+	NetLog.print_line("MASTER_LOGOUT peer=%d" % sender_id)
 	_push_session(sender_id)
 	push_resume_world.rpc_id(sender_id, hub)
 

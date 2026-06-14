@@ -31,7 +31,7 @@ func send_chat(message: String) -> void:
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	if not _allow_message(sender_id):
-		print("[CHAT] rate limited peer %s" % sender_id)
+		NetLog.print_line("[CHAT] rate limited peer %s" % sender_id)
 		return
 
 	var sanitized_message := message.strip_edges().left(MAX_MESSAGE_LENGTH)
@@ -39,7 +39,7 @@ func send_chat(message: String) -> void:
 		return
 
 	var sender_name := _display_name_for(sender_id)
-	print("[CHAT] received from peer %s (%s): %s" % [sender_id, sender_name, sanitized_message])
+	NetLog.print_line("[CHAT] received from peer %s (%s): %s" % [sender_id, sender_name, sanitized_message])
 	_broadcast_chat(sender_id, sender_name, sanitized_message)
 
 
@@ -48,7 +48,7 @@ func receive_chat(sender_id: int, sender_name: String, message: String) -> void:
 	if multiplayer.is_server():
 		return
 
-	print("[CLIENT] chat from %s: %s" % [sender_name, message])
+	NetLog.print_line("[CLIENT] chat from %s: %s" % [sender_name, message])
 	chat_received.emit(sender_id, sender_name, message)
 
 

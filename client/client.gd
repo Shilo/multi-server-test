@@ -73,7 +73,7 @@ func _ready() -> void:
 	)
 	world_endpoint.world_state_received.connect(func(world_key: String) -> void:
 		if not connecting_world_key.is_empty() and world_key != connecting_world_key:
-			print("[CLIENT] ignoring unexpected world state %s while connecting to %s" % [world_key, connecting_world_key])
+			NetLog.print_line("[CLIENT] ignoring unexpected world state %s while connecting to %s" % [world_key, connecting_world_key])
 			return
 		active_world_key = world_key
 		_set_status("In %s; chat echoes=%d" % [active_world_key, chat_echoes.size()])
@@ -103,7 +103,7 @@ func _setup_multiplayer_branches() -> void:
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
 	get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
 	master_api.server_disconnected.connect(func() -> void:
-		print("[CLIENT] master server disconnected")
+		NetLog.print_line("[CLIENT] master server disconnected")
 		chat_connected = false
 		join_keepalive_active = false
 		join_keepalive_world = ""
@@ -111,7 +111,7 @@ func _setup_multiplayer_branches() -> void:
 		_add_chat_system_line("master disconnected")
 	)
 	world_api.server_disconnected.connect(func() -> void:
-		print("[CLIENT] world server disconnected")
+		NetLog.print_line("[CLIENT] world server disconnected")
 	)
 
 
@@ -173,20 +173,20 @@ func _resume_into_world(world_key: String) -> void:
 	var ok := await _connect_transfer_world(world_key)
 	resume_in_progress = false
 	if ok:
-		print("[CLIENT] resumed into world %s" % active_world_key)
+		NetLog.print_line("[CLIENT] resumed into world %s" % active_world_key)
 	else:
 		push_error("[CLIENT] failed to resume into world %s" % world_key)
 
 
 func run_manual_client() -> void:
 	if await _bootstrap_connections(false):
-		print("[CLIENT] manual client ready")
+		NetLog.print_line("[CLIENT] manual client ready")
 		if MANUAL_PORTAL_TEST_ARG in OS.get_cmdline_user_args():
 			await _run_manual_portal_test()
 
 
 func run_smoke_test() -> void:
-	print("SMOKE_STEP client starts")
+	NetLog.print_line("SMOKE_STEP client starts")
 	var ok := await _bootstrap_connections(true)
 	if not ok:
 		_smoke_fail("bootstrap failed")
@@ -195,7 +195,7 @@ func run_smoke_test() -> void:
 	var sequence := _smoke_transfer_sequence()
 	for i in range(sequence.size()):
 		var target_world := str(sequence[i])
-		print("SMOKE_STEP transfer %s_to_%s" % [active_world_key, target_world])
+		NetLog.print_line("SMOKE_STEP transfer %s_to_%s" % [active_world_key, target_world])
 		ok = await _transfer_via_portal(target_world)
 		if not ok:
 			_smoke_fail("transfer to %s failed" % target_world)
@@ -204,10 +204,10 @@ func run_smoke_test() -> void:
 		if not ok:
 			_smoke_fail("chat ping failed after %s" % active_world_key)
 			return
-		print("SMOKE_STEP confirmed world %s with chat alive" % active_world_key)
+		NetLog.print_line("SMOKE_STEP confirmed world %s with chat alive" % active_world_key)
 
 	await get_tree().create_timer(1.0).timeout
-	print("SMOKE_PASS")
+	NetLog.print_line("SMOKE_PASS")
 	get_tree().quit(0)
 
 
@@ -220,7 +220,7 @@ const DB_TEST_WORLD := "left_world"
 const DB_TEST_POSITION := Vector2(213, 147)
 
 func run_db_persist_test(phase: String, username: String) -> void:
-	print("DBTEST_STEP start phase=%s name=%s" % [phase, username])
+	NetLog.print_line("DBTEST_STEP start phase=%s name=%s" % [phase, username])
 	if not await _bootstrap_connections(false):
 		_db_test_fail("bootstrap failed")
 		return
@@ -235,7 +235,7 @@ func run_db_persist_test(phase: String, username: String) -> void:
 	if not await _wait_until(func() -> bool: return not resume_in_progress and not active_world_key.is_empty(), 8.0, "resume settle"):
 		_db_test_fail("resume did not settle")
 		return
-	print("DBTEST_STEP logged in as %s, resumed world=%s" % [session_display_name, active_world_key])
+	NetLog.print_line("DBTEST_STEP logged in as %s, resumed world=%s" % [session_display_name, active_world_key])
 
 	if phase == "phase1":
 		await _db_test_phase1()
@@ -256,10 +256,10 @@ func _db_test_phase1() -> void:
 	if not _set_local_player_position(DB_TEST_POSITION):
 		_db_test_fail("could not place local player")
 		return
-	print("DBTEST_STEP parked at %s pos=(%s,%s)" % [active_world_key, DB_TEST_POSITION.x, DB_TEST_POSITION.y])
+	NetLog.print_line("DBTEST_STEP parked at %s pos=(%s,%s)" % [active_world_key, DB_TEST_POSITION.x, DB_TEST_POSITION.y])
 	# Wait past one position-save interval (3s on the world) so it persists.
 	await get_tree().create_timer(4.5).timeout
-	print("DBTEST_PHASE1_DONE world=%s" % active_world_key)
+	NetLog.print_line("DBTEST_PHASE1_DONE world=%s" % active_world_key)
 	get_tree().quit(0)
 
 
@@ -269,11 +269,11 @@ func _db_test_phase2() -> void:
 		return
 	await get_tree().create_timer(0.5).timeout
 	var pos := _local_player_position()
-	print("DBTEST_PHASE2 world=%s pos=(%s,%s)" % [active_world_key, pos.x, pos.y])
+	NetLog.print_line("DBTEST_PHASE2 world=%s pos=(%s,%s)" % [active_world_key, pos.x, pos.y])
 	if not pos.is_finite() or pos.distance_to(DB_TEST_POSITION) > 24.0:
 		_db_test_fail("position not resumed (got %s, expected %s)" % [pos, DB_TEST_POSITION])
 		return
-	print("DBTEST_PASS")
+	NetLog.print_line("DBTEST_PASS")
 	get_tree().quit(0)
 
 
@@ -290,7 +290,7 @@ func _manual_travel(target_world: String) -> bool:
 
 
 func _db_test_fail(reason: String) -> void:
-	print("DBTEST_FAIL %s" % reason)
+	NetLog.print_line("DBTEST_FAIL %s" % reason)
 	get_tree().quit(1)
 
 
@@ -365,13 +365,13 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 	ok = await _wait_until(route_predicate, 5.0, "master routes")
 	if not ok:
 		return false
-	print("SMOKE_STEP client connected to master" if require_all_worlds else "[CLIENT] connected to master")
+	NetLog.print_line("SMOKE_STEP client connected to master" if require_all_worlds else "[CLIENT] connected to master")
 
 	chat_connected = true
 	_set_chat_connected(true)
 	_add_chat_system_line("chat connected")
 	if require_all_worlds:
-		print("SMOKE_STEP client chat ready")
+		NetLog.print_line("SMOKE_STEP client chat ready")
 		ok = await _send_chat_ping("initial")
 		if not ok:
 			return false
@@ -380,7 +380,7 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 	ok = await _connect_world(initial_world)
 	if not ok:
 		return false
-	print("SMOKE_STEP client confirmed initial world %s" % active_world_key if require_all_worlds else "[CLIENT] manual initial world ready: %s" % active_world_key)
+	NetLog.print_line("SMOKE_STEP client confirmed initial world %s" % active_world_key if require_all_worlds else "[CLIENT] manual initial world ready: %s" % active_world_key)
 	return true
 
 
@@ -438,7 +438,7 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
 	var local_scene_available := ResourceLoader.exists(scene_path, "PackedScene")
 	if local_scene_available and not _force_packrat_world_packs():
-		print("[CLIENT] WORLD_PACK_SKIPPED key=%s reason=local_scene_available arg=%s" % [world_key, FORCE_PACKRAT_WORLD_PACKS_ARG])
+		NetLog.print_line("[CLIENT] WORLD_PACK_SKIPPED key=%s reason=local_scene_available arg=%s" % [world_key, FORCE_PACKRAT_WORLD_PACKS_ARG])
 		return true
 
 	var pack_url := str(endpoint.get("pack_url", ""))
@@ -453,7 +453,7 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	options.entry_path = scene_path
 	options.progress_total_size = expected_size
 
-	print("[CLIENT] WORLD_PACK_START key=%s url=%s size=%d modified_time=%d" % [
+	NetLog.print_line("[CLIENT] WORLD_PACK_START key=%s url=%s size=%d modified_time=%d" % [
 		world_key,
 		pack_url,
 		expected_size,
@@ -470,16 +470,16 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var result: PackRatResult = request.result
 	_hide_world_pack_progress()
 	for warning in result.warnings:
-		print("[CLIENT] PackRat warning for %s: %s" % [world_key, warning])
+		NetLog.print_line("[CLIENT] PackRat warning for %s: %s" % [world_key, warning])
 	if not result.ok:
-		print("[CLIENT] WORLD_PACK_FAILED key=%s url=%s error=%s" % [world_key, pack_url, result.error])
+		NetLog.print_line("[CLIENT] WORLD_PACK_FAILED key=%s url=%s error=%s" % [world_key, pack_url, result.error])
 		push_error("[CLIENT] failed to load pack for %s from %s: %s" % [world_key, pack_url, result.error])
 		return false
 	if not result.entry_scene_exists():
 		push_error("[CLIENT] pack for %s mounted, but scene is missing: %s" % [world_key, scene_path])
 		return false
 
-	print(
+	NetLog.print_line(
 		"[CLIENT] WORLD_PACK_READY key=%s status=%s cache=%s bytes=%d path=%s" %
 		[world_key, result.status, str(result.from_cache), result.content_length, result.local_path]
 	)
@@ -512,14 +512,14 @@ func _update_world_pack_progress(world_key: String, downloaded_bytes: int, total
 		status_label.text = "Downloading %s %d%%" % [world_key, percent]
 		if percent >= world_pack_last_logged_percent + 10 or percent >= 100:
 			world_pack_last_logged_percent = percent
-			print("[CLIENT] WORLD_PACK_PROGRESS key=%s percent=%d bytes=%d total=%d" % [world_key, percent, downloaded_bytes, total_bytes])
+			NetLog.print_line("[CLIENT] WORLD_PACK_PROGRESS key=%s percent=%d bytes=%d total=%d" % [world_key, percent, downloaded_bytes, total_bytes])
 	else:
 		world_pack_progress.value = 0.0
 		status_label.text = "Downloading %s" % world_key
 		var now := Time.get_ticks_msec()
 		if now - world_pack_last_logged_msec >= 1000:
 			world_pack_last_logged_msec = now
-			print("[CLIENT] WORLD_PACK_PROGRESS key=%s bytes=%d total=%d" % [world_key, downloaded_bytes, total_bytes])
+			NetLog.print_line("[CLIENT] WORLD_PACK_PROGRESS key=%s bytes=%d total=%d" % [world_key, downloaded_bytes, total_bytes])
 
 
 func _hide_world_pack_progress() -> void:
@@ -531,6 +531,7 @@ func _request_world_join(world_key: String) -> Dictionary:
 	pending_join_world = world_key
 	denied_join_world = ""
 	denied_join_reason = ""
+	NetLog.print_line("[CLIENT] WORLD_JOIN_REQUEST key=%s" % world_key)
 	master_endpoint.request_world_join.rpc_id(1, world_key)
 
 	var ok := await _wait_until(
@@ -640,9 +641,9 @@ func _transfer_via_portal(target_world: String) -> bool:
 
 
 func _run_manual_portal_test() -> void:
-	print("MANUAL_PORTAL_TEST start")
+	NetLog.print_line("MANUAL_PORTAL_TEST start")
 	if not current_world_scene or not current_world_scene.has_method("activate_portal_to"):
-		print("MANUAL_PORTAL_TEST_FAIL no active portal scene")
+		NetLog.print_line("MANUAL_PORTAL_TEST_FAIL no active portal scene")
 		get_tree().quit(1)
 		return
 
@@ -652,16 +653,16 @@ func _run_manual_portal_test() -> void:
 	current_world_scene.activate_portal_to("left_world")
 	var ok := await _wait_until(func() -> bool: return active_world_key == "left_world", 5.0, "manual portal transfer to left_world")
 	if ok:
-		print("MANUAL_PORTAL_TEST_PASS")
+		NetLog.print_line("MANUAL_PORTAL_TEST_PASS")
 		get_tree().quit(0)
 	else:
-		print("MANUAL_PORTAL_TEST_FAIL did not reach left_world")
+		NetLog.print_line("MANUAL_PORTAL_TEST_FAIL did not reach left_world")
 		get_tree().quit(1)
 
 
 func _send_chat_ping(label: String) -> bool:
 	if not chat_connected or not _is_master_connected():
-		print("[CLIENT] chat ping skipped; chat is not connected")
+		NetLog.print_line("[CLIENT] chat ping skipped; chat is not connected")
 		return false
 
 	var local_peer_id := master_api.get_unique_id()
@@ -699,7 +700,7 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_secon
 		return false
 
 	api.multiplayer_peer = peer
-	print("[CLIENT] connecting to %s at %s" % [label, url])
+	NetLog.print_line("[CLIENT] connecting to %s at %s" % [label, url])
 	var ok := await _wait_until(
 		func() -> bool:
 			return peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTING,
@@ -711,7 +712,7 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_secon
 		if report_error:
 			push_error("[CLIENT] connection failed for %s" % label)
 		return false
-	print("[CLIENT] connected to %s" % label)
+	NetLog.print_line("[CLIENT] connected to %s" % label)
 	return true
 
 
@@ -785,25 +786,25 @@ func _load_world_scene(world_key: String, endpoint: Dictionary) -> bool:
 
 func _on_portal_requested(portal_name: String, target_world: String) -> void:
 	if not _is_known_world_key(target_world):
-		print("[CLIENT] portal target %s is invalid; ignoring" % target_world)
+		NetLog.print_line("[CLIENT] portal target %s is invalid; ignoring" % target_world)
 		return
 	if not requested_transfer_target.is_empty():
-		print("[CLIENT] transfer already pending to %s; ignoring %s" % [requested_transfer_target, target_world])
+		NetLog.print_line("[CLIENT] transfer already pending to %s; ignoring %s" % [requested_transfer_target, target_world])
 		return
 	if transfer_in_progress:
-		print("[CLIENT] transfer already in progress; ignoring %s" % target_world)
+		NetLog.print_line("[CLIENT] transfer already in progress; ignoring %s" % target_world)
 		return
 
 	requested_transfer_target = target_world
 	requested_transfer_portal = portal_name
-	print("[CLIENT] requesting transfer from %s to %s via %s" % [active_world_key, target_world, portal_name])
+	NetLog.print_line("[CLIENT] requesting transfer from %s to %s via %s" % [active_world_key, target_world, portal_name])
 	world_endpoint.request_portal_use.rpc_id(1, portal_name)
 	call_deferred("_clear_stale_transfer_request", portal_name)
 
 
 func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
 	if requested_transfer_target != target_world:
-		print("[CLIENT] ignoring stale transfer approval to %s" % target_world)
+		NetLog.print_line("[CLIENT] ignoring stale transfer approval to %s" % target_world)
 		return
 
 	if not routes.has("worlds"):
@@ -818,7 +819,7 @@ func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
 
 func _on_world_join_approved(world_key: String, endpoint: Dictionary) -> void:
 	if pending_join_world != world_key:
-		print("[CLIENT] ignoring stale join approval for %s" % world_key)
+		NetLog.print_line("[CLIENT] ignoring stale join approval for %s" % world_key)
 		return
 
 	pending_join_endpoint = endpoint
@@ -826,7 +827,7 @@ func _on_world_join_approved(world_key: String, endpoint: Dictionary) -> void:
 
 func _on_world_join_denied(world_key: String, reason: String) -> void:
 	if pending_join_world != world_key:
-		print("[CLIENT] ignoring stale join denial for %s" % world_key)
+		NetLog.print_line("[CLIENT] ignoring stale join denial for %s" % world_key)
 		return
 
 	denied_join_world = world_key
@@ -835,7 +836,7 @@ func _on_world_join_denied(world_key: String, reason: String) -> void:
 
 func _on_transfer_denied(target_world: String) -> void:
 	if requested_transfer_target != target_world:
-		print("[CLIENT] ignoring stale transfer denial to %s" % target_world)
+		NetLog.print_line("[CLIENT] ignoring stale transfer denial to %s" % target_world)
 		return
 
 	denied_transfer = target_world
@@ -850,7 +851,7 @@ func _complete_manual_transfer(target_world: String) -> void:
 	_set_status("Transferring to %s" % target_world)
 	var ok := await _connect_transfer_world(target_world)
 	if ok:
-		print("[CLIENT] manual transfer complete: %s" % active_world_key)
+		NetLog.print_line("[CLIENT] manual transfer complete: %s" % active_world_key)
 	else:
 		push_error("[CLIENT] manual transfer failed to %s" % target_world)
 	requested_transfer_target = ""
@@ -864,7 +865,7 @@ func _clear_stale_transfer_request(portal_name: String) -> void:
 	if transfer_in_progress or str(pending_transfer.get("target_world", "")) == requested_transfer_target:
 		return
 
-	print("[CLIENT] transfer request timed out: %s" % portal_name)
+	NetLog.print_line("[CLIENT] transfer request timed out: %s" % portal_name)
 	denied_transfer = requested_transfer_target
 	requested_transfer_portal = ""
 	requested_transfer_target = ""
@@ -872,7 +873,7 @@ func _clear_stale_transfer_request(portal_name: String) -> void:
 
 func _connect_transfer_world(target_world: String) -> bool:
 	if transfer_in_progress:
-		print("[CLIENT] transfer connection already in progress; ignoring %s" % target_world)
+		NetLog.print_line("[CLIENT] transfer connection already in progress; ignoring %s" % target_world)
 		return false
 
 	transfer_in_progress = true
@@ -883,9 +884,9 @@ func _connect_transfer_world(target_world: String) -> bool:
 
 func _set_status(text: String) -> void:
 	status_label.text = text
-	print("[CLIENT] status: %s" % text)
+	NetLog.print_line("[CLIENT] status: %s" % text)
 
 
 func _smoke_fail(reason: String) -> void:
-	print("SMOKE_FAIL %s" % reason)
+	NetLog.print_line("SMOKE_FAIL %s" % reason)
 	get_tree().quit(1)

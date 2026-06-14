@@ -44,7 +44,7 @@ func _ready() -> void:
 	_open()
 	_migrate()
 	accounts = ACCOUNT_REPOSITORY.new(self)
-	print("MASTER_DB_READY path=%s" % _db.path)
+	NetLog.print_line("MASTER_DB_READY path=%s" % _db.path)
 
 
 func _exit_tree() -> void:
@@ -89,7 +89,7 @@ func _migrate() -> void:
 			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?);",
 			[version, int(Time.get_unix_time_from_system())]
 		)
-		print("MASTER_DB_MIGRATED version=%d" % version)
+		NetLog.print_line("MASTER_DB_MIGRATED version=%d" % version)
 
 
 ## Thin pass-throughs so repositories never hold the raw SQLite handle directly.
