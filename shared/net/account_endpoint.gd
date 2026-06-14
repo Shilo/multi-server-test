@@ -10,7 +10,7 @@ extends Node
 
 # Client-side signals.
 signal session_updated(display_name: String, is_guest: bool, account_id: int)
-signal resume_world_requested(world_key: String)
+signal resume_world_requested(world_key: String, endpoint: Dictionary)
 signal login_failed(reason: String)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
@@ -118,11 +118,11 @@ func login(raw_username: String) -> void:
 	sessions[sender_id] = session
 
 	var has_position := int(account.get("has_position", 0)) == 1
-	_set_resume_intent(sender_id, world_key, has_position, float(account.get("pos_x", 0.0)), float(account.get("pos_y", 0.0)))
+	var endpoint := _create_resume_lease(sender_id, world_key, has_position, float(account.get("pos_x", 0.0)), float(account.get("pos_y", 0.0)))
 
 	NetLog.print_line("MASTER_LOGIN peer=%d account=%d world=%s" % [sender_id, int(account["id"]), world_key])
 	_push_session(sender_id)
-	push_resume_world.rpc_id(sender_id, world_key)
+	push_resume_world.rpc_id(sender_id, world_key, endpoint)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -143,15 +143,16 @@ func logout() -> void:
 	session["active_world_key"] = hub
 	sessions[sender_id] = session
 
-	_set_resume_intent(sender_id, hub, false, 0.0, 0.0)
+	var endpoint := _create_resume_lease(sender_id, hub, false, 0.0, 0.0)
 	NetLog.print_line("MASTER_LOGOUT peer=%d" % sender_id)
 	_push_session(sender_id)
-	push_resume_world.rpc_id(sender_id, hub)
+	push_resume_world.rpc_id(sender_id, hub, endpoint)
 
 
-func _set_resume_intent(peer_id: int, world_key: String, has_spawn: bool, spawn_x: float, spawn_y: float) -> void:
-	if master_endpoint and master_endpoint.has_method("set_login_resume_intent"):
-		master_endpoint.set_login_resume_intent(peer_id, world_key, has_spawn, spawn_x, spawn_y)
+func _create_resume_lease(peer_id: int, world_key: String, has_spawn: bool, spawn_x: float, spawn_y: float) -> Dictionary:
+	if master_endpoint and master_endpoint.has_method("create_login_resume_lease"):
+		return master_endpoint.create_login_resume_lease(peer_id, world_key, has_spawn, spawn_x, spawn_y)
+	return {}
 
 
 func _push_session(peer_id: int) -> void:
@@ -178,10 +179,10 @@ func push_session(display_name: String, is_guest: bool, account_id: int) -> void
 
 
 @rpc("authority", "call_remote", "reliable")
-func push_resume_world(world_key: String) -> void:
+func push_resume_world(world_key: String, endpoint: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
-	resume_world_requested.emit(world_key)
+	resume_world_requested.emit(world_key, endpoint)
 
 
 @rpc("authority", "call_remote", "reliable")

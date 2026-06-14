@@ -240,19 +240,20 @@ Startup behavior:
 
 World orchestration behavior:
 
-1. A route or transfer request calls `ensure_world_started(world_key)`.
-2. Master launches the world server with `OS.create_instance()`.
-3. Editor/smoke launches create another instance of the current Godot executable plus `--path`, `--scene`, `--`, world key, and launch token.
-4. Exported launches create another instance of the same standalone server executable plus `--`, world key, and launch token.
-5. Child worlds inherit the master's display mode: visible masters spawn visible worlds, and headless masters spawn headless worlds.
-6. Master records the PID, launch token, state, player count, idle timestamp, and pending join reservations.
-7. When master sends a route or transfer approval, it records a pending-join reservation for that peer and world.
-8. Master issues a short-lived one-use join ticket and sends it to both the client and the target world.
-9. While the client is connecting to the approved world, it refreshes that reservation over `MasterNet`.
-10. A world is eligible for idle shutdown only when it has `0` connected gameplay peers and `0` pending join reservations.
-11. Pending join reservations are released when the client completes or cancels the join, and expire automatically if the client stops refreshing.
-12. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
-13. If the world does not exit after the stop grace window, master kills the recorded PID.
+1. A client route, portal transfer, or login-resume request creates a refreshable `TravelLease` with pack metadata.
+2. The target world is not started during PackRat asset preparation.
+3. When the client redeems the TravelLease, master calls `ensure_world_started(world_key)`.
+4. Master launches the world server with `OS.create_instance()` if it is not already running.
+5. Editor/smoke launches create another instance of the current Godot executable plus `--path`, `--scene`, `--`, world key, and launch token.
+6. Exported launches create another instance of the same standalone server executable plus `--`, world key, and launch token.
+7. Child worlds inherit the master's display mode: visible masters spawn visible worlds, and headless masters spawn headless worlds.
+8. Master records the PID, launch token, state, player count, idle timestamp, and pending join reservations.
+9. Master issues a short-lived one-use join ticket and sends it to both the client and the target world.
+10. While the client is connecting to the approved world, it refreshes that reservation over `MasterNet`.
+11. A world is eligible for idle shutdown only when it has `0` connected gameplay peers and `0` pending join reservations.
+12. Pending join reservations are released when the client completes or cancels the join, and expire automatically if the client stops refreshing.
+13. If a launched world does not register before the start timeout, master requests shutdown and then kills the recorded PID if needed.
+14. If the world does not exit after the stop grace window, master kills the recorded PID.
 
 World registration behavior:
 
@@ -271,15 +272,17 @@ Transfer approval behavior:
 3. Client asks the current world server to use that portal by portal name.
 4. The world server validates the player is near that portal on the server's replicated state.
 5. The world server resolves `target_world` and optional `target_portal` from the scene-authored `Portal`.
-6. The world server asks master for transfer approval.
-7. Master starts the target world if it is not already running.
-8. Master waits briefly for registration.
-9. Master reserves a pending join for the requesting peer.
-10. Master sends a one-use join ticket to the target world and includes it in the approved endpoint data.
-11. Master sends either approval with endpoint data or a denial.
-12. Client swaps only `WorldNet` after approval and presents the join ticket before requesting world state.
+6. The world server asks master for a TravelLease.
+7. Master validates the source world peer and target key, then grants a TravelLease with PackRat metadata.
+8. Client refreshes the TravelLease while downloading or mounting the target world's PCK.
+9. Client redeems the TravelLease after `WORLD_PACK_READY`.
+10. Master starts the target world if it is not already running.
+11. Master waits briefly for registration.
+12. Master reserves a pending join for the requesting peer.
+13. Master sends a one-use join ticket to the target world and includes it in the approved endpoint data.
+14. Client swaps only `WorldNet` after the join ticket is approved and presents the join ticket before requesting world state.
 
-The pending join reservation is the race guard between transfer approval and idle shutdown. It prevents an empty world from shutting down while the approved client is still opening its world connection. The client refreshes the reservation over the persistent master connection while it connects to the target world, then releases it after receiving world state or after a failed join. If the client disappears, master releases that peer's reservations on disconnect; if the client stalls without refreshing, the reservation expires and the normal empty-world idle timer starts again. If a target world is already in the `stopping` state, master waits briefly for it to finish stopping and then starts a replacement before approving the transfer.
+The TravelLease is the race guard between transfer approval and asset preparation. It lets a slow PackRat download stay authorized without keeping an empty target world alive. The pending join reservation is the shorter race guard between join-ticket approval and the client opening its world connection. If the client disappears, master releases that peer's leases and reservations on disconnect; if the client stalls without refreshing, the lease or reservation expires and normal cleanup resumes. If a target world is already in the `stopping` state, master waits briefly for it to finish before granting or redeeming travel.
 
 ## Chat Responsibilities
 

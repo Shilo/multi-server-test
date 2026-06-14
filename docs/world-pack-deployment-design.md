@@ -279,18 +279,25 @@ loads `pack_url` with `PackRat.load_resource_pack()` before loading the world
 scene.
 
 The master does not need to start the target world process just to advertise
-pack metadata. The current flow is:
+pack metadata. The current flow uses a refreshable `TravelLease` for the
+asset-preparation window and a short-lived one-use join ticket for final world
+entry:
 
 ```text
-1. Master sends route + pack metadata.
-2. Client downloads or mounts the pack with PackRat.
-3. Client requests the world join.
-4. Master starts the world process if needed.
-5. Master issues a short-lived join ticket.
+1. Master validates the route/portal/login-resume request.
+2. Master sends a TravelLease + pack metadata.
+3. Client refreshes the TravelLease while PackRat downloads or mounts the pack.
+4. Client redeems the TravelLease after the pack is ready.
+5. Master starts the world process if needed.
+6. Master issues a short-lived one-use join ticket to the client and world.
+7. Client connects to the world with the join ticket.
 ```
 
 This avoids wasting world-server lifetime while a client is downloading a pack
-or waiting on a missing local/static pack server.
+or waiting on a missing local/static pack server. Slow downloads can keep the
+TravelLease alive without keeping the target world process alive. TravelLeases
+have a refreshable soft expiry and a one-hour hard expiry; the client cancels a
+PackRat request before the hard expiry makes redemption impossible.
 
 This stable-filename shape is acceptable for local testing and the first PackRat
 integration because `tools/export_world_packs.gd` writes to a `.uploading` file

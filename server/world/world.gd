@@ -4,7 +4,9 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
-const TRANSFER_REQUEST_TIMEOUT_SECONDS := 5.0
+## Fallback only. Normal portal transfers clear when the master reports the
+## TravelLease was redeemed or failed; this just prevents permanent local locks.
+const TRANSFER_REQUEST_TIMEOUT_SECONDS := 30.0
 ## How often the world reports live player positions to the master for durable
 ## saving. The master discards saves for guests and stale worlds.
 const POSITION_SAVE_INTERVAL_SECONDS := 3.0

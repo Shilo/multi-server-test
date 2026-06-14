@@ -6,6 +6,11 @@ Date: 2026-06-05
 
 ## 2026-06-08 On-Demand World Orchestration Update
 
+2026-06-14 note: the current implementation now splits travel into a
+refreshable `TravelLease` for PackRat asset preparation and a short-lived
+one-use join ticket for final world entry. The target world process is started
+when the client redeems the TravelLease, not when the lease is first granted.
+
 The current custom Godot branch now uses master-owned child process orchestration:
 
 - Master is the only process expected to stay online all the time.

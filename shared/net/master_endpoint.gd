@@ -1,7 +1,7 @@
 extends Node
 
 signal routes_received(routes: Dictionary)
-signal transfer_approved(target_world: String, endpoint: Dictionary)
+signal travel_lease_granted(target_world: String, endpoint: Dictionary)
 signal transfer_denied(target_world: String)
 signal world_join_approved(world_key: String, endpoint: Dictionary)
 signal world_join_denied(world_key: String, reason: String)
@@ -13,12 +13,14 @@ signal world_transfer_result_received(master_peer_id: int, target_world: String,
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
-const WORLD_JOIN_INTENT_SECONDS := 120.0
+const TRAVEL_LEASE_REFRESH_SECONDS := 120.0
+const TRAVEL_LEASE_MAX_SECONDS := 3600.0
+const MAX_TRAVEL_LEASES_PER_PEER := 8
 
 var registered_worlds := {}
 var peer_worlds := {}
 var world_last_seen := {}
-var pending_world_join_intents := {}
+var travel_leases := {}
 var world_process_manager: Node
 var account_endpoint: Node
 
@@ -42,8 +44,11 @@ func configure_account_endpoint(endpoint: Node) -> void:
 
 ## Called by AccountEndpoint after a login/logout so the next world join for this
 ## peer targets the resumed world, optionally at a server-known saved position.
-func set_login_resume_intent(peer_id: int, world_key: String, has_spawn: bool, spawn_x: float, spawn_y: float) -> void:
-	_set_pending_world_join_intent(peer_id, world_key, "", "", has_spawn, spawn_x, spawn_y)
+func create_login_resume_lease(peer_id: int, world_key: String, has_spawn: bool, spawn_x: float, spawn_y: float) -> Dictionary:
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		return {}
+	var lease := _create_travel_lease(peer_id, world_key, "", "", has_spawn, spawn_x, spawn_y)
+	return _endpoint_for_travel_lease(lease)
 
 
 func unregister_peer(peer_id: int) -> void:
@@ -51,7 +56,7 @@ func unregister_peer(peer_id: int) -> void:
 		return
 	if world_process_manager and world_process_manager.has_method("release_join_reservations_for_peer"):
 		world_process_manager.release_join_reservations_for_peer(peer_id)
-	pending_world_join_intents.erase(str(peer_id))
+	_release_peer_travel_leases(peer_id)
 	if not peer_worlds.has(peer_id):
 		return
 
@@ -167,7 +172,73 @@ func request_world_join(world_key: String) -> void:
 		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
 		return
 
-	call_deferred("_approve_world_join_when_available", sender_id, world_key)
+	if world_key == NET_CONFIG.initial_world():
+		var lease := _create_travel_lease(sender_id, world_key, "", "")
+		travel_leases.erase(str(lease.get("id", "")))
+		call_deferred("_approve_world_join_when_available", sender_id, lease)
+	else:
+		deny_world_join.rpc_id(sender_id, world_key, "missing_travel_lease")
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func refresh_travel_lease(travel_lease_id: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	var lease := _travel_lease_for_peer(sender_id, travel_lease_id)
+	if lease.is_empty():
+		return
+
+	var now := Time.get_unix_time_from_system()
+	var hard_expires_at := float(lease.get("hard_expires_at", 0.0))
+	if hard_expires_at <= now:
+		_expire_travel_lease(travel_lease_id, lease)
+		return
+
+	lease["expires_at"] = min(now + TRAVEL_LEASE_REFRESH_SECONDS, hard_expires_at)
+	travel_leases[travel_lease_id] = lease
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func redeem_travel_lease(travel_lease_id: String, expected_world_key := "") -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	var lease := _consume_travel_lease(sender_id, travel_lease_id)
+	if lease.is_empty():
+		deny_world_join.rpc_id(sender_id, expected_world_key, "invalid_travel_lease")
+		return
+	if not expected_world_key.is_empty() and str(lease.get("target_world", "")) != expected_world_key:
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, str(lease.get("target_world", "")), false)
+		deny_world_join.rpc_id(sender_id, expected_world_key, "travel_lease_target_mismatch")
+		return
+
+	NetLog.print_line("[MASTER] WORLD_JOIN_REQUEST_RECEIVED key=%s peer=%s lease=%s" % [
+		str(lease.get("target_world", "")),
+		sender_id,
+		travel_lease_id,
+	])
+	call_deferred("_approve_world_join_when_available", sender_id, lease)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func release_travel_lease(travel_lease_id: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	var lease := _travel_lease_for_peer(sender_id, travel_lease_id)
+	if lease.is_empty():
+		return
+	travel_leases.erase(travel_lease_id)
+	_notify_source_world_transfer_completed(
+		str(lease.get("source_world", "")),
+		sender_id,
+		str(lease.get("target_world", "")),
+		false
+	)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -255,12 +326,12 @@ func receive_routes(routes: Dictionary) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func approve_transfer(target_world: String, endpoint: Dictionary) -> void:
+func grant_travel_lease(target_world: String, endpoint: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
 
-	NetLog.print_line("[CLIENT] transfer approved to %s" % target_world)
-	transfer_approved.emit(target_world, endpoint)
+	NetLog.print_line("[CLIENT] travel lease granted to %s" % target_world)
+	travel_lease_granted.emit(target_world, endpoint)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -310,9 +381,9 @@ func expect_world_join(world_key: String, join_ticket: String, expires_at: float
 func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 	var routes := live_routes()
 	var worlds: Dictionary = routes["worlds"]
-	worlds[world_key] = _endpoint_without_join_ticket(world_key)
+	var lease := _create_travel_lease(sender_id, world_key, "", "")
+	worlds[world_key] = _endpoint_for_travel_lease(lease)
 	routes["worlds"] = worlds
-	_set_pending_world_join_intent(sender_id, world_key, "", "")
 	receive_routes.rpc_id(sender_id, routes)
 
 
@@ -329,37 +400,37 @@ func _approve_transfer_when_available(sender_id: int, target_world: String, sour
 		_notify_source_world_transfer_completed(source_world, sender_id, target_world, false)
 		return
 
-	_set_pending_world_join_intent(sender_id, target_world, source_world, target_portal)
-	approve_transfer.rpc_id(sender_id, target_world, _endpoint_without_join_ticket(target_world))
+	var lease := _create_travel_lease(sender_id, target_world, source_world, target_portal)
+	grant_travel_lease.rpc_id(sender_id, target_world, _endpoint_for_travel_lease(lease))
 
 
-func _approve_world_join_when_available(sender_id: int, world_key: String) -> void:
-	var intent := _consume_world_join_intent(sender_id, world_key)
-	if intent.is_empty():
-		deny_world_join.rpc_id(sender_id, world_key, "missing_join_intent")
+func _approve_world_join_when_available(sender_id: int, lease: Dictionary) -> void:
+	var world_key := str(lease.get("target_world", ""))
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
 		return
 
 	var ok := await _ensure_world_available(world_key)
 	if not ok or not registered_worlds.has(world_key):
-		_notify_source_world_transfer_completed(str(intent.get("source_world", "")), sender_id, world_key, false)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false)
 		deny_world_join.rpc_id(sender_id, world_key, "world_unavailable")
 		return
 
 	var endpoint := _endpoint_with_join_ticket(
 		sender_id,
 		world_key,
-		str(intent.get("source_world", "")),
-		str(intent.get("target_portal", "")),
-		intent
+		str(lease.get("source_world", "")),
+		str(lease.get("target_portal", "")),
+		lease
 	)
 	if str(endpoint.get("join_ticket", "")).is_empty():
-		_notify_source_world_transfer_completed(str(intent.get("source_world", "")), sender_id, world_key, false)
+		_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, false)
 		deny_world_join.rpc_id(sender_id, world_key, "ticket_unavailable")
 		return
 
 	NetLog.print_line("[MASTER] WORLD_JOIN_APPROVED key=%s peer=%s" % [world_key, sender_id])
 	approve_world_join.rpc_id(sender_id, world_key, endpoint)
-	_notify_source_world_transfer_completed(str(intent.get("source_world", "")), sender_id, world_key, true)
+	_notify_source_world_transfer_completed(str(lease.get("source_world", "")), sender_id, world_key, true)
 
 
 func _ensure_world_available(world_key: String) -> bool:
@@ -471,43 +542,123 @@ func _send_join_ticket_to_world(world_key: String, join_ticket: String, expires_
 			return
 
 
-func _set_pending_world_join_intent(sender_id: int, target_world: String, source_world: String, target_portal: String, has_spawn := false, spawn_x := 0.0, spawn_y := 0.0) -> void:
-	pending_world_join_intents[str(sender_id)] = {
+func _create_travel_lease(sender_id: int, target_world: String, source_world: String, target_portal: String, has_spawn := false, spawn_x := 0.0, spawn_y := 0.0) -> Dictionary:
+	_remove_matching_travel_leases(sender_id, target_world, source_world, target_portal)
+	_trim_peer_travel_leases(sender_id)
+	var now := Time.get_unix_time_from_system()
+	var lease_id := _new_travel_lease_id()
+	var lease := {
+		"id": lease_id,
+		"peer_id": sender_id,
 		"target_world": target_world,
 		"source_world": source_world,
 		"target_portal": target_portal,
 		"has_spawn": has_spawn,
 		"spawn_x": spawn_x,
 		"spawn_y": spawn_y,
-		"expires_at": Time.get_unix_time_from_system() + WORLD_JOIN_INTENT_SECONDS,
+		"expires_at": now + TRAVEL_LEASE_REFRESH_SECONDS,
+		"hard_expires_at": now + TRAVEL_LEASE_MAX_SECONDS,
 	}
+	travel_leases[lease_id] = lease
+	NetLog.print_line("[MASTER] TRAVEL_LEASE_CREATED id=%s peer=%s target=%s source=%s" % [
+		lease_id,
+		sender_id,
+		target_world,
+		source_world,
+	])
+	return lease
 
 
-func _consume_world_join_intent(sender_id: int, world_key: String) -> Dictionary:
-	_expire_pending_world_join_intents()
-	var intent_key := str(sender_id)
-	if pending_world_join_intents.has(intent_key):
-		var intent: Dictionary = pending_world_join_intents[intent_key]
-		if str(intent.get("target_world", "")) == world_key:
-			pending_world_join_intents.erase(intent_key)
-			return intent
-
-	if world_key == NET_CONFIG.initial_world():
-		return {
-			"target_world": world_key,
-			"source_world": "",
-			"target_portal": "",
-		}
-
-	return {}
+func _remove_matching_travel_leases(sender_id: int, target_world: String, source_world: String, target_portal: String) -> void:
+	for travel_lease_id in travel_leases.keys():
+		var lease: Dictionary = travel_leases[travel_lease_id]
+		if (
+			int(lease.get("peer_id", 0)) == sender_id
+			and str(lease.get("target_world", "")) == target_world
+			and str(lease.get("source_world", "")) == source_world
+			and str(lease.get("target_portal", "")) == target_portal
+		):
+			travel_leases.erase(str(travel_lease_id))
 
 
-func _expire_pending_world_join_intents() -> void:
+func _trim_peer_travel_leases(sender_id: int) -> void:
+	var peer_lease_ids: Array[String] = []
+	for travel_lease_id in travel_leases.keys():
+		var lease: Dictionary = travel_leases[travel_lease_id]
+		if int(lease.get("peer_id", 0)) == sender_id:
+			peer_lease_ids.append(str(travel_lease_id))
+	if peer_lease_ids.size() < MAX_TRAVEL_LEASES_PER_PEER:
+		return
+
+	peer_lease_ids.sort_custom(func(a: String, b: String) -> bool:
+		var a_lease: Dictionary = travel_leases.get(a, {})
+		var b_lease: Dictionary = travel_leases.get(b, {})
+		return float(a_lease.get("expires_at", 0.0)) < float(b_lease.get("expires_at", 0.0))
+	)
+	while peer_lease_ids.size() >= MAX_TRAVEL_LEASES_PER_PEER:
+		var oldest_id: String = peer_lease_ids.pop_front()
+		if travel_leases.has(oldest_id):
+			_expire_travel_lease(oldest_id, travel_leases[oldest_id])
+
+
+func _new_travel_lease_id() -> String:
+	var token := ""
+	for byte in OS.get_entropy(16):
+		token += str(int(byte)).pad_zeros(3)
+	return token
+
+
+func _endpoint_for_travel_lease(lease: Dictionary) -> Dictionary:
+	if lease.is_empty():
+		return {}
+	var endpoint := _endpoint_without_join_ticket(str(lease.get("target_world", "")))
+	endpoint["travel_lease_id"] = str(lease.get("id", ""))
+	endpoint["travel_lease_expires_at"] = float(lease.get("expires_at", 0.0))
+	endpoint["travel_lease_hard_expires_at"] = float(lease.get("hard_expires_at", 0.0))
+	return endpoint
+
+
+func _travel_lease_for_peer(sender_id: int, travel_lease_id: String) -> Dictionary:
+	_expire_travel_leases()
+	if travel_lease_id.is_empty() or not travel_leases.has(travel_lease_id):
+		return {}
+	var lease: Dictionary = travel_leases[travel_lease_id]
+	if int(lease.get("peer_id", 0)) != sender_id:
+		return {}
+	return lease
+
+
+func _consume_travel_lease(sender_id: int, travel_lease_id: String) -> Dictionary:
+	var lease := _travel_lease_for_peer(sender_id, travel_lease_id)
+	if lease.is_empty():
+		return {}
+	travel_leases.erase(travel_lease_id)
+	return lease
+
+
+func _release_peer_travel_leases(peer_id: int) -> void:
+	for travel_lease_id in travel_leases.keys():
+		var lease: Dictionary = travel_leases[travel_lease_id]
+		if int(lease.get("peer_id", 0)) == peer_id:
+			_expire_travel_lease(str(travel_lease_id), lease)
+
+
+func _expire_travel_leases() -> void:
 	var now := Time.get_unix_time_from_system()
-	for intent_key in pending_world_join_intents.keys():
-		var intent: Dictionary = pending_world_join_intents[intent_key]
-		if float(intent.get("expires_at", 0.0)) <= now:
-			pending_world_join_intents.erase(intent_key)
+	for travel_lease_id in travel_leases.keys():
+		var lease: Dictionary = travel_leases[travel_lease_id]
+		if float(lease.get("expires_at", 0.0)) <= now or float(lease.get("hard_expires_at", 0.0)) <= now:
+			_expire_travel_lease(str(travel_lease_id), lease)
+
+
+func _expire_travel_lease(travel_lease_id: String, lease: Dictionary) -> void:
+	travel_leases.erase(travel_lease_id)
+	_notify_source_world_transfer_completed(
+		str(lease.get("source_world", "")),
+		int(lease.get("peer_id", 0)),
+		str(lease.get("target_world", "")),
+		false
+	)
 
 
 func _notify_source_world_transfer_completed(source_world: String, master_peer_id: int, target_world: String, approved: bool) -> void:
@@ -537,7 +688,7 @@ func _expire_stale_worlds() -> void:
 	if not multiplayer.is_server():
 		return
 
-	_expire_pending_world_join_intents()
+	_expire_travel_leases()
 	var now := Time.get_unix_time_from_system()
 	for world_key in world_last_seen.keys():
 		if now - float(world_last_seen[world_key]) <= HEARTBEAT_TIMEOUT_SECONDS:

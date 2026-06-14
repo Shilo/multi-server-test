@@ -7,6 +7,8 @@ const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
+const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
+const TRAVEL_LEASE_REDEEM_GRACE_SECONDS := 5.0
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -39,6 +41,9 @@ var session_display_name := ""
 var session_is_guest := true
 var world_pack_last_logged_percent := -10
 var world_pack_last_logged_msec := 0
+var travel_lease_keepalive_id := ""
+var travel_lease_keepalive_active := false
+var travel_lease_keepalive_generation := 0
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -58,7 +63,7 @@ func _ready() -> void:
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
 		routes = new_routes
 	)
-	master_endpoint.transfer_approved.connect(_on_transfer_approved)
+	master_endpoint.travel_lease_granted.connect(_on_travel_lease_granted)
 	master_endpoint.transfer_denied.connect(_on_transfer_denied)
 	master_endpoint.world_join_approved.connect(_on_world_join_approved)
 	master_endpoint.world_join_denied.connect(_on_world_join_denied)
@@ -154,7 +159,13 @@ func _on_login_failed(reason: String) -> void:
 		login_panel.show_error(reason)
 
 
-func _on_resume_world_requested(world_key: String) -> void:
+func _on_resume_world_requested(world_key: String, endpoint: Dictionary) -> void:
+	if not endpoint.is_empty():
+		if not routes.has("worlds"):
+			routes["worlds"] = {}
+		var worlds: Dictionary = routes["worlds"]
+		worlds[world_key] = endpoint
+		routes["worlds"] = worlds
 	resume_target = world_key
 	call_deferred("_resume_into_world", world_key)
 
@@ -278,7 +289,7 @@ func _db_test_phase2() -> void:
 
 
 ## Manual-mode travel: walk the local player into the portal and let the normal
-## manual transfer auto-complete (client.gd's _on_transfer_approved) land us.
+## manual transfer auto-complete (client.gd's _on_travel_lease_granted) land us.
 func _manual_travel(target_world: String) -> bool:
 	if not current_world_scene or not current_world_scene.has_method("activate_portal_to"):
 		return false
@@ -398,8 +409,10 @@ func _connect_world(world_key: String) -> bool:
 		push_error("[CLIENT] no registered route for world %s" % world_key)
 		return false
 
+	_start_travel_lease_keepalive(route_endpoint)
 	var assets_ready: bool = await _prepare_world_assets(world_key, route_endpoint)
 	if not assets_ready:
+		_release_travel_lease(route_endpoint)
 		push_error("[CLIENT] assets unavailable for world %s" % world_key)
 		return false
 
@@ -408,10 +421,12 @@ func _connect_world(world_key: String) -> bool:
 	connecting_world_key = world_key
 	rejected_world_join = ""
 	if not _load_world_scene(world_key, route_endpoint):
+		_release_travel_lease(route_endpoint)
 		connecting_world_key = ""
 		return false
 
-	var endpoint := await _request_world_join(world_key)
+	var endpoint := await _request_world_join(world_key, route_endpoint)
+	_stop_travel_lease_keepalive(str(route_endpoint.get("travel_lease_id", "")))
 	if endpoint.is_empty():
 		connecting_world_key = ""
 		return false
@@ -464,8 +479,7 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	request.progress_changed.connect(func(downloaded_bytes: int, total_bytes: int) -> void:
 		_update_world_pack_progress(world_key, downloaded_bytes, total_bytes)
 	)
-	if not request.is_completed():
-		await request.completed
+	await _wait_for_pack_or_lease_expiry(world_key, endpoint, request)
 
 	var result: PackRatResult = request.result
 	_hide_world_pack_progress()
@@ -484,6 +498,18 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 		[world_key, result.status, str(result.from_cache), result.content_length, result.local_path]
 	)
 	return true
+
+
+func _wait_for_pack_or_lease_expiry(world_key: String, endpoint: Dictionary, request: PackRatRequest) -> void:
+	var hard_expires_at := float(endpoint.get("travel_lease_hard_expires_at", 0.0))
+	while not request.is_completed():
+		if hard_expires_at > 0.0 and Time.get_unix_time_from_system() >= hard_expires_at - TRAVEL_LEASE_REDEEM_GRACE_SECONDS:
+			NetLog.print_line("[CLIENT] WORLD_PACK_CANCELED key=%s reason=travel_lease_expiring" % world_key)
+			request.cancel()
+			break
+		await get_tree().create_timer(0.25).timeout
+	if not request.is_completed():
+		await request.completed
 
 
 func _force_packrat_world_packs() -> bool:
@@ -526,13 +552,17 @@ func _hide_world_pack_progress() -> void:
 	world_pack_progress.visible = false
 
 
-func _request_world_join(world_key: String) -> Dictionary:
+func _request_world_join(world_key: String, route_endpoint: Dictionary) -> Dictionary:
 	pending_join_endpoint = {}
 	pending_join_world = world_key
 	denied_join_world = ""
 	denied_join_reason = ""
-	NetLog.print_line("[CLIENT] WORLD_JOIN_REQUEST key=%s" % world_key)
-	master_endpoint.request_world_join.rpc_id(1, world_key)
+	var travel_lease_id := str(route_endpoint.get("travel_lease_id", ""))
+	NetLog.print_line("[CLIENT] WORLD_JOIN_REQUEST key=%s lease=%s" % [world_key, travel_lease_id])
+	if travel_lease_id.is_empty():
+		master_endpoint.request_world_join.rpc_id(1, world_key)
+	else:
+		master_endpoint.redeem_travel_lease.rpc_id(1, travel_lease_id, world_key)
 
 	var ok := await _wait_until(
 		func() -> bool:
@@ -802,9 +832,50 @@ func _on_portal_requested(portal_name: String, target_world: String) -> void:
 	call_deferred("_clear_stale_transfer_request", portal_name)
 
 
-func _on_transfer_approved(target_world: String, endpoint: Dictionary) -> void:
+func _start_travel_lease_keepalive(endpoint: Dictionary) -> void:
+	var travel_lease_id := str(endpoint.get("travel_lease_id", ""))
+	if travel_lease_id.is_empty():
+		return
+	travel_lease_keepalive_generation += 1
+	travel_lease_keepalive_id = travel_lease_id
+	travel_lease_keepalive_active = true
+	if _is_master_connected():
+		master_endpoint.refresh_travel_lease.rpc_id(1, travel_lease_id)
+	call_deferred("_run_travel_lease_keepalive", travel_lease_id, travel_lease_keepalive_generation)
+
+
+func _stop_travel_lease_keepalive(travel_lease_id: String) -> void:
+	if travel_lease_keepalive_id != travel_lease_id:
+		return
+	travel_lease_keepalive_generation += 1
+	travel_lease_keepalive_active = false
+	travel_lease_keepalive_id = ""
+
+
+func _release_travel_lease(endpoint: Dictionary) -> void:
+	var travel_lease_id := str(endpoint.get("travel_lease_id", ""))
+	_stop_travel_lease_keepalive(travel_lease_id)
+	if not travel_lease_id.is_empty() and _is_master_connected():
+		master_endpoint.release_travel_lease.rpc_id(1, travel_lease_id)
+
+
+func _run_travel_lease_keepalive(travel_lease_id: String, generation: int) -> void:
+	while (
+		travel_lease_keepalive_active
+		and travel_lease_keepalive_id == travel_lease_id
+		and travel_lease_keepalive_generation == generation
+	):
+		if not _is_master_connected():
+			travel_lease_keepalive_active = false
+			travel_lease_keepalive_id = ""
+			return
+		master_endpoint.refresh_travel_lease.rpc_id(1, travel_lease_id)
+		await get_tree().create_timer(TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS).timeout
+
+
+func _on_travel_lease_granted(target_world: String, endpoint: Dictionary) -> void:
 	if requested_transfer_target != target_world:
-		NetLog.print_line("[CLIENT] ignoring stale transfer approval to %s" % target_world)
+		NetLog.print_line("[CLIENT] ignoring stale travel lease to %s" % target_world)
 		return
 
 	if not routes.has("worlds"):
