@@ -472,6 +472,7 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	for warning in result.warnings:
 		print("[CLIENT] PackRat warning for %s: %s" % [world_key, warning])
 	if not result.ok:
+		print("[CLIENT] WORLD_PACK_FAILED key=%s url=%s error=%s" % [world_key, pack_url, result.error])
 		push_error("[CLIENT] failed to load pack for %s from %s: %s" % [world_key, pack_url, result.error])
 		return false
 	if not result.entry_scene_exists():

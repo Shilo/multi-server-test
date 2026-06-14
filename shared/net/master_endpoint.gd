@@ -307,12 +307,6 @@ func expect_world_join(world_key: String, join_ticket: String, expires_at: float
 
 
 func _send_routes_when_available(sender_id: int, world_key: String) -> void:
-	var ok := await _ensure_world_available(world_key)
-	if not ok:
-		push_error("[MASTER] failed to make initial world available: %s" % world_key)
-		receive_routes.rpc_id(sender_id, live_routes())
-		return
-
 	var routes := live_routes()
 	var worlds: Dictionary = routes["worlds"]
 	worlds[world_key] = _endpoint_without_join_ticket(world_key)
@@ -322,14 +316,21 @@ func _send_routes_when_available(sender_id: int, world_key: String) -> void:
 
 
 func _approve_transfer_when_available(sender_id: int, target_world: String, source_world: String, target_portal: String) -> void:
-	var ok := await _ensure_world_available(target_world)
-	if ok and registered_worlds.has(target_world):
-		_set_pending_world_join_intent(sender_id, target_world, source_world, target_portal)
-		approve_transfer.rpc_id(sender_id, target_world, _endpoint_without_join_ticket(target_world))
-		_notify_source_world_transfer_completed(source_world, sender_id, target_world, true)
-	else:
+	if world_process_manager and world_process_manager.is_world_stopping(target_world):
+		var stopped := await _wait_for_world_stop(target_world)
+		if not stopped:
+			deny_transfer.rpc_id(sender_id, target_world)
+			_notify_source_world_transfer_completed(source_world, sender_id, target_world, false)
+			return
+
+	if not NET_CONFIG.is_valid_world_key(target_world):
 		deny_transfer.rpc_id(sender_id, target_world)
 		_notify_source_world_transfer_completed(source_world, sender_id, target_world, false)
+		return
+
+	_set_pending_world_join_intent(sender_id, target_world, source_world, target_portal)
+	approve_transfer.rpc_id(sender_id, target_world, _endpoint_without_join_ticket(target_world))
+	_notify_source_world_transfer_completed(source_world, sender_id, target_world, true)
 
 
 func _approve_world_join_when_available(sender_id: int, world_key: String) -> void:

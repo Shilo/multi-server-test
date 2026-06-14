@@ -109,6 +109,14 @@ function Refresh-ScriptClassCache {
 }
 
 function Start-WorldPackServer {
+    $existing = Get-CimInstance Win32_Process | Where-Object {
+        ($_.Name -like "python*" -or $_.Name -like "py.exe") -and $_.CommandLine -like "*http.server*$WorldPackPort*"
+    } | Select-Object -First 1
+    if ($existing) {
+        Write-Host "SMOKE_REUSE world_pack_http pid=$($existing.ProcessId)"
+        return $null
+    }
+
     $out = Join-Path $LogRoot "world_pack_http.out.log"
     $err = Join-Path $LogRoot "world_pack_http.err.log"
     $args = @("-m", "http.server", "$WorldPackPort", "--bind", "127.0.0.1", "--directory", $BuildRoot)

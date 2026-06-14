@@ -278,6 +278,20 @@ The client passes those values into `PackRatOptions.from_expected_metadata()` an
 loads `pack_url` with `PackRat.load_resource_pack()` before loading the world
 scene.
 
+The master does not need to start the target world process just to advertise
+pack metadata. The current flow is:
+
+```text
+1. Master sends route + pack metadata.
+2. Client downloads or mounts the pack with PackRat.
+3. Client requests the world join.
+4. Master starts the world process if needed.
+5. Master issues a short-lived join ticket.
+```
+
+This avoids wasting world-server lifetime while a client is downloading a pack
+or waiting on a missing local/static pack server.
+
 This stable-filename shape is acceptable for local testing and the first PackRat
 integration because `tools/export_world_packs.gd` writes to a `.uploading` file
 first and then renames it into place. Production can still move to the safer
