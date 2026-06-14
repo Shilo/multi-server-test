@@ -64,7 +64,9 @@ const _SCRIPT_TEMPLATE: String = """
 
 			const response = await fetch(url, request);
 			const headers = JSON.stringify(Array.from(response.headers.entries()));
-			const total = 0;
+			// Fetch Content-Length can be the compressed transfer size, so PackRat
+			// reports an unknown decoded total and lets GDScript use expected metadata.
+			const decodedTotal = 0;
 			const targetChunkSize = Math.max(256, Math.min(Number(chunkSize) || 8388608, 16777216));
 			if (response.status < 200 || response.status >= 300) {
 				if (response.body && response.body.cancel) {
@@ -142,9 +144,9 @@ const _SCRIPT_TEMPLATE: String = """
 				appendChunk(chunk);
 
 				const now = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-				if (now - lastProgressAt >= PROGRESS_INTERVAL_MS || received === total) {
+				if (now - lastProgressAt >= PROGRESS_INTERVAL_MS) {
 					lastProgressAt = now;
-					progressCallback(key, received, total);
+					progressCallback(key, received, decodedTotal);
 				}
 			}
 
@@ -153,7 +155,7 @@ const _SCRIPT_TEMPLATE: String = """
 			}
 
 			flush();
-			progressCallback(key, received, total);
+			progressCallback(key, received, decodedTotal);
 			doneCallback(key, response.status, headers);
 		} catch (error) {
 			let message = error && error.message ? error.message : String(error);
