@@ -16,7 +16,7 @@ func _ready() -> void:
 	_cache_portals()
 
 
-func spawn_player(peer_id: int, position: Vector2, display_name := "", is_guest := true) -> Node:
+func spawn_player(peer_id: int, spawn_position: Vector2, display_name := "", is_guest := true) -> Node:
 	var spawn_root := get_node(SPAWN_ROOT_PATH)
 	var player_name := "Player_%d" % peer_id
 	if spawn_root.has_node(player_name):
@@ -25,7 +25,7 @@ func spawn_player(peer_id: int, position: Vector2, display_name := "", is_guest 
 	var spawner := get_node(SPAWNER_PATH) as MultiplayerSpawner
 	return spawner.spawn({
 		"peer_id": peer_id,
-		"position": position,
+		"position": spawn_position,
 		"display_name": display_name,
 		"is_guest": is_guest,
 	})
