@@ -118,6 +118,20 @@ Launch a manual client:
 
 Manual client mode requires only the master at startup. The master starts the initial world when the client asks for routes, then starts transfer targets on demand.
 
+In editor/manual runs, the client can still see local `res://server/worlds/`
+scenes, so PackRat is skipped by default and the client prints
+`WORLD_PACK_SKIPPED`. To force the downloadable-pack path locally, first build
+and serve world packs, then pass the client arg:
+
+```powershell
+& $godot --headless --path . --script res://tools/export_world_packs.gd
+python -m http.server 19100 --bind 127.0.0.1 --directory builds
+& $godot --path . --scene res://client/client.tscn -- force_packrat_world_packs
+```
+
+That forced path should print `WORLD_PACK_START`, `WORLD_PACK_PROGRESS`, and
+`WORLD_PACK_READY`.
+
 ## Editor Run Instances
 
 Use Godot's editor launcher when you want visible local clients and visible local servers.

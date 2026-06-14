@@ -438,6 +438,7 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
 	var local_scene_available := ResourceLoader.exists(scene_path, "PackedScene")
 	if local_scene_available and not _force_packrat_world_packs():
+		print("[CLIENT] WORLD_PACK_SKIPPED key=%s reason=local_scene_available arg=%s" % [world_key, FORCE_PACKRAT_WORLD_PACKS_ARG])
 		return true
 
 	var pack_url := str(endpoint.get("pack_url", ""))
