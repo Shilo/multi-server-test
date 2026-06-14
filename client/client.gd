@@ -6,6 +6,7 @@ const LOGIN_PANEL_SCENE := preload("res://client/login/login_panel.tscn")
 const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
+const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -432,11 +433,42 @@ func _connect_world(world_key: String) -> bool:
 
 func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
-	if ResourceLoader.exists(scene_path, "PackedScene"):
+	var local_scene_available := ResourceLoader.exists(scene_path, "PackedScene")
+	if local_scene_available and not _force_packrat_world_packs():
 		return true
 
-	push_error("[CLIENT] world scene is not available yet: %s" % scene_path)
-	return false
+	var pack_url := str(endpoint.get("pack_url", ""))
+	if pack_url.is_empty():
+		push_error("[CLIENT] missing pack metadata for world %s; scene is not bundled: %s" % [world_key, scene_path])
+		return false
+
+	var expected_modified_time := int(endpoint.get("pack_modified_time", 0))
+	var expected_size := int(endpoint.get("pack_size", 0))
+	var options := PackRatOptions.from_expected_metadata(expected_modified_time, expected_size)
+	options.id = world_key
+	options.entry_path = scene_path
+	options.progress_total_size = expected_size
+
+	_set_status("Downloading %s" % world_key)
+	var result: PackRatResult = await PackRat.load_resource_pack(pack_url, options)
+	for warning in result.warnings:
+		print("[CLIENT] PackRat warning for %s: %s" % [world_key, warning])
+	if not result.ok:
+		push_error("[CLIENT] failed to load pack for %s from %s: %s" % [world_key, pack_url, result.error])
+		return false
+	if not result.entry_scene_exists():
+		push_error("[CLIENT] pack for %s mounted, but scene is missing: %s" % [world_key, scene_path])
+		return false
+
+	print(
+		"[CLIENT] WORLD_PACK_READY key=%s status=%s cache=%s path=%s" %
+		[world_key, result.status, str(result.from_cache), result.local_path]
+	)
+	return true
+
+
+func _force_packrat_world_packs() -> bool:
+	return FORCE_PACKRAT_WORLD_PACKS_ARG in OS.get_cmdline_user_args()
 
 
 func _request_world_join(world_key: String) -> Dictionary:

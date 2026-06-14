@@ -85,7 +85,15 @@ func unregister_world_by_key(world_key: String, reason: String) -> void:
 
 func live_routes() -> Dictionary:
 	var routes := NET_CONFIG.routes()
-	routes["worlds"] = registered_worlds.duplicate(true)
+	var worlds := {}
+	for world_key in registered_worlds.keys():
+		worlds[world_key] = _endpoint_without_join_ticket(str(world_key))
+	routes["worlds"] = worlds
+	if routes.has("world_catalog"):
+		var catalog: Dictionary = routes["world_catalog"]
+		for world_key in catalog.keys():
+			catalog[world_key] = _endpoint_with_world_pack_metadata(str(world_key), catalog[world_key])
+		routes["world_catalog"] = catalog
 	return routes
 
 
@@ -378,9 +386,27 @@ func _ensure_world_available(world_key: String) -> bool:
 
 
 func _endpoint_without_join_ticket(world_key: String) -> Dictionary:
-	if not registered_worlds.has(world_key):
-		return NET_CONFIG.world_endpoint(world_key)
-	return registered_worlds[world_key].duplicate(true)
+	var endpoint: Dictionary = NET_CONFIG.world_endpoint(world_key)
+	if registered_worlds.has(world_key):
+		endpoint = registered_worlds[world_key].duplicate(true)
+	return _endpoint_with_world_pack_metadata(world_key, endpoint)
+
+
+func _endpoint_with_world_pack_metadata(world_key: String, endpoint: Dictionary) -> Dictionary:
+	var enriched := endpoint.duplicate(true)
+	var pack_path := NET_CONFIG.world_pack_file_path(world_key)
+	if not FileAccess.file_exists(pack_path):
+		return enriched
+
+	var pack_size := FileAccess.get_size(pack_path)
+	var pack_modified_time := FileAccess.get_modified_time(pack_path)
+	if pack_size <= 0 or pack_modified_time <= 0:
+		return enriched
+
+	enriched["pack_url"] = NET_CONFIG.world_pack_url(world_key)
+	enriched["pack_modified_time"] = pack_modified_time
+	enriched["pack_size"] = pack_size
+	return enriched
 
 
 func _wait_for_world_stop(world_key: String) -> bool:

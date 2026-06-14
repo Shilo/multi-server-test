@@ -256,3 +256,30 @@ Do not add required SHA sidecars or full manifests yet.
 
 Do not hot-patch running world servers. Publish new packs for new transfers,
 then drain/restart world servers when they should adopt the new content.
+
+## Current `multi-server-test` Implementation
+
+The current PackRat integration uses a simpler local MVP:
+
+```text
+builds/world_packs/<world_key>.pck
+```
+
+The master reads size and modified time from the file on each route/join
+metadata path and sends flat endpoint fields:
+
+```text
+pack_url
+pack_modified_time
+pack_size
+```
+
+The client passes those values into `PackRatOptions.from_expected_metadata()` and
+loads `pack_url` with `PackRat.load_resource_pack()` before loading the world
+scene.
+
+This stable-filename shape is acceptable for local testing and the first PackRat
+integration because `tools/export_world_packs.gd` writes to a `.uploading` file
+first and then renames it into place. Production can still move to the safer
+immutable filename plus `current.json` pointer design above without changing the
+client-side PackRat call pattern.

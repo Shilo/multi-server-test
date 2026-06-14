@@ -4,3 +4,4 @@
 .logs/
 /builds/*
 !/builds/.gdignore
+addons/**/~*.TMP
