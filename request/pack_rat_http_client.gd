@@ -97,21 +97,13 @@ static func request(
 		if not download_path.is_empty():
 			if capture_timings:
 				progress_frames += 1
-			var total_bytes: int = http_request.get_body_size()
-			if total_bytes <= 0 and options.progress_total_size > 0:
-				total_bytes = options.progress_total_size
-			elif total_bytes <= 0 and options.has_expected_size():
-				total_bytes = options.expected_size
+			var total_bytes: int = _progress_total_bytes(http_request.get_body_size(), options)
 			owner._set_progress(http_request.get_downloaded_bytes(), total_bytes)
 		await tree.process_frame
 
 	if capture_timings:
 		timings_msec["http_progress_frames"] = progress_frames
 	_record_timing(timings_msec, capture_timings, "http_transfer_msec", transfer_start_msec)
-	var cleanup_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
-	owner._set_http_request(null)
-	http_request.queue_free()
-	_record_timing(timings_msec, capture_timings, "http_cleanup_msec", cleanup_start_msec)
 
 	var result_code: HTTPRequest.Result = completed[0]
 	var response_code: int = completed[1]
@@ -120,6 +112,21 @@ static func request(
 	var response: PackRatHttpResponse = PackRatHttpResponse.from_completed(result_code, response_code, headers)
 	if OS.has_feature("web"):
 		response.content_length = 0
+
+	if (
+		not download_path.is_empty()
+		and result_code == HTTPRequest.RESULT_SUCCESS
+		and response_code >= 200
+		and response_code < 300
+	):
+		var downloaded_file_size: int = FileAccess.get_size(download_path)
+		if downloaded_file_size > 0:
+			owner._set_progress(downloaded_file_size, _progress_total_bytes(response.content_length, options, downloaded_file_size))
+
+	var cleanup_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	owner._set_http_request(null)
+	http_request.queue_free()
+	_record_timing(timings_msec, capture_timings, "http_cleanup_msec", cleanup_start_msec)
 	return _finish_timing(response, timings_msec, total_start_msec, capture_timings)
 
 
@@ -168,6 +175,16 @@ static func _fetch_request(
 	response.content_length = 0
 	response.timings_msec = _packrat_fetch_timings(fetch_result.timings_msec)
 	return response
+
+
+static func _progress_total_bytes(reported_total_bytes: int, options: PackRatOptions, downloaded_file_size: int = 0) -> int:
+	if options.progress_total_size > 0:
+		return options.progress_total_size
+	if options.has_expected_size():
+		return options.expected_size
+	if reported_total_bytes > 0:
+		return reported_total_bytes
+	return downloaded_file_size
 
 
 static func _packrat_fetch_timings(timings_msec: Dictionary) -> Dictionary:

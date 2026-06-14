@@ -243,6 +243,9 @@ static func download_file(
 			HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR
 		), timings_msec, total_start_msec, capture_timings)
 
+	if progress_callback.is_valid() and fetch_result.downloaded_bytes > 0:
+		progress_callback.call(fetch_result.downloaded_bytes, fetch_result.downloaded_bytes)
+
 	_release_active_download_path(download_path)
 	return _finish_timing(fetch_result, timings_msec, total_start_msec, capture_timings)
 
