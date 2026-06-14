@@ -1,17 +1,21 @@
 class_name PackRat extends RefCounted
-## Static facade for loading remote Godot PCK/ZIP resource packs at runtime.
-## [br][br]
-## The main API is [method load_resource_pack]. It uses temporary [HTTPRequest]
-## nodes or browser-native fetch downloads depending on platform and options,
-## then cleans up request state when each request completes or fails to start.
-## No autoload, editor plugin, or persistent helper node is required.
+## Loads remote Godot PCK/ZIP resource packs at runtime.
+##
+## PackRat is a static facade around runtime HTTP downloads, local [code]user://[/code]
+## cache files, and [method ProjectSettings.load_resource_pack]. It does not
+## require an autoload, editor plugin, manifest, provider system, or persistent
+## helper node.
 
 
-## Downloads, freshness-checks, caches, and mounts the resource pack at [param url].
-## [br][br]
-## Returns a [PackRatResult] with [member PackRatResult.ok] set to [code]true[/code]
-## when the file is ready. [param options] can override cache location,
-## replacement behavior, request headers, timeout, and entry path.
+## Loads the resource pack at [param url].
+##
+## Parameters:
+## - [param url]: HTTP(S) URL for a Godot [code].pck[/code] or [code].zip[/code].
+## - [param options]: Optional cache, validation, HTTP, and mount settings.
+##
+## Returns:
+## A [PackRatResult] with [member PackRatResult.ok] set to [code]true[/code] when
+## the pack is cached, mounted, and ready to use.
 static func load_resource_pack(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatResult:
 	if not PackRatCachePaths.is_http_url(url):
 		return PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs.")
@@ -34,7 +38,14 @@ static func load_resource_pack(url: String, options: PackRatOptions = PackRatOpt
 	return request.result
 
 
-## Starts loading the resource pack at [param url] and returns a cancelable request.
+## Starts loading the resource pack at [param url] without waiting for completion.
+##
+## Parameters:
+## - [param url]: HTTP(S) URL for a Godot [code].pck[/code] or [code].zip[/code].
+## - [param options]: Optional cache, validation, HTTP, and mount settings.
+##
+## Returns:
+## A cancelable [PackRatRequest] that emits progress and completion signals.
 static func load_resource_pack_async(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatRequest:
 	if not PackRatCachePaths.is_http_url(url):
 		var invalid_request: PackRatRequest = PackRatRequest.new()
@@ -71,7 +82,13 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 	return request
 
 
-## Deletes every cached resource pack and cache metadata entry.
+## Deletes every removable PackRat cache file and cache metadata entry.
+##
+## Parameters:
+## - [param options]: Selects the cache directory to clear.
+##
+## Returns:
+## [constant OK] on success, or an [enum Error] value when cleanup fails.
 static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error:
 	if not PackRatCachePaths.is_safe_cache_dir(options.cache_dir):
 		return ERR_INVALID_PARAMETER
@@ -95,10 +112,15 @@ static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error
 	return first_error
 
 
-## Deletes cached entries matching [param value] as a URL, ID, cached filename, or path.
-## [br][br]
-## This only removes disk cache entries. Already mounted resource packs remain
-## mounted until the process exits because Godot does not expose per-pack unload.
+## Deletes cached entries matching [param value].
+##
+## Parameters:
+## - [param value]: A pack URL, stable pack ID, cached filename, or cached path.
+## - [param options]: Selects the cache directory to search.
+##
+## Returns:
+## [constant OK] when a matching cache entry was removed. Already mounted packs
+## remain mounted until process exit because Godot does not expose per-pack unload.
 static func clear_cached_resource_pack(value: String, options: PackRatOptions = PackRatOptions.new()) -> Error:
 	if not PackRatCachePaths.is_safe_cache_dir(options.cache_dir):
 		return ERR_INVALID_PARAMETER
@@ -163,7 +185,16 @@ static func clear_cached_resource_pack(value: String, options: PackRatOptions = 
 	return first_error
 
 
-## Builds a direct GitHub Releases asset URL without using the GitHub API.
+## Builds a direct GitHub Release asset URL.
+##
+## Parameters:
+## - [param owner]: GitHub user or organization name.
+## - [param repo]: GitHub repository name.
+## - [param filename]: Release asset filename.
+## - [param tag]: Release tag, or [code]"latest"[/code] for the latest release.
+##
+## Returns:
+## A GitHub Release download URL. This helper does not call the GitHub API.
 static func github_release_url(owner: String, repo: String, filename: String, tag: String = "latest") -> String:
 	var clean_filename: String = filename.trim_prefix("/")
 	if tag.is_empty() or tag == "latest":
@@ -181,7 +212,16 @@ static func github_release_url(owner: String, repo: String, filename: String, ta
 	]
 
 
-## Builds a GitHub Pages project URL without using the GitHub API.
+## Builds a GitHub Pages project URL.
+##
+## Parameters:
+## - [param owner]: GitHub user or organization name.
+## - [param repo]: GitHub repository name.
+## - [param path]: Optional path inside the Pages site.
+##
+## Returns:
+## A [code]https://owner.github.io/repo[/code] URL. This helper does not call the
+## GitHub API.
 static func github_pages_url(owner: String, repo: String, path: String = "") -> String:
 	var clean_path: String = path.strip_edges().trim_prefix("/")
 	var url: String = "https://%s.github.io/%s" % [
@@ -194,17 +234,33 @@ static func github_pages_url(owner: String, repo: String, path: String = "") -> 
 	return "%s/%s" % [url, _url_path(clean_path)]
 
 
-## Returns whether direct GitHub Release asset downloads are suitable here.
+## Checks whether direct GitHub Release asset downloads are suitable here.
+##
+## Returns:
+## [code]true[/code] for native/editor clients, and [code]false[/code] for Web
+## exports where browser CORS blocks GitHub's release asset redirect chain.
 static func can_download_github_releases() -> bool:
 	return not OS.has_feature("web")
 
 
-## Adds a stable content-version query value to [param url].
+## Sets a stable content-version query value on [param url].
+##
+## Parameters:
+## - [param url]: Base URL for a remote pack or static file.
+## - [param version]: Content version such as a build number, tag, or file token.
+## - [param version_key]: Query key to set. Defaults to [code]"v"[/code].
+##
+## Returns:
+## [param url] with [param version_key] set to [param version]. Existing matching
+## query keys are replaced, URL fragments are preserved, and empty key/version
+## values return [param url] unchanged.
 static func versioned_url(url: String, version: Variant, version_key: String = "v") -> String:
 	var clean_key: String = version_key.strip_edges()
 	var clean_version: String = str(version).strip_edges()
 	if clean_key.is_empty() or clean_version.is_empty():
 		return url
+	var encoded_key: String = clean_key.uri_encode()
+	var encoded_version: String = clean_version.uri_encode()
 
 	var fragment: String = ""
 	var base_url: String = url
@@ -213,17 +269,39 @@ static func versioned_url(url: String, version: Variant, version_key: String = "
 		base_url = url.substr(0, fragment_index)
 		fragment = url.substr(fragment_index)
 
-	var separator: String = "?" if not base_url.contains("?") else "&"
-	return "%s%s%s=%s%s" % [
-		base_url,
-		separator,
-		clean_key.uri_encode(),
-		clean_version.uri_encode(),
-		fragment,
-	]
+	var path_url: String = base_url
+	var query: String = ""
+	var query_index: int = base_url.find("?")
+	if query_index >= 0:
+		path_url = base_url.substr(0, query_index)
+		query = base_url.substr(query_index + 1)
+
+	var replaced: bool = false
+	var output_parts: PackedStringArray = []
+	for part in query.split("&", false):
+		var key: String = part.get_slice("=", 0)
+		if key == clean_key or key == encoded_key:
+			if not replaced:
+				output_parts.append("%s=%s" % [encoded_key, encoded_version])
+				replaced = true
+			continue
+
+		output_parts.append(part)
+
+	if not replaced:
+		output_parts.append("%s=%s" % [encoded_key, encoded_version])
+
+	return "%s?%s%s" % [path_url, "&".join(output_parts), fragment]
 
 
-## Joins a static host base URL and path with slash cleanup only.
+## Joins a static host base URL and path.
+##
+## Parameters:
+## - [param base_url]: Static host or directory URL.
+## - [param path]: Relative path to append.
+##
+## Returns:
+## A URL with exactly one slash between [param base_url] and [param path].
 static func join_url(base_url: String, path: String) -> String:
 	var clean_base: String = base_url.strip_edges().trim_suffix("/")
 	var clean_path: String = path.strip_edges().trim_prefix("/")
@@ -235,7 +313,14 @@ static func join_url(base_url: String, path: String) -> String:
 	return "%s/%s" % [clean_base, clean_path]
 
 
-## Reads size and modified-time metadata for [param path] without opening the file.
+## Reads local file metadata for [param path].
+##
+## Parameters:
+## - [param path]: Local path to inspect.
+##
+## Returns:
+## A [PackRatFileMetadata] containing file size and modified time, or an error
+## message when the file cannot be read.
 static func file_metadata(path: String) -> PackRatFileMetadata:
 	var metadata: PackRatFileMetadata = PackRatFileMetadata.new()
 	metadata.path = path
