@@ -1,10 +1,6 @@
 class_name PackRatLocalFileClient extends RefCounted
 ## Internal local-file reader used by PackRat for editor/dev pack sources.
 
-const _WEEKDAYS: PackedStringArray = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-const _MONTHS: PackedStringArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
-
 ## Returns [code]true[/code] when [param source] can identify a local pack file.
 static func is_local_pack_source(source: String) -> bool:
 	var path: String = path_from_source(source)
@@ -56,7 +52,7 @@ static func metadata(source_path: String) -> PackRatHttpResponse:
 	response.response_code = 0
 	response.content_length = FileAccess.get_size(source_path)
 	var modified_time: int = int(FileAccess.get_modified_time(source_path))
-	response.last_modified = http_date_from_unix(modified_time)
+	response.last_modified = PackRatHttpResponse.format_http_date_unix(modified_time)
 	response.etag = ("local:%s:%d:%d" % [source_path, response.content_length, modified_time]).sha256_text().substr(0, 16)
 	response.content_type = "application/zip" if source_path.get_extension().to_lower() == "zip" else "application/octet-stream"
 	return response
@@ -153,19 +149,3 @@ static func _wait_for_simulated_progress(
 		await tree.process_frame
 
 	return not owner.is_canceled()
-
-
-## Formats [param unix_time] as an HTTP-style UTC date.
-static func http_date_from_unix(unix_time: int) -> String:
-	var date: Dictionary = Time.get_datetime_dict_from_unix_time(unix_time)
-	var weekday_index: int = int(date.get("weekday", 0))
-	var month_index: int = int(date.get("month", 1)) - 1
-	return "%s, %02d %s %04d %02d:%02d:%02d GMT" % [
-		_WEEKDAYS[clampi(weekday_index, 0, _WEEKDAYS.size() - 1)],
-		int(date.get("day", 1)),
-		_MONTHS[clampi(month_index, 0, _MONTHS.size() - 1)],
-		int(date.get("year", 1970)),
-		int(date.get("hour", 0)),
-		int(date.get("minute", 0)),
-		int(date.get("second", 0)),
-	]

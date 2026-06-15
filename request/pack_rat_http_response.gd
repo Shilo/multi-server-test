@@ -1,6 +1,8 @@
 class_name PackRatHttpResponse extends RefCounted
 ## Internal HTTP result used by [PackRat] while loading a resource pack.
 
+const _WEEKDAY_NAMES: PackedStringArray = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const _MONTH_NAMES: PackedStringArray = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const _MONTHS: Dictionary = {
 	"jan": 1,
 	"feb": 2,
@@ -77,6 +79,22 @@ static func from_completed(
 		response.content_length = response.transfer_content_length
 	response.content_type = str(header_map.get("content-type", ""))
 	return response
+
+
+## Formats [param unix_time] as an RFC 7231-style HTTP date.
+static func format_http_date_unix(unix_time: int) -> String:
+	var date: Dictionary = Time.get_datetime_dict_from_unix_time(unix_time)
+	var weekday_index: int = int(date.get("weekday", 0))
+	var month_index: int = int(date.get("month", 1)) - 1
+	return "%s, %02d %s %04d %02d:%02d:%02d GMT" % [
+		_WEEKDAY_NAMES[clampi(weekday_index, 0, _WEEKDAY_NAMES.size() - 1)],
+		int(date.get("day", 1)),
+		_MONTH_NAMES[clampi(month_index, 0, _MONTH_NAMES.size() - 1)],
+		int(date.get("year", 1970)),
+		int(date.get("hour", 0)),
+		int(date.get("minute", 0)),
+		int(date.get("second", 0)),
+	]
 
 
 ## Parses an RFC 7231-style HTTP date into a Unix timestamp, or [code]0[/code] on failure.
