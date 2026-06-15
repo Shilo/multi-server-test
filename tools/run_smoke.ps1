@@ -11,7 +11,8 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $LogRoot = Join-Path $ProjectRoot ".logs\smoke"
 $BuildRoot = Join-Path $ProjectRoot "builds"
-$WorldPackRoot = Join-Path $BuildRoot "world_packs"
+$WorldPackServeRoot = Join-Path $LogRoot "pack_server"
+$WorldPackRoot = Join-Path $WorldPackServeRoot "world_packs"
 $WorldPackPort = 19100
 
 Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
@@ -123,7 +124,7 @@ function Start-WorldPackServer {
 
     $out = Join-Path $LogRoot "world_pack_http.out.log"
     $err = Join-Path $LogRoot "world_pack_http.err.log"
-    $args = @("-m", "http.server", "$WorldPackPort", "--bind", "127.0.0.1", "--directory", $BuildRoot)
+    $args = @("-m", "http.server", "$WorldPackPort", "--bind", "127.0.0.1", "--directory", $WorldPackServeRoot)
     Write-Host "SMOKE_LAUNCH world_pack_http"
     $process = Start-Process -FilePath "python" -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 500

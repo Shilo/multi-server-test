@@ -199,9 +199,9 @@ PackRat world-pack smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UsePackRatWorldPacks -TimeoutSeconds 90
 ```
 
-This exports one local PCK per `server/worlds/<world_key>/` folder into
-`builds/world_packs/`, serves those packs over `http://127.0.0.1:19100/`, and
-forces the editor client to download and mount them through PackRat before
+This exports one temporary local PCK per `server/worlds/<world_key>/` folder into
+`.logs/smoke/pack_server/world_packs/`, serves those packs over
+`http://127.0.0.1:19100/`, and forces the editor client to download and mount them through PackRat before
 loading each world scene. It is the current automated proof that world travel
 works without relying on scenes already bundled into the client.
 
@@ -336,7 +336,7 @@ PackRat editor-export testing uses four additional Windows Desktop PCK presets:
 - `World Pack - right_world`
 - `World Pack - top_world`
 
-Smoke/CI launches master and client scenes directly when testing from the editor binary. Editor runs use PackRat editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads from a local static server, while `-UsePackRatEditorExports` explicitly asserts the default PackRat editor export flow.
+Smoke/CI launches master and client scenes directly when testing from the editor binary. Editor runs use PackRat editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads from a temporary local static server under `.logs/smoke/pack_server/`, while `-UsePackRatEditorExports` explicitly asserts the default PackRat editor export flow.
 
 ## Network Constants
 
