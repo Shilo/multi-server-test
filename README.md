@@ -137,10 +137,14 @@ Launch a manual client:
 
 Manual client mode requires only the master at startup. The master starts the initial world when the client asks for routes, then starts transfer targets on demand.
 
-In editor/manual runs, the client can still see local `res://server/worlds/`
-scenes, so PackRat is skipped by default and the client prints
-`WORLD_PACK_SKIPPED`. To force the downloadable-pack path locally, build and
-serve world packs, then pass the client arg:
+In editor/manual runs, PackRat uses local editor-exported packs automatically.
+This keeps local testing fresh and fast while still exercising the same
+cache/mount path used by exported clients. The client prints
+`WORLD_PACK_EDITOR_EXPORT`, `WORLD_PACK_PROGRESS`, and `WORLD_PACK_READY` while
+it builds or reuses those editor packs.
+
+To force the HTTP/static download path locally instead, build and serve world
+packs, then pass the client arg:
 
 ```powershell
 & $godot --headless --path . --script res://tools/export_world_packs.gd
@@ -153,14 +157,7 @@ That forced path should print `WORLD_PACK_START`, `WORLD_PACK_PROGRESS`, and
 waiting on a dead `http://127.0.0.1:19100/world_packs/...` URL and will print
 `WORLD_PACK_FAILED` when the PackRat request times out/fails.
 
-For faster editor iteration without manually rebuilding PCKs, pass PackRat's
-editor-export test arg instead:
-
-```powershell
-& $godot --path . --scene res://client/client.tscn -- force_packrat_world_packs editor_pack_export_world_packs
-```
-
-That mode uses the `World Pack - <world_key>` export preset for each world,
+Editor mode uses the `World Pack - <world_key>` export preset for each world,
 copies the generated pack through PackRat's normal cache/mount path, and
 simulates one second of local load progress for uncached packs.
 
@@ -225,7 +222,8 @@ This does not start the local HTTP pack server. Instead, the client sets
 `PackRatOptions.editor_pack_export_preset` to `World Pack - <world_key>` and
 `PackRatOptions.editor_simulated_local_load_seconds` to `1.0`, so PackRat builds
 fresh editor packs only when the watched world resources or export presets
-change. The smoke requires `WORLD_PACK_EDITOR_EXPORT` and `WORLD_PACK_READY`.
+change. This is the normal editor behavior; the smoke requires
+`WORLD_PACK_EDITOR_EXPORT` and `WORLD_PACK_READY`.
 
 Successful full editor smoke logs include:
 
@@ -338,7 +336,7 @@ PackRat editor-export testing uses four additional Windows Desktop PCK presets:
 - `World Pack - right_world`
 - `World Pack - top_world`
 
-Smoke/CI launches master and client scenes directly when testing from the editor binary. `-UsePackRatWorldPacks` exercises HTTP downloads from a local static server, while `-UsePackRatEditorExports` exercises PackRat's editor export flow without manually rebuilding PCKs.
+Smoke/CI launches master and client scenes directly when testing from the editor binary. Editor runs use PackRat editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads from a local static server, while `-UsePackRatEditorExports` explicitly asserts the default PackRat editor export flow.
 
 ## Network Constants
 

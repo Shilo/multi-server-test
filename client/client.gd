@@ -7,7 +7,6 @@ const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
-const EDITOR_PACK_EXPORT_WORLD_PACKS_ARG := "editor_pack_export_world_packs"
 const EDITOR_PACK_EXPORT_PRESET_PREFIX := "World Pack - "
 const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
 const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
@@ -459,12 +458,12 @@ func _connect_world(world_key: String) -> bool:
 func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
 	var local_scene_available := ResourceLoader.exists(scene_path, "PackedScene")
-	if local_scene_available and not _force_packrat_world_packs():
+	var use_editor_export := _use_editor_pack_exports()
+	if local_scene_available and not _force_packrat_world_packs() and not use_editor_export:
 		NetLog.print_line("[CLIENT] WORLD_PACK_SKIPPED key=%s reason=local_scene_available arg=%s" % [world_key, FORCE_PACKRAT_WORLD_PACKS_ARG])
 		return true
 
 	var pack_url := str(endpoint.get("pack_url", ""))
-	var use_editor_export := _use_editor_pack_exports()
 	if pack_url.is_empty() and use_editor_export:
 		pack_url = NET_CONFIG.world_pack_url(world_key)
 	if pack_url.is_empty():
@@ -542,7 +541,7 @@ func _force_packrat_world_packs() -> bool:
 func _use_editor_pack_exports() -> bool:
 	return (
 		OS.has_feature("editor")
-		and EDITOR_PACK_EXPORT_WORLD_PACKS_ARG in launch_args
+		and not _force_packrat_world_packs()
 	)
 
 

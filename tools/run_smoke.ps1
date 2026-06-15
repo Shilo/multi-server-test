@@ -231,11 +231,8 @@ try {
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
         $clientArgs = @("smoke_test")
-        if ($UsePackRatWorldPacks -or $UsePackRatEditorExports) {
+        if ($UsePackRatWorldPacks) {
             $clientArgs += "force_packrat_world_packs"
-        }
-        if ($UsePackRatEditorExports) {
-            $clientArgs += "editor_pack_export_world_packs"
         }
         $clients += @{
             Name = $clientName
@@ -309,11 +306,8 @@ try {
     $servers += $cleanupMaster
     Wait-LogMarker "master_cleanup" "MASTER_READY"
     $cleanupClientArgs = @("smoke_test")
-    if ($UsePackRatWorldPacks -or $UsePackRatEditorExports) {
+    if ($UsePackRatWorldPacks) {
         $cleanupClientArgs += "force_packrat_world_packs"
-    }
-    if ($UsePackRatEditorExports) {
-        $cleanupClientArgs += "editor_pack_export_world_packs"
     }
     $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" $cleanupClientArgs -Headless
     $clients += @{
