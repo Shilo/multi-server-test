@@ -95,7 +95,7 @@ static func _can_load_source(url: String, options: PackRatOptions, local_pack_pa
 
 
 static func _local_pack_path_for_url(url: String, options: PackRatOptions) -> String:
-	if not options.editor_pack_export_preset.strip_edges().is_empty():
+	if _uses_editor_pack_export(options):
 		return ""
 
 	if PackRatLocalFileClient.is_local_pack_source(url):
@@ -135,6 +135,9 @@ static func clear_cache(options: PackRatOptions = PackRatOptions.new()) -> Error
 	var clear_error: Error = PackRatCacheFiles.clear_unmounted_cache_files(cache_dir)
 	if first_error == OK:
 		first_error = clear_error
+	var editor_metadata_error: Error = PackRatCacheFiles.clear_editor_export_metadata(cache_dir)
+	if first_error == OK:
+		first_error = editor_metadata_error
 
 	var cache: PackRatCache = PackRatCache.load(cache_dir)
 	for key in cache.keys():

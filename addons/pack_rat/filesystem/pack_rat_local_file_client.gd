@@ -19,6 +19,8 @@ static func path_from_source(source: String) -> String:
 
 	if value.begins_with("file://"):
 		value = value.trim_prefix("file://").uri_decode()
+		if value.begins_with("localhost/"):
+			value = value.trim_prefix("localhost")
 		if value.length() >= 3 and value.substr(0, 1) == "/" and value.substr(2, 1) == ":":
 			value = value.substr(1)
 		return value.replace("\\", "/").simplify_path()
@@ -53,7 +55,11 @@ static func metadata(source_path: String) -> PackRatHttpResponse:
 	response.content_length = FileAccess.get_size(source_path)
 	var modified_time: int = int(FileAccess.get_modified_time(source_path))
 	response.last_modified = PackRatHttpResponse.format_http_date_unix(modified_time)
-	response.etag = ("local:%s:%d:%d" % [source_path, response.content_length, modified_time]).sha256_text().substr(0, 16)
+	var content_hash: String = FileAccess.get_sha256(source_path)
+	if content_hash.is_empty():
+		response.etag = ("local:%d:%d" % [response.content_length, modified_time]).sha256_text().substr(0, 16)
+	else:
+		response.etag = "local-%s" % content_hash.substr(0, 16)
 	response.content_type = "application/zip" if source_path.get_extension().to_lower() == "zip" else "application/octet-stream"
 	return response
 
@@ -116,6 +122,10 @@ static func copy_to_cache_part(
 		owner._set_progress(copied_size, total_size)
 		if tree != null:
 			await tree.process_frame
+			if owner.is_canceled():
+				source_file.close()
+				target_file.close()
+				return PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED)
 
 	source_file.close()
 	target_file.close()

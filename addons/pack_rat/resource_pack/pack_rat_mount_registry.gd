@@ -39,7 +39,7 @@ static func mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pac
 		)
 	_mounted_paths_by_id[result.id] = result.local_path
 	_mounted_signatures_by_id[result.id] = signature
-	_mounted_paths[result.local_path] = true
+	_mounted_paths[_mounted_path_key(result.local_path)] = true
 
 	result.ok = true
 	result.entry_path = options.entry_path
@@ -48,7 +48,7 @@ static func mount_if_pack(result: PackRatResult, options: PackRatOptions) -> Pac
 
 ## Returns [code]true[/code] when [param path] is already mounted in this process.
 static func is_mounted_path(path: String) -> bool:
-	return _mounted_paths.has(path) or _mounted_paths.has(PackRatCachePaths.normalized_cache_dir(path))
+	return _mounted_paths.has(_mounted_path_key(path))
 
 
 ## Returns the cheap file signature used to detect changed mounted cache files.
@@ -65,3 +65,7 @@ static func mount_signature(path: String, options: PackRatOptions) -> String:
 ## Returns the last mounted local path for [param id], or an empty string.
 static func mounted_path_for_id(id: String) -> String:
 	return str(_mounted_paths_by_id.get(id, ""))
+
+
+static func _mounted_path_key(path: String) -> String:
+	return PackRatCachePaths.normalized_cache_dir(path)

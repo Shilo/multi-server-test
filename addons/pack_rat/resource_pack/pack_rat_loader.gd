@@ -33,7 +33,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	var metadata: PackRatHttpResponse = PackRatHttpResponse.new()
 	if local_pack_path.is_empty() and PackRatEditorPackExport.is_available() and not options.editor_pack_export_preset.strip_edges().is_empty():
 		var editor_export_start_msec: int = _timing_start(capture_timings)
-		local_pack_path = PackRatEditorPackExport.exported_pack_path(options.editor_pack_export_preset)
+		local_pack_path = await PackRatEditorPackExport.exported_pack_path(options.editor_pack_export_preset, options.cache_dir, request)
 		_record_timing(result, capture_timings, "editor_pack_export_msec", editor_export_start_msec)
 		if local_pack_path.is_empty():
 			var editor_export_error: String = PackRatEditorPackExport.last_error
@@ -177,6 +177,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	if (
 		# This branch can happen after a parallel download produced the same cache path.
 		FileAccess.file_exists(local_path)
+		and local_pack_path.is_empty()
 		and not PackRatMountRegistry.is_mounted_path(local_path)
 		and not options.always_download
 		and not cached_expected_size_mismatch
