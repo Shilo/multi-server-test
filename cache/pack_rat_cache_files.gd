@@ -86,6 +86,30 @@ static func clear_part_files(cache_dir: String) -> Error:
 	return first_error
 
 
+## Removes editor-export signature sidecars below [param cache_dir].
+static func clear_editor_export_metadata(cache_dir: String) -> Error:
+	var export_dir: String = cache_dir.path_join("editor_exports")
+	var dir: DirAccess = DirAccess.open(export_dir)
+	if dir == null:
+		return OK
+
+	var first_error: Error = OK
+	dir.list_dir_begin()
+	var child: String = dir.get_next()
+	while not child.is_empty():
+		var child_path: String = export_dir.path_join(child)
+		if not dir.current_is_dir() and child.ends_with(".signature"):
+			var remove_error: Error = DirAccess.remove_absolute(child_path)
+			if is_real_remove_error(remove_error) and first_error == OK:
+				first_error = remove_error
+
+		child = dir.get_next()
+
+	dir.list_dir_end()
+	_remove_empty_directory(export_dir)
+	return first_error
+
+
 ## Removes one cache file after safety and mounted-pack checks.
 static func remove_cache_file(path: String, cache_dir: String) -> Error:
 	if path.is_empty():
