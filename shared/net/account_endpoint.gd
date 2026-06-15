@@ -49,7 +49,7 @@ func drop_session(peer_id: int) -> void:
 
 ## Identity the world should bake into the player's spawn data. The active world
 ## is committed only after the target world confirms the join ticket was used.
-func get_join_identity(peer_id: int, world_key: String) -> Dictionary:
+func get_join_identity(peer_id: int, _world_key: String) -> Dictionary:
 	var session: Dictionary = sessions.get(peer_id, {})
 	if session.is_empty():
 		return {"display_name": "Player_%d" % peer_id, "is_guest": true}
