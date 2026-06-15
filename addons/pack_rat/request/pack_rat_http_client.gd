@@ -1,0 +1,211 @@
+class_name PackRatHttpClient extends RefCounted
+## Internal HTTPRequest wrapper used by PackRat runtime requests.
+
+
+## Reads remote freshness metadata with an HTTP HEAD request.
+static func freshness_metadata(url: String, options: PackRatOptions, owner: PackRatRequest) -> PackRatHttpResponse:
+	var response: PackRatHttpResponse = await request(url, "", options, owner, HTTPClient.METHOD_HEAD)
+	if not response.ok:
+		var empty_response: PackRatHttpResponse = PackRatHttpResponse.new()
+		empty_response.timings_msec = response.timings_msec
+		return empty_response
+
+	return response
+
+
+## Performs one temporary HTTP request and streams progress into [param owner].
+static func request(
+	url: String,
+	download_path: String,
+	options: PackRatOptions,
+	owner: PackRatRequest,
+	method: HTTPClient.Method = HTTPClient.METHOD_GET
+) -> PackRatHttpResponse:
+	if (
+		options.use_web_fetch
+		and method == HTTPClient.METHOD_GET
+		and not download_path.is_empty()
+		and PackRatWebFetch.is_available()
+	):
+		return await _fetch_request(url, download_path, options, owner)
+
+	var capture_timings: bool = options.capture_timings
+	var total_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	var timings_msec: Dictionary = {}
+	var tree: SceneTree = Engine.get_main_loop()
+	if tree == null or tree.root == null:
+		return _finish_timing(PackRatHttpResponse.failed("HTTPRequest needs a running SceneTree."), timings_msec, total_start_msec, capture_timings)
+
+	var setup_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	var http_request: HTTPRequest = HTTPRequest.new()
+	http_request.accept_gzip = options.accept_gzip and not OS.has_feature("web")
+	http_request.use_threads = options.use_threads and not OS.has_feature("web")
+	http_request.download_file = download_path
+	http_request.download_chunk_size = clampi(
+		options.download_chunk_size,
+		PackRatOptions.MIN_DOWNLOAD_CHUNK_SIZE,
+		PackRatOptions.MAX_DOWNLOAD_CHUNK_SIZE
+	)
+	# Godot checks body_size_limit against compressed Content-Length before gzip
+	# decoding, so decoded expected_size limits are only safe when gzip is off.
+	if not download_path.is_empty() and options.has_expected_size() and not http_request.accept_gzip:
+		http_request.body_size_limit = options.expected_size
+	http_request.max_redirects = options.max_redirects
+	http_request.timeout = options.timeout_seconds
+	_record_timing(timings_msec, capture_timings, "http_setup_msec", setup_start_msec)
+
+	var add_node_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	if tree.root.is_node_ready():
+		tree.root.add_child(http_request)
+	else:
+		tree.root.add_child.call_deferred(http_request)
+		await tree.process_frame
+	_record_timing(timings_msec, capture_timings, "http_add_node_msec", add_node_start_msec)
+
+	if not http_request.is_inside_tree():
+		http_request.queue_free()
+		return _finish_timing(PackRatHttpResponse.failed("HTTPRequest could not enter the scene tree."), timings_msec, total_start_msec, capture_timings)
+
+	owner._set_http_request(http_request)
+	var start_request_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	var start_error: Error = http_request.request(url, options.request_headers, method)
+	_record_timing(timings_msec, capture_timings, "http_start_msec", start_request_msec)
+	if start_error != OK:
+		owner._set_http_request(null)
+		http_request.queue_free()
+		return _finish_timing(PackRatHttpResponse.failed("HTTPRequest failed to start (error %d)." % start_error), timings_msec, total_start_msec, capture_timings)
+
+	var completed: Array = []
+	http_request.request_completed.connect(func(result_code: HTTPRequest.Result, response_code: int, headers: PackedStringArray, _body: PackedByteArray) -> void:
+		completed.append(result_code)
+		completed.append(response_code)
+		completed.append(headers)
+	, CONNECT_ONE_SHOT)
+
+	var transfer_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	var progress_frames: int = 0
+	while completed.is_empty():
+		if owner.is_canceled():
+			http_request.cancel_request()
+			owner._set_http_request(null)
+			http_request.queue_free()
+			if capture_timings:
+				timings_msec["http_progress_frames"] = progress_frames
+			_record_timing(timings_msec, capture_timings, "http_transfer_msec", transfer_start_msec)
+			return _finish_timing(PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED), timings_msec, total_start_msec, capture_timings)
+
+		if not download_path.is_empty():
+			if capture_timings:
+				progress_frames += 1
+			var total_bytes: int = _progress_total_bytes(http_request.get_body_size(), options)
+			owner._set_progress(http_request.get_downloaded_bytes(), total_bytes)
+		await tree.process_frame
+
+	if capture_timings:
+		timings_msec["http_progress_frames"] = progress_frames
+	_record_timing(timings_msec, capture_timings, "http_transfer_msec", transfer_start_msec)
+
+	var result_code: HTTPRequest.Result = completed[0]
+	var response_code: int = completed[1]
+	var headers: PackedStringArray = completed[2]
+
+	var response: PackRatHttpResponse = PackRatHttpResponse.from_completed(result_code, response_code, headers)
+	if OS.has_feature("web"):
+		response.content_length = 0
+
+	if (
+		not download_path.is_empty()
+		and result_code == HTTPRequest.RESULT_SUCCESS
+		and response_code >= 200
+		and response_code < 300
+	):
+		var downloaded_file_size: int = FileAccess.get_size(download_path)
+		if downloaded_file_size > 0:
+			owner._set_progress(downloaded_file_size, _progress_total_bytes(response.content_length, options, downloaded_file_size))
+
+	var cleanup_start_msec: int = Time.get_ticks_msec() if capture_timings else 0
+	owner._set_http_request(null)
+	http_request.queue_free()
+	_record_timing(timings_msec, capture_timings, "http_cleanup_msec", cleanup_start_msec)
+	return _finish_timing(response, timings_msec, total_start_msec, capture_timings)
+
+
+static func _fetch_request(
+	url: String,
+	download_path: String,
+	options: PackRatOptions,
+	owner: PackRatRequest
+) -> PackRatHttpResponse:
+	var progress_callback: Callable = func(downloaded_bytes: int, total_bytes: int) -> void:
+		if options.progress_total_size > 0:
+			total_bytes = options.progress_total_size
+		elif total_bytes <= 0 and options.has_expected_size():
+			total_bytes = options.expected_size
+		owner._set_progress(downloaded_bytes, total_bytes)
+
+	var fetch_result: PackRatWebFetchResult = await PackRatWebFetch.download_file(
+		url,
+		download_path,
+		options.request_headers,
+		options.timeout_seconds,
+		options.download_chunk_size,
+		options.max_redirects,
+		progress_callback,
+		owner.is_canceled,
+		options.expected_size,
+		options.capture_timings
+	)
+
+	var response: PackRatHttpResponse
+	if fetch_result.response_code > 0:
+		response = PackRatHttpResponse.from_completed(
+			fetch_result.result_code,
+			fetch_result.response_code,
+			fetch_result.headers
+		)
+	else:
+		response = PackRatHttpResponse.failed(fetch_result.error)
+		response.result_code = fetch_result.result_code
+
+	if not fetch_result.ok and not fetch_result.error.is_empty():
+		response.error = fetch_result.error
+	if response.error == PackRatWebFetchResult.ERROR_CANCELED:
+		response.error = PackRatResult.ERROR_CANCELED
+
+	response.content_length = 0
+	response.timings_msec = _packrat_fetch_timings(fetch_result.timings_msec)
+	return response
+
+
+static func _progress_total_bytes(reported_total_bytes: int, options: PackRatOptions, downloaded_file_size: int = 0) -> int:
+	if options.progress_total_size > 0:
+		return options.progress_total_size
+	if options.has_expected_size():
+		return options.expected_size
+	if reported_total_bytes > 0:
+		return reported_total_bytes
+	return downloaded_file_size
+
+
+static func _packrat_fetch_timings(timings_msec: Dictionary) -> Dictionary:
+	var output: Dictionary = {}
+	for key in timings_msec.keys():
+		output["http_%s" % String(key)] = timings_msec[key]
+	return output
+
+
+static func _record_timing(timings_msec: Dictionary, capture_timings: bool, key: String, start_msec: int) -> void:
+	if capture_timings:
+		timings_msec[key] = Time.get_ticks_msec() - start_msec
+
+
+static func _finish_timing(
+	response: PackRatHttpResponse,
+	timings_msec: Dictionary,
+	total_start_msec: int,
+	capture_timings: bool
+) -> PackRatHttpResponse:
+	if capture_timings:
+		timings_msec["http_total_msec"] = Time.get_ticks_msec() - total_start_msec
+		response.timings_msec = timings_msec
+	return response
