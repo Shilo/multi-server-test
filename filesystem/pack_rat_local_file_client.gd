@@ -88,10 +88,15 @@ static func copy_to_cache_part(
 		PackRatOptions.MAX_DOWNLOAD_CHUNK_SIZE
 	)
 	var total_size: int = response.content_length
+	var simulated_seconds: float = _simulated_load_seconds(options, total_size)
+	if simulated_seconds > 0.0:
+		chunk_size = mini(chunk_size, maxi(PackRatOptions.MIN_DOWNLOAD_CHUNK_SIZE, ceili(float(total_size) / 20.0)))
+
 	var copied_size: int = 0
 	owner._set_progress(0, total_size)
 
 	var tree: SceneTree = Engine.get_main_loop()
+	var start_msec: int = Time.get_ticks_msec()
 	while copied_size < total_size:
 		if owner.is_canceled():
 			source_file.close()
@@ -107,6 +112,11 @@ static func copy_to_cache_part(
 
 		target_file.store_buffer(buffer)
 		copied_size += buffer.size()
+		if simulated_seconds > 0.0 and not await _wait_for_simulated_progress(start_msec, copied_size, total_size, simulated_seconds, owner, tree):
+			source_file.close()
+			target_file.close()
+			return PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED)
+
 		owner._set_progress(copied_size, total_size)
 		if tree != null:
 			await tree.process_frame
@@ -115,6 +125,34 @@ static func copy_to_cache_part(
 	target_file.close()
 	response.ok = true
 	return response
+
+
+static func _simulated_load_seconds(options: PackRatOptions, total_size: int) -> float:
+	if not OS.has_feature("editor") or total_size <= 0:
+		return 0.0
+
+	return maxf(options.editor_simulated_local_load_seconds, 0.0)
+
+
+static func _wait_for_simulated_progress(
+	start_msec: int,
+	copied_size: int,
+	total_size: int,
+	simulated_seconds: float,
+	owner: PackRatRequest,
+	tree: SceneTree
+) -> bool:
+	if tree == null:
+		return true
+
+	var target_msec: int = start_msec + int(simulated_seconds * 1000.0 * (float(copied_size) / float(total_size)))
+	while Time.get_ticks_msec() < target_msec:
+		if owner.is_canceled():
+			return false
+
+		await tree.process_frame
+
+	return not owner.is_canceled()
 
 
 ## Formats [param unix_time] as an HTTP-style UTC date.

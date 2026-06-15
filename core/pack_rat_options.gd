@@ -30,6 +30,11 @@ var entry_path: String = ""
 ## Exported games ignore this and load [method PackRat.load_resource_pack]'s URL normally.
 var editor_pack_export_preset: String = ""
 
+## Editor-only minimum duration for local pack copy progress. Useful for testing
+## loading UI against [code]file://[/code], [code]user://[/code], [code]res://[/code],
+## and [member editor_pack_export_preset] sources.
+var editor_simulated_local_load_seconds: float = 0.0
+
 ## Expected byte size for this pack. A value above [code]0[/code] becomes part
 ## of the cache identity and is checked after download.
 var expected_size: int = 0
@@ -117,6 +122,7 @@ func copy() -> PackRatOptions:
 	options.offset = offset
 	options.entry_path = entry_path
 	options.editor_pack_export_preset = editor_pack_export_preset
+	options.editor_simulated_local_load_seconds = editor_simulated_local_load_seconds
 	options.expected_size = expected_size
 	options.expected_modified_time = expected_modified_time
 	options.progress_total_size = progress_total_size
