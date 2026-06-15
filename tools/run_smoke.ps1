@@ -67,15 +67,14 @@ function Export-WorldPacks {
     $out = Join-Path $LogRoot "world_pack_export.out.log"
     $err = Join-Path $LogRoot "world_pack_export.err.log"
     $args = @(
-        "--headless",
-        "--path", $ProjectRoot,
-        "--script", "res://tools/export_world_packs.gd",
-        "--",
-        "--output-dir=$WorldPackRoot"
+        "-ExecutionPolicy", "Bypass",
+        "-File", (Join-Path $PSScriptRoot "export_world_packs.ps1"),
+        "-Godot", $Godot,
+        "-OutputDir", $WorldPackRoot
     )
     Write-Host "SMOKE_EXPORT_WORLD_PACKS"
-    $process = Start-Process -FilePath $Godot -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
-    $process.WaitForExit(30000) | Out-Null
+    $process = Start-Process -FilePath "powershell" -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+    $process.WaitForExit(120000) | Out-Null
     $process.Refresh()
     if (-not $process.HasExited) {
         Stop-Process -Id $process.Id -Force

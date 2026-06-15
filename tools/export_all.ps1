@@ -45,13 +45,12 @@ function Wait-FileStable($path, $timeoutSeconds = 30) {
     throw "File did not become stable: $path"
 }
 
-function Export-WorldPacks() {
-    $worldPackRoot = Join-Path $BuildRoot "world_packs"
+function Export-WorldPacks($worldPackRoot, $presetPrefix) {
     Remove-Item -Recurse -Force -Path $worldPackRoot -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $worldPackRoot | Out-Null
 
-    Write-Host "EXPORT_WORLD_PACKS_START $worldPackRoot"
-    & $Godot --headless --path $ProjectRoot --script "res://tools/export_world_packs.gd" -- "--output-dir=$worldPackRoot"
+    Write-Host "EXPORT_WORLD_PACKS_START $worldPackRoot preset_prefix=$presetPrefix"
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "export_world_packs.ps1") -Godot $Godot -OutputDir $worldPackRoot -PresetPrefix $presetPrefix
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     if ($exitCode -ne 0) {
         throw "World pack export failed with exit code $exitCode"
@@ -61,24 +60,6 @@ function Export-WorldPacks() {
             Wait-FileStable (Join-Path $worldPackRoot "$($_.Name).pck")
         }
     Write-Host "EXPORT_WORLD_PACKS_DONE"
-}
-
-function Copy-WorldPacksToWebBuild() {
-    $worldPackRoot = Join-Path $BuildRoot "world_packs"
-    $webWorldPackRoot = Join-Path $BuildRoot "web\world_packs"
-    if (-not (Test-Path $worldPackRoot)) {
-        throw "World pack root does not exist: $worldPackRoot"
-    }
-
-    Remove-Item -Recurse -Force -Path $webWorldPackRoot -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path $webWorldPackRoot | Out-Null
-    Get-ChildItem -LiteralPath $worldPackRoot -Filter "*.pck" -File |
-        ForEach-Object {
-            $destination = Join-Path $webWorldPackRoot $_.Name
-            Copy-Item -LiteralPath $_.FullName -Force -Destination $destination
-            (Get-Item -LiteralPath $destination).LastWriteTimeUtc = $_.LastWriteTimeUtc
-        }
-    Write-Host "EXPORT_WEB_WORLD_PACKS_DONE $webWorldPackRoot"
 }
 
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
@@ -105,8 +86,8 @@ try {
         Write-Host "EXPORT_DONE $($target.Name)"
     }
 
-    Export-WorldPacks
-    Copy-WorldPacksToWebBuild
+    Export-WorldPacks (Join-Path $BuildRoot "world_packs") "World Pack - "
+    Export-WorldPacks (Join-Path $BuildRoot "web\world_packs") "Web World Pack - "
 }
 finally {
     Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline

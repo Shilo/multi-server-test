@@ -49,7 +49,7 @@ try {
         -WindowStyle Hidden `
         -PassThru
 
-    $env:MULTI_SERVER_WORLD_PACK_DIR = Join-Path $BuildRoot "world_packs"
+    $env:MULTI_SERVER_WORLD_PACK_DIR = Join-Path $BuildRoot "web\world_packs"
     $env:MULTI_SERVER_WORLD_PACK_BASE_URL = "http://127.0.0.1:$StaticPort/world_packs"
 
     $masterProcess = Start-Process `

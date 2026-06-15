@@ -9,7 +9,7 @@ $ServeRoot = Resolve-Path (Join-Path $ProjectRoot $Directory)
 $WorldPackRoot = Join-Path $ServeRoot "world_packs"
 
 if (-not (Test-Path $WorldPackRoot)) {
-    throw "Missing world packs at $WorldPackRoot. Run tools\export_world_packs.gd or tools\export_all.ps1 first."
+    throw "Missing world packs at $WorldPackRoot. Run tools\export_world_packs.ps1 or tools\export_all.ps1 first."
 }
 
 Write-Host "WORLD_PACK_SERVER_ROOT $ServeRoot"

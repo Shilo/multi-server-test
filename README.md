@@ -147,7 +147,7 @@ To force the HTTP/static download path locally instead, build and serve world
 packs, then pass the client arg:
 
 ```powershell
-& $godot --headless --path . --script res://tools/export_world_packs.gd
+powershell -ExecutionPolicy Bypass -File tools\export_world_packs.ps1
 powershell -ExecutionPolicy Bypass -File tools\start_world_pack_server.ps1
 & $godot --path . --scene res://client/client.tscn -- force_packrat_world_packs
 ```
@@ -199,7 +199,8 @@ PackRat world-pack smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_smoke.ps1 -UsePackRatWorldPacks -TimeoutSeconds 90
 ```
 
-This exports one temporary local PCK per `server/worlds/<world_key>/` folder into
+This exports one temporary local PCK per `server/worlds/<world_key>/` folder using the
+matching `World Pack - <world_key>` export preset into
 `.logs/smoke/pack_server/world_packs/`, serves those packs over
 `http://127.0.0.1:19100/`, and forces the editor client to download and mount them through PackRat before
 loading each world scene. It is the current automated proof that world travel
@@ -290,20 +291,17 @@ Outputs:
 - `builds/web/index.js`
 - `builds/web/index.pck`
 - `builds/web/index.wasm`
-- `builds/web/world_packs/*.pck`
-- `builds/world_packs/hub.pck`
-- `builds/world_packs/left_world.pck`
-- `builds/world_packs/right_world.pck`
-- `builds/world_packs/top_world.pck`
+- `builds/world_packs/*.pck` for Windows/native clients
+- `builds/web/world_packs/*.pck` for Web clients
 
 After exporting, verify that client artifacts do not bundle server/world scenes
-and that Web-hosted pack copies match the server-side pack metadata:
+and that each platform world pack contains the expected isolated world scene:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
 ```
 
-The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts and should be served by a static file server in local testing or production.
+The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts for native clients. The `builds/web/world_packs/*.pck` files are the Web-targeted DLC artifacts and should be served beside the Web export.
 
 For GitHub Pages or another static host, deploy the contents of `builds/web/` as
 the Web site. Keep `builds/web/world_packs/*.pck` beside `index.html` under the
@@ -311,7 +309,7 @@ the Web site. Keep `builds/web/world_packs/*.pck` beside `index.html` under the
 
 ```text
 MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
-MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/world_packs>
+MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/web/world_packs>
 ```
 
 For local Web smoke, the script sets the base URL to
@@ -336,7 +334,14 @@ PackRat editor-export testing uses four additional Windows Desktop PCK presets:
 - `World Pack - right_world`
 - `World Pack - top_world`
 
-Smoke/CI launches master and client scenes directly when testing from the editor binary. Editor runs use PackRat editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads from a temporary local static server under `.logs/smoke/pack_server/`, while `-UsePackRatEditorExports` explicitly asserts the default PackRat editor export flow.
+Production Web packs use matching Web presets:
+
+- `Web World Pack - hub`
+- `Web World Pack - left_world`
+- `Web World Pack - right_world`
+- `Web World Pack - top_world`
+
+Smoke/CI launches master and client scenes directly when testing from the editor binary. Editor runs use PackRat editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads from a temporary local static server under `.logs/smoke/pack_server/`, while `-UsePackRatEditorExports` explicitly asserts the default PackRat editor export flow. Production and smoke world packs are exported through Godot's `--export-pack` CLI. Native/editor packs use `World Pack - <world_key>` presets; Web-hosted packs use `Web World Pack - <world_key>` presets.
 
 ## Network Constants
 

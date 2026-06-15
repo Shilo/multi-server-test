@@ -302,7 +302,8 @@ have a refreshable soft expiry and a one-hour hard expiry; the client cancels a
 PackRat request before the hard expiry makes redemption impossible.
 
 This stable-filename shape is acceptable for local testing and the first PackRat
-integration because `tools/export_world_packs.gd` writes to a `.uploading` file
-first and then renames it into place. Production can still move to the safer
-immutable filename plus `current.json` pointer design above without changing the
-client-side PackRat call pattern.
+integration because `tools/export_world_packs.ps1` exports each world through its
+`World Pack - <world_key>` Godot export preset into a temporary `.uploading.pck`
+file first and then renames it into place. Production can still move to the
+safer immutable filename plus `current.json` pointer design above without
+changing the client-side PackRat call pattern.
