@@ -65,6 +65,8 @@ func erase_record(key: String) -> void:
 
 
 ## Saves cache metadata to [code]cache.json[/code].
+## Must be called from PackRat's main-thread load flow; the temporary
+## [code].tmp[/code]/[code].bak[/code] paths are shared by this cache file.
 func save() -> Error:
 	var path: String = _path()
 	var part_path: String = "%s.tmp" % path
