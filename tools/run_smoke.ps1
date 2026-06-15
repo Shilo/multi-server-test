@@ -2,6 +2,7 @@ param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
     [switch]$UseExported,
     [switch]$UsePackRatWorldPacks,
+    [switch]$UsePackRatEditorExports,
     [int]$TimeoutSeconds = 30,
     [int]$ClientCount = 1
 )
@@ -16,8 +17,11 @@ $WorldPackPort = 19100
 Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
-if ($UsePackRatWorldPacks -and $UseExported) {
-    throw "-UsePackRatWorldPacks currently requires editor/headless smoke mode so tools/export_world_packs.gd is available"
+if ($UsePackRatEditorExports -and $UseExported) {
+    throw "-UsePackRatEditorExports requires editor/headless smoke mode because PackRat builds editor export presets"
+}
+if ($UsePackRatWorldPacks -and $UsePackRatEditorExports) {
+    throw "Use either -UsePackRatWorldPacks for HTTP downloads or -UsePackRatEditorExports for PackRat editor export packs, not both"
 }
 
 function Get-Executable($name) {
@@ -227,8 +231,11 @@ try {
     for ($i = 1; $i -le $ClientCount; $i++) {
         $clientName = if ($ClientCount -eq 1) { "client" } else { "client$i" }
         $clientArgs = @("smoke_test")
-        if ($UsePackRatWorldPacks) {
+        if ($UsePackRatWorldPacks -or $UsePackRatEditorExports) {
             $clientArgs += "force_packrat_world_packs"
+        }
+        if ($UsePackRatEditorExports) {
+            $clientArgs += "editor_pack_export_world_packs"
         }
         $clients += @{
             Name = $clientName
@@ -255,9 +262,13 @@ try {
             }
             throw "Smoke test did not produce SMOKE_PASS for $clientName"
         }
-        if ($UsePackRatWorldPacks -and -not $clientLog.Contains("WORLD_PACK_READY")) {
+        if (($UsePackRatWorldPacks -or $UsePackRatEditorExports) -and -not $clientLog.Contains("WORLD_PACK_READY")) {
             Write-Host $clientLog
             throw "PackRat smoke did not load any world packs for $clientName"
+        }
+        if ($UsePackRatEditorExports -and -not $clientLog.Contains("WORLD_PACK_EDITOR_EXPORT")) {
+            Write-Host $clientLog
+            throw "PackRat editor export smoke did not use editor export presets for $clientName"
         }
 
         $transferCount = (Select-String -Path $clientLogPath -SimpleMatch "SMOKE_STEP transfer ").Count
@@ -298,8 +309,11 @@ try {
     $servers += $cleanupMaster
     Wait-LogMarker "master_cleanup" "MASTER_READY"
     $cleanupClientArgs = @("smoke_test")
-    if ($UsePackRatWorldPacks) {
+    if ($UsePackRatWorldPacks -or $UsePackRatEditorExports) {
         $cleanupClientArgs += "force_packrat_world_packs"
+    }
+    if ($UsePackRatEditorExports) {
+        $cleanupClientArgs += "editor_pack_export_world_packs"
     }
     $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" $cleanupClientArgs -Headless
     $clients += @{

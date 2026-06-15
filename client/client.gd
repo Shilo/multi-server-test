@@ -7,6 +7,9 @@ const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
+const EDITOR_PACK_EXPORT_WORLD_PACKS_ARG := "editor_pack_export_world_packs"
+const EDITOR_PACK_EXPORT_PRESET_PREFIX := "World Pack - "
+const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
 const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
 const TRAVEL_LEASE_REDEEM_GRACE_SECONDS := 5.0
 const WORLD_JOIN_TICKET_TIMEOUT_SECONDS := 12.0
@@ -459,6 +462,9 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 		return true
 
 	var pack_url := str(endpoint.get("pack_url", ""))
+	var use_editor_export := _use_editor_pack_exports()
+	if pack_url.is_empty() and use_editor_export:
+		pack_url = NET_CONFIG.world_pack_url(world_key)
 	if pack_url.is_empty():
 		push_error("[CLIENT] missing pack metadata for world %s; scene is not bundled: %s" % [world_key, scene_path])
 		return false
@@ -469,6 +475,19 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	options.id = world_key
 	options.entry_path = scene_path
 	options.progress_total_size = expected_size
+	if use_editor_export:
+		options.editor_pack_export_preset = _editor_pack_export_preset(world_key)
+		options.editor_simulated_local_load_seconds = EDITOR_SIMULATED_LOCAL_LOAD_SECONDS
+		options.expected_modified_time = 0
+		options.expected_size = 0
+		options.progress_total_size = 0
+		expected_modified_time = 0
+		expected_size = 0
+		NetLog.print_line("[CLIENT] WORLD_PACK_EDITOR_EXPORT key=%s preset=%s simulated_seconds=%.1f" % [
+			world_key,
+			options.editor_pack_export_preset,
+			options.editor_simulated_local_load_seconds,
+		])
 
 	NetLog.print_line("[CLIENT] WORLD_PACK_START key=%s url=%s size=%d modified_time=%d" % [
 		world_key,
@@ -516,6 +535,17 @@ func _wait_for_pack_or_lease_expiry(world_key: String, endpoint: Dictionary, req
 
 func _force_packrat_world_packs() -> bool:
 	return FORCE_PACKRAT_WORLD_PACKS_ARG in OS.get_cmdline_user_args()
+
+
+func _use_editor_pack_exports() -> bool:
+	return (
+		OS.has_feature("editor")
+		and EDITOR_PACK_EXPORT_WORLD_PACKS_ARG in OS.get_cmdline_user_args()
+	)
+
+
+func _editor_pack_export_preset(world_key: String) -> String:
+	return "%s%s" % [EDITOR_PACK_EXPORT_PRESET_PREFIX, world_key]
 
 
 func _show_world_pack_progress(world_key: String, expected_size: int) -> void:
