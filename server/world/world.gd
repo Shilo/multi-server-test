@@ -4,6 +4,7 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
+const MAX_EXPECTED_JOIN_TICKETS := 256
 ## Fallback only. Normal portal transfers clear when the master reports the
 ## exact TravelLease was admitted or failed; this prevents permanent local locks
 ## if the master disappears before returning a lease.
@@ -268,6 +269,7 @@ func _on_world_join_expected(expected_world_key: String, join_ticket: String, ex
 		"identity": identity,
 	}
 	_expire_join_tickets()
+	_trim_join_tickets()
 
 
 func _authorize_join(peer_id: int, join_ticket: String) -> bool:
@@ -308,6 +310,20 @@ func _expire_join_tickets() -> void:
 		var metadata: Dictionary = expected_join_tickets[join_ticket]
 		if float(metadata.get("expires_at", 0.0)) <= now:
 			expected_join_tickets.erase(join_ticket)
+
+
+func _trim_join_tickets() -> void:
+	if expected_join_tickets.size() <= MAX_EXPECTED_JOIN_TICKETS:
+		return
+
+	var ticket_ids := expected_join_tickets.keys()
+	ticket_ids.sort_custom(func(a: String, b: String) -> bool:
+		var left: Dictionary = expected_join_tickets[a]
+		var right: Dictionary = expected_join_tickets[b]
+		return float(left.get("expires_at", 0.0)) < float(right.get("expires_at", 0.0))
+	)
+	while expected_join_tickets.size() > MAX_EXPECTED_JOIN_TICKETS and not ticket_ids.is_empty():
+		expected_join_tickets.erase(ticket_ids.pop_front())
 
 
 func _on_world_join_authorized(peer_id: int, join_ticket: String) -> void:

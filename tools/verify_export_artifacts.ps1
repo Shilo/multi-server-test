@@ -58,6 +58,20 @@ function Assert-NoServerEntries($path) {
     Write-Host "VERIFY_CLIENT_PACK_OK path=$path entries=$($entries.Count)"
 }
 
+function Assert-NoServerSidecars($path) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        return
+    }
+    $sidecars = @(
+        Get-ChildItem -LiteralPath $path -File -Recurse |
+            Where-Object { $_.Name -like "*gdsqlite*" }
+    )
+    if ($sidecars.Count -gt 0) {
+        throw "Client/Web export contains server-only SQLite sidecars: $($sidecars.FullName -join ', ')"
+    }
+    Write-Host "VERIFY_NO_SERVER_SIDECARS_OK path=$path"
+}
+
 function Assert-WorldPack($path, $worldKey) {
     $entries = Read-PckEntries $path
     $expectedScene = "server/worlds/$worldKey/$worldKey.tscn"
@@ -79,6 +93,8 @@ $clientPack = Join-Path $BuildRoot "client\client.pck"
 $webPack = Join-Path $BuildRoot "web\index.pck"
 Assert-NoServerEntries $clientPack
 Assert-NoServerEntries $webPack
+Assert-NoServerSidecars (Join-Path $BuildRoot "client")
+Assert-NoServerSidecars (Join-Path $BuildRoot "web")
 
 $worldKeys = @(
     Get-ChildItem -Path (Join-Path $ProjectRoot "server\worlds") -Directory |

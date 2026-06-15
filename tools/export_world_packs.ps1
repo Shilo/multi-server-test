@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $WorldRoot = Join-Path $ProjectRoot "server\worlds"
+$ExportPresetsFile = Join-Path $ProjectRoot "export_presets.cfg"
 
 function Get-WorldKeys {
     $keys = @()
@@ -43,6 +44,30 @@ function Wait-FileStable($path, $timeoutSeconds = 30) {
     throw "File did not become stable: $path"
 }
 
+function Get-PresetNames {
+    if (-not (Test-Path -LiteralPath $ExportPresetsFile)) {
+        throw "Missing export presets file: $ExportPresetsFile"
+    }
+
+    $names = @{}
+    foreach ($line in Get-Content -LiteralPath $ExportPresetsFile) {
+        if ($line -match '^name="(.+)"$') {
+            $names[$matches[1]] = $true
+        }
+    }
+    return $names
+}
+
+function Assert-WorldPackPresets($worldKeys) {
+    $presetNames = Get-PresetNames
+    foreach ($worldKey in $worldKeys) {
+        $preset = "$PresetPrefix$worldKey"
+        if (-not $presetNames.ContainsKey($preset)) {
+            throw "Missing export preset '$preset' for world '$worldKey'. Add it to export_presets.cfg."
+        }
+    }
+}
+
 function Export-WorldPack($worldKey) {
     $preset = "$PresetPrefix$worldKey"
     $tempPath = Join-Path $OutputDir "$worldKey.uploading.pck"
@@ -71,6 +96,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Remove-Item -Force -Path (Join-Path $OutputDir "*.uploading.pck") -ErrorAction SilentlyContinue
 
 $worldKeys = Get-WorldKeys
+Assert-WorldPackPresets $worldKeys
 foreach ($worldKey in $worldKeys) {
     Export-WorldPack $worldKey
 }

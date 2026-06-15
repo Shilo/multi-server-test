@@ -41,8 +41,12 @@ var accounts
 
 
 func _ready() -> void:
-	_open()
-	_migrate()
+	if not _open():
+		get_tree().quit(20)
+		return
+	if not _migrate():
+		get_tree().quit(21)
+		return
 	accounts = ACCOUNT_REPOSITORY.new(self)
 	NetLog.print_line("MASTER_DB_READY path=%s" % _db.path)
 
@@ -52,7 +56,7 @@ func _exit_tree() -> void:
 		_db.close_db()
 
 
-func _open() -> void:
+func _open() -> bool:
 	_db = SQLite.new()
 	_db.path = DB_PATH
 	_db.foreign_keys = true
@@ -60,36 +64,59 @@ func _open() -> void:
 	_db.verbosity_level = 0
 	if not _db.open_db():
 		push_error("[MASTER_DB] failed to open database: %s" % _db.error_message)
-		return
+		return false
 
 	# Pragmas recommended by the database spike: WAL for concurrent reads while
 	# the single master writer commits, a busy timeout so brief locks retry, and
 	# NORMAL sync as a sane durability/throughput tradeoff for a game backend.
-	_db.query("PRAGMA journal_mode = WAL;")
-	_db.query("PRAGMA busy_timeout = 5000;")
-	_db.query("PRAGMA synchronous = NORMAL;")
+	return (
+		_query_startup("PRAGMA journal_mode = WAL;")
+		and _query_startup("PRAGMA busy_timeout = 5000;")
+		and _query_startup("PRAGMA synchronous = NORMAL;")
+	)
 
 
-func _migrate() -> void:
-	_db.query("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);")
+func _migrate() -> bool:
+	if not _query_startup("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);"):
+		return false
 	var applied := {}
 	if _db.query("SELECT version FROM schema_migrations;"):
 		for row in _db.query_result:
 			applied[int(row["version"])] = true
+	else:
+		push_error("[MASTER_DB] could not read schema migrations: %s" % _db.error_message)
+		return false
 
 	for migration in MIGRATIONS:
 		var version := int(migration["version"])
 		if applied.has(version):
 			continue
+		if not _query_startup("BEGIN TRANSACTION;"):
+			return false
 		for statement in migration["statements"]:
 			if not _db.query(statement):
 				push_error("[MASTER_DB] migration %d failed: %s" % [version, _db.error_message])
-				return
-		_db.query_with_bindings(
+				_db.query("ROLLBACK;")
+				return false
+		if not _db.query_with_bindings(
 			"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?);",
 			[version, int(Time.get_unix_time_from_system())]
-		)
+		):
+			push_error("[MASTER_DB] migration %d marker failed: %s" % [version, _db.error_message])
+			_db.query("ROLLBACK;")
+			return false
+		if not _query_startup("COMMIT;"):
+			_db.query("ROLLBACK;")
+			return false
 		NetLog.print_line("MASTER_DB_MIGRATED version=%d" % version)
+	return true
+
+
+func _query_startup(sql: String) -> bool:
+	if _db.query(sql):
+		return true
+	push_error("[MASTER_DB] startup query failed: %s sql=%s" % [_db.error_message, sql])
+	return false
 
 
 ## Thin pass-throughs so repositories never hold the raw SQLite handle directly.

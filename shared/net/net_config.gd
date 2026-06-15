@@ -1,7 +1,13 @@
-const HOST := "127.0.0.1"
+const DEFAULT_HOST := "127.0.0.1"
 const MASTER_PORT := 19080
 const DEFAULT_WORLD_PACK_BASE_URL := "http://127.0.0.1:19100/world_packs"
 const DEFAULT_GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
+const MASTER_URL_ENV := "MULTI_SERVER_MASTER_URL"
+const MASTER_HOST_ENV := "MULTI_SERVER_MASTER_HOST"
+const MASTER_SCHEME_ENV := "MULTI_SERVER_MASTER_SCHEME"
+const WORLD_URL_TEMPLATE_ENV := "MULTI_SERVER_WORLD_URL_TEMPLATE"
+const WORLD_HOST_ENV := "MULTI_SERVER_WORLD_HOST"
+const WORLD_SCHEME_ENV := "MULTI_SERVER_WORLD_SCHEME"
 const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
 const WORLD_PACK_DIR_ENV := "MULTI_SERVER_WORLD_PACK_DIR"
 const DEFAULT_WORLD_KEY := "hub"
@@ -12,7 +18,13 @@ static var _world_keys_loaded := false
 
 
 static func master_url() -> String:
-	return "ws://%s:%d" % [HOST, MASTER_PORT]
+	var value := OS.get_environment(MASTER_URL_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("master_url")
+	if not value.is_empty():
+		return value
+
+	return "%s://%s:%d" % [_master_scheme(), _master_host(), MASTER_PORT]
 
 
 static func world_keys() -> Array[String]:
@@ -44,7 +56,13 @@ static func is_valid_world_key(world_key: String) -> bool:
 
 
 static func world_url(world_key: String) -> String:
-	return "ws://%s:%d" % [HOST, world_port(world_key)]
+	var template := OS.get_environment(WORLD_URL_TEMPLATE_ENV).strip_edges()
+	if template.is_empty():
+		template = _web_query_value("world_url_template")
+	if not template.is_empty():
+		return template.replace("{world}", world_key.uri_encode()).replace("{port}", str(world_port(world_key)))
+
+	return "%s://%s:%d" % [_world_scheme(), _world_host(), world_port(world_key)]
 
 
 static func world_port(world_key: String) -> int:
@@ -113,6 +131,42 @@ static func _web_same_origin_world_pack_base_url() -> String:
 	if typeof(value) != TYPE_STRING:
 		return ""
 	return String(value).strip_edges().trim_suffix("/")
+
+
+static func _master_host() -> String:
+	var value := OS.get_environment(MASTER_HOST_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("master_host")
+	if value.is_empty():
+		value = DEFAULT_HOST
+	return value
+
+
+static func _master_scheme() -> String:
+	var value := OS.get_environment(MASTER_SCHEME_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("master_scheme")
+	if value.is_empty():
+		value = "ws"
+	return value
+
+
+static func _world_host() -> String:
+	var value := OS.get_environment(WORLD_HOST_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("world_host")
+	if value.is_empty():
+		value = _master_host()
+	return value
+
+
+static func _world_scheme() -> String:
+	var value := OS.get_environment(WORLD_SCHEME_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("world_scheme")
+	if value.is_empty():
+		value = _master_scheme()
+	return value
 
 
 static func world_endpoint(world_key: String) -> Dictionary:
