@@ -10,7 +10,7 @@ signal completed(result: PackRatResult)
 ## Emitted once when [method cancel] requests cancellation.
 signal canceled()
 
-## Original remote URL passed to [method PackRat.load_resource_pack_async].
+## Original URL or local source path passed to [method PackRat.load_resource_pack_async].
 var url: String = ""
 
 ## Options used by this request.
@@ -25,6 +25,7 @@ var cache_key: String = ""
 ## Final result. Set before [signal completed] is emitted.
 var result: PackRatResult
 
+var _local_pack_path: String = ""
 var _http_request: HTTPRequest
 var _is_canceled: bool = false
 var _is_completed: bool = false
@@ -54,11 +55,18 @@ func cancel() -> void:
 	canceled.emit()
 
 
-func _setup(source_url: String, request_options: PackRatOptions, request_id: String, key: String) -> void:
+func _setup(
+	source_url: String,
+	request_options: PackRatOptions,
+	request_id: String,
+	key: String,
+	local_pack_path: String = ""
+) -> void:
 	url = source_url
 	options = request_options
 	id = request_id
 	cache_key = key
+	_local_pack_path = local_pack_path
 
 
 func _set_http_request(request: HTTPRequest) -> void:

@@ -4,7 +4,7 @@ class_name PackRatCacheRecord extends RefCounted
 ## Stable pack ID used for cache lookup and cleanup.
 var id: String = ""
 
-## Original remote URL used to create this cache entry.
+## Original URL or local source path used to create this cache entry.
 var source_url: String = ""
 
 ## Local cached file path.

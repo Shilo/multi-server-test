@@ -1,34 +1,36 @@
 class_name PackRat extends RefCounted
 ## Loads remote Godot PCK/ZIP resource packs at runtime.
 ## [br][br]
-## PackRat is a static facade around runtime HTTP downloads, local [code]user://[/code]
-## cache files, and [method ProjectSettings.load_resource_pack]. It does not
-## require an autoload, editor plugin, manifest, provider system, or persistent
-## helper node.
+## PackRat is a static facade around runtime HTTP downloads, local pack sources,
+## [code]user://[/code] cache files, and [method ProjectSettings.load_resource_pack].
+## It does not require an autoload, editor plugin, manifest, provider system, or
+## persistent helper node.
 
 
 ## Loads the resource pack at [param url].
 ## [br][br]
 ## Parameters:
-## - [param url]: HTTP(S) URL for a Godot [code].pck[/code] or [code].zip[/code].
+## - [param url]: HTTP(S) URL or local path for a Godot [code].pck[/code] or [code].zip[/code].
 ## - [param options]: Optional cache, validation, HTTP, and mount settings.
 ## [br][br]
 ## Returns:
 ## - A [PackRatResult] with [member PackRatResult.ok] set to [code]true[/code] when
 ## the pack is cached, mounted, and ready to use.
 static func load_resource_pack(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatResult:
-	if not PackRatCachePaths.is_http_url(url):
-		return PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs.")
-
 	var request_options: PackRatOptions = options.copy()
+	var local_pack_path: String = _local_pack_path_for_url(url, request_options)
+	if not _can_load_source(url, request_options, local_pack_path):
+		return PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs, local .pck/.zip files, or editor export presets.")
+
 	if not PackRatCachePaths.is_safe_cache_dir(request_options.cache_dir):
 		return PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments.")
 	request_options.cache_dir = PackRatCachePaths.normalized_cache_dir(request_options.cache_dir)
 	var id: String = PackRatCachePaths.id_for_url(url, request_options)
-	var key: String = PackRatCachePaths.cache_key(url, id, request_options)
-	var fast_result: PackRatResult = PackRatLoader.fast_cache_result(url, id, key, request_options)
-	if fast_result != null:
-		return fast_result
+	var key: String = _cache_key_for_source(url, id, request_options)
+	if local_pack_path.is_empty() and not _uses_editor_pack_export(request_options):
+		var fast_result: PackRatResult = PackRatLoader.fast_cache_result(url, id, key, request_options)
+		if fast_result != null:
+			return fast_result
 
 	var request: PackRatRequest = load_resource_pack_async(url, request_options)
 	if request.is_completed():
@@ -41,18 +43,19 @@ static func load_resource_pack(url: String, options: PackRatOptions = PackRatOpt
 ## Starts loading the resource pack at [param url] without waiting for completion.
 ## [br][br]
 ## Parameters:
-## - [param url]: HTTP(S) URL for a Godot [code].pck[/code] or [code].zip[/code].
+## - [param url]: HTTP(S) URL or local path for a Godot [code].pck[/code] or [code].zip[/code].
 ## - [param options]: Optional cache, validation, HTTP, and mount settings.
 ## [br][br]
 ## Returns:
 ## - A cancelable [PackRatRequest] that emits progress and completion signals.
 static func load_resource_pack_async(url: String, options: PackRatOptions = PackRatOptions.new()) -> PackRatRequest:
-	if not PackRatCachePaths.is_http_url(url):
+	var request_options: PackRatOptions = options.copy()
+	var local_pack_path: String = _local_pack_path_for_url(url, request_options)
+	if not _can_load_source(url, request_options, local_pack_path):
 		var invalid_request: PackRatRequest = PackRatRequest.new()
-		_finish_request_next_frame(invalid_request, PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs."))
+		_finish_request_next_frame(invalid_request, PackRatResult.failed(url, "PackRat only accepts HTTP(S) URLs, local .pck/.zip files, or editor export presets."))
 		return invalid_request
 
-	var request_options: PackRatOptions = options.copy()
 	if not PackRatCachePaths.is_safe_cache_dir(request_options.cache_dir):
 		var invalid_cache_request: PackRatRequest = PackRatRequest.new()
 		_finish_request_next_frame(invalid_cache_request, PackRatResult.failed(url, "PackRat cache_dir must be a non-root user:// path without '..' segments."))
@@ -60,13 +63,14 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 	request_options.cache_dir = PackRatCachePaths.normalized_cache_dir(request_options.cache_dir)
 
 	var id: String = PackRatCachePaths.id_for_url(url, request_options)
-	var key: String = PackRatCachePaths.cache_key(url, id, request_options)
+	var key: String = _cache_key_for_source(url, id, request_options)
 	var request: PackRatRequest = PackRatRequest.new()
-	request._setup(url, request_options, id, key)
-	var fast_result: PackRatResult = PackRatLoader.fast_cache_result(url, id, key, request_options)
-	if fast_result != null:
-		_finish_request_next_frame(request, fast_result)
-		return request
+	request._setup(url, request_options, id, key, local_pack_path)
+	if local_pack_path.is_empty() and not _uses_editor_pack_export(request_options):
+		var fast_result: PackRatResult = PackRatLoader.fast_cache_result(url, id, key, request_options)
+		if fast_result != null:
+			_finish_request_next_frame(request, fast_result)
+			return request
 
 	var tree: SceneTree = Engine.get_main_loop()
 	if tree == null or tree.root == null:
@@ -80,6 +84,38 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 		tree.root.add_child.call_deferred(runner)
 	runner.start.call_deferred(request)
 	return request
+
+
+static func _can_load_source(url: String, options: PackRatOptions, local_pack_path: String) -> bool:
+	return (
+		PackRatCachePaths.is_http_url(url)
+		or _uses_editor_pack_export(options)
+		or not local_pack_path.is_empty()
+	)
+
+
+static func _local_pack_path_for_url(url: String, options: PackRatOptions) -> String:
+	if not options.editor_pack_export_preset.strip_edges().is_empty():
+		return ""
+
+	if PackRatLocalFileClient.is_local_pack_source(url):
+		return PackRatLocalFileClient.path_from_source(url)
+
+	return ""
+
+
+static func _uses_editor_pack_export(options: PackRatOptions) -> bool:
+	return PackRatEditorPackExport.is_available() and not options.editor_pack_export_preset.strip_edges().is_empty()
+
+
+static func _cache_key_for_source(url: String, id: String, options: PackRatOptions) -> String:
+	if not _uses_editor_pack_export(options):
+		return PackRatCachePaths.cache_key(url, id, options)
+
+	var preset_name: String = options.editor_pack_export_preset.strip_edges()
+	var editor_url: String = "%s#pack_rat_editor_export_preset=%s" % [url, preset_name]
+	var editor_id: String = "%s-editor-%s" % [id, PackRatCachePaths.safe_name(preset_name)]
+	return PackRatCachePaths.cache_key(editor_url, editor_id, options)
 
 
 ## Deletes every removable PackRat cache file and cache metadata entry.

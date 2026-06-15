@@ -26,6 +26,10 @@ var offset: int = 0
 ## Optional resource path the caller intends to load after the pack is ready.
 var entry_path: String = ""
 
+## Editor-only export preset used to build a fresh local pack before loading.
+## Exported games ignore this and load [method PackRat.load_resource_pack]'s URL normally.
+var editor_pack_export_preset: String = ""
+
 ## Expected byte size for this pack. A value above [code]0[/code] becomes part
 ## of the cache identity and is checked after download.
 var expected_size: int = 0
@@ -112,6 +116,7 @@ func copy() -> PackRatOptions:
 	options.replace_files = replace_files
 	options.offset = offset
 	options.entry_path = entry_path
+	options.editor_pack_export_preset = editor_pack_export_preset
 	options.expected_size = expected_size
 	options.expected_modified_time = expected_modified_time
 	options.progress_total_size = progress_total_size

@@ -29,7 +29,7 @@ var from_cache: bool = false
 ## [code]true[/code] when the local file was mounted as a PCK/ZIP resource pack.
 var mounted: bool = false
 
-## Original remote URL passed to [method PackRat.load_resource_pack].
+## Original URL or local source path passed to [method PackRat.load_resource_pack].
 var source_url: String = ""
 
 ## Local cached file path.
