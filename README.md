@@ -45,7 +45,7 @@ For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godo
 - `server/master/db/`: master-owned `DatabaseService` and repositories (the only SQLite access boundary).
 - `server/world/`: world server scene and script.
 - `server/worlds/`: playable world source folders. These are included in server exports and can be packed separately for client download.
-- `addons/pack_rat/`: vendored PackRat runtime DLC/PCK loader used by clients before world travel.
+- `addons/pack_rat/`: PackRat runtime DLC/PCK loader subtree used by clients before world travel.
 - `shared/net/`: endpoint scripts and minimal derived network config.
 - `shared/world/`: reusable world base scene and portal logic.
 - `shared/player/`: replicated player scene and script.
@@ -64,6 +64,25 @@ Main documentation:
 - [Godot Resource Database Wrapper Spike](docs/godot-resource-database-wrapper-spike.md): Resource-file persistence challenge spike.
 
 Historical research, including the Nakama branch notes, remains under `docs/` but is not the canonical current architecture.
+
+## PackRat Subtree
+
+PackRat is tracked as a Git subtree at `addons/pack_rat/`. The subtree source is
+the PackRat repository's `addon` branch, not `main`. That branch contains only
+the contents that should live directly under `res://addons/pack_rat/`; pulling
+from PackRat `main` would nest the full project inside this addon folder.
+
+Update PackRat with:
+
+```powershell
+git subtree pull --prefix=addons/pack_rat https://github.com/Shilo/pack-rat.git addon --squash -m "chore: update PackRat subtree"
+```
+
+Do not edit `addons/pack_rat/` directly in this project unless the change is an
+urgent local integration fix. Prefer changing `Shilo/pack-rat`, let its workflow
+sync the `addon` branch, then pull the subtree here. The current subtree was
+imported from PackRat `addon` commit `9c0701f`, which was synced from PackRat
+`main` commit `1f52be8`.
 
 ## Role Selection
 
