@@ -254,6 +254,25 @@ PackRat smoke also includes `WORLD_PACK_EDITOR_EXPORT`.
 
 Logs are written under `.logs/` and ignored by git.
 
+Web export smoke:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_web_smoke.ps1
+```
+
+This exports the Windows client/server, exports the Web client, builds world
+PCKs, verifies the exported PCK file tables, starts a local static host for
+`builds/web/`, starts the exported master server, and drives the exported Web
+client through Edge/Playwright. It proves the browser client downloads
+`world_packs/*.pck` before joining worlds, then reuses PackRat cache on repeated
+world visits.
+
+If artifacts are already exported and verified, run only the Web smoke:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_web_smoke.ps1 -SkipExport
+```
+
 ## Export
 
 Install Godot export templates for `4.6.3.stable` first if needed.
@@ -269,19 +288,48 @@ Outputs:
 - `builds/client/client.exe`
 - `builds/client/client.pck`
 - `builds/server/server.exe`
+- `builds/web/index.html`
+- `builds/web/index.js`
+- `builds/web/index.pck`
+- `builds/web/index.wasm`
+- `builds/web/world_packs/*.pck`
 - `builds/world_packs/hub.pck`
 - `builds/world_packs/left_world.pck`
 - `builds/world_packs/right_world.pck`
 - `builds/world_packs/top_world.pck`
 
+After exporting, verify that client artifacts do not bundle server/world scenes
+and that Web-hosted pack copies match the server-side pack metadata:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
+```
+
 The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts and should be served by a static file server in local testing or production.
+
+For GitHub Pages or another static host, deploy the contents of `builds/web/` as
+the Web site. Keep `builds/web/world_packs/*.pck` beside `index.html` under the
+`world_packs/` path. The master/VPS should advertise that same public pack base:
+
+```text
+MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
+MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/world_packs>
+```
+
+For local Web smoke, the script sets the base URL to
+`http://127.0.0.1:19200/world_packs`, matching the temporary static server.
+The master reads pack size and modified time from `MULTI_SERVER_WORLD_PACK_DIR`;
+the static host must serve files with matching bytes and modified time or
+PackRat will reject the download as stale.
 
 The `server/` and `client/` folders are export-bundle ownership labels. The concern ends at what gets bundled into each executable/artifact; runtime clients can still mount a downloaded pack at a `res://server/worlds/...` path because that path is not user-facing.
 
-The export script uses two Windows Desktop executable presets:
+The export script uses three executable/Web presets:
 
 - `Windows Client`: no role feature tag.
 - `Windows Server`: dedicated server export with the `server` feature tag.
+- `Web Client`: browser client export. It must not include `server/worlds/*`;
+  worlds are downloaded as separate PackRat PCKs.
 
 PackRat editor-export testing uses four additional Windows Desktop PCK presets:
 
@@ -349,7 +397,7 @@ server-side filesystem directory where the current PCK files live.
 - No inventory/currency/per-experience persistence yet (schema is ready to grow).
 - No standalone gateway.
 - No standalone chat process.
-- PackRat is wired for per-world PCK downloads, with automated HTTP and editor-export smoke coverage; full Web export validation is still needed.
+- PackRat is wired for per-world PCK downloads, with automated HTTP, editor-export, exported Windows, and exported Web smoke coverage.
 - No external production supervisor configuration yet.
 - No server-side movement validation.
 

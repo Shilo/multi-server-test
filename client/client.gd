@@ -48,6 +48,7 @@ var world_pack_last_logged_msec := 0
 var travel_lease_keepalive_id := ""
 var travel_lease_keepalive_active := false
 var travel_lease_keepalive_generation := 0
+var launch_args := PackedStringArray()
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -60,10 +61,11 @@ var travel_lease_keepalive_generation := 0
 
 
 func _ready() -> void:
+	launch_args = _runtime_user_args()
 	_setup_chat()
 	_setup_login_panel()
 	_setup_multiplayer_branches()
-	smoke_test = SMOKE_TEST_ARG in OS.get_cmdline_user_args()
+	smoke_test = SMOKE_TEST_ARG in launch_args
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
 		routes = new_routes
 	)
@@ -97,7 +99,7 @@ func _ready() -> void:
 			requested_transfer_target = ""
 	)
 
-	var user_args := OS.get_cmdline_user_args()
+	var user_args := launch_args
 	if DB_PERSIST_TEST_ARG in user_args and user_args.size() >= 3:
 		run_db_persist_test(str(user_args[1]), str(user_args[2]))
 	elif smoke_test:
@@ -133,7 +135,7 @@ func _setup_chat() -> void:
 
 func _setup_login_panel() -> void:
 	# The smoke client runs headless and never logs in; skip the widget there.
-	if SMOKE_TEST_ARG in OS.get_cmdline_user_args():
+	if SMOKE_TEST_ARG in launch_args:
 		return
 	login_panel = LOGIN_PANEL_SCENE.instantiate()
 	login_panel.login_submitted.connect(_on_login_submitted)
@@ -196,7 +198,7 @@ func _resume_into_world(world_key: String) -> void:
 func run_manual_client() -> void:
 	if await _bootstrap_connections(false):
 		NetLog.print_line("[CLIENT] manual client ready")
-		if MANUAL_PORTAL_TEST_ARG in OS.get_cmdline_user_args():
+		if MANUAL_PORTAL_TEST_ARG in launch_args:
 			await _run_manual_portal_test()
 
 
@@ -534,18 +536,42 @@ func _wait_for_pack_or_lease_expiry(world_key: String, endpoint: Dictionary, req
 
 
 func _force_packrat_world_packs() -> bool:
-	return FORCE_PACKRAT_WORLD_PACKS_ARG in OS.get_cmdline_user_args()
+	return FORCE_PACKRAT_WORLD_PACKS_ARG in launch_args
 
 
 func _use_editor_pack_exports() -> bool:
 	return (
 		OS.has_feature("editor")
-		and EDITOR_PACK_EXPORT_WORLD_PACKS_ARG in OS.get_cmdline_user_args()
+		and EDITOR_PACK_EXPORT_WORLD_PACKS_ARG in launch_args
 	)
 
 
 func _editor_pack_export_preset(world_key: String) -> String:
 	return "%s%s" % [EDITOR_PACK_EXPORT_PRESET_PREFIX, world_key]
+
+
+func _runtime_user_args() -> PackedStringArray:
+	var args := OS.get_cmdline_user_args()
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return args
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return args
+
+	var value: Variant = javascript.call(
+		"eval",
+		"new URLSearchParams(window.location.search).get('args') || ''",
+		true
+	)
+	if typeof(value) != TYPE_STRING:
+		return args
+
+	for item in String(value).split(",", false):
+		var arg := item.strip_edges()
+		if not arg.is_empty() and not args.has(arg):
+			args.append(arg)
+	return args
 
 
 func _show_world_pack_progress(world_key: String, expected_size: int) -> void:

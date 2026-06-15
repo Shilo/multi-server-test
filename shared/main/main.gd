@@ -1,8 +1,7 @@
 extends Node
 
 const CLIENT_SCENE := "res://client/client.tscn"
-const MASTER_SCENE := "res://server/master/master.tscn"
-const WORLD_SCENE := "res://server/world/world.tscn"
+const SERVER_ROOT := "res://server"
 
 
 func _ready() -> void:
@@ -10,9 +9,9 @@ func _ready() -> void:
 	var user_args := OS.get_cmdline_user_args()
 	if _is_server_build():
 		if user_args.is_empty():
-			scene_path = MASTER_SCENE
+			scene_path = SERVER_ROOT.path_join("master/master.tscn")
 		else:
-			scene_path = WORLD_SCENE
+			scene_path = SERVER_ROOT.path_join("world/world.tscn")
 
 	call_deferred("_change_scene", scene_path)
 

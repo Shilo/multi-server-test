@@ -9,7 +9,8 @@ $ProjectFile = Join-Path $ProjectRoot "project.godot"
 
 $targets = @(
     @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe"; PckRequired = $true },
-    @{ Name = "server"; Preset = "Windows Server"; Path = "server\server.exe"; PckRequired = $false }
+    @{ Name = "server"; Preset = "Windows Server"; Path = "server\server.exe"; PckRequired = $false },
+    @{ Name = "web_client"; Preset = "Web Client"; Path = "web\index.html"; PckRequired = $true }
 )
 
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
@@ -55,7 +56,29 @@ function Export-WorldPacks() {
     if ($exitCode -ne 0) {
         throw "World pack export failed with exit code $exitCode"
     }
+    Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\worlds") -Directory |
+        ForEach-Object {
+            Wait-FileStable (Join-Path $worldPackRoot "$($_.Name).pck")
+        }
     Write-Host "EXPORT_WORLD_PACKS_DONE"
+}
+
+function Copy-WorldPacksToWebBuild() {
+    $worldPackRoot = Join-Path $BuildRoot "world_packs"
+    $webWorldPackRoot = Join-Path $BuildRoot "web\world_packs"
+    if (-not (Test-Path $worldPackRoot)) {
+        throw "World pack root does not exist: $worldPackRoot"
+    }
+
+    Remove-Item -Recurse -Force -Path $webWorldPackRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $webWorldPackRoot | Out-Null
+    Get-ChildItem -LiteralPath $worldPackRoot -Filter "*.pck" -File |
+        ForEach-Object {
+            $destination = Join-Path $webWorldPackRoot $_.Name
+            Copy-Item -LiteralPath $_.FullName -Force -Destination $destination
+            (Get-Item -LiteralPath $destination).LastWriteTimeUtc = $_.LastWriteTimeUtc
+        }
+    Write-Host "EXPORT_WEB_WORLD_PACKS_DONE $webWorldPackRoot"
 }
 
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
@@ -83,6 +106,7 @@ try {
     }
 
     Export-WorldPacks
+    Copy-WorldPacksToWebBuild
 }
 finally {
     Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline

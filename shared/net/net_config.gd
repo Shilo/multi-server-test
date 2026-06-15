@@ -1,6 +1,7 @@
 const HOST := "127.0.0.1"
 const MASTER_PORT := 19080
 const DEFAULT_WORLD_PACK_BASE_URL := "http://127.0.0.1:19100/world_packs"
+const DEFAULT_GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
 const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
 const WORLD_PACK_DIR_ENV := "MULTI_SERVER_WORLD_PACK_DIR"
 const DEFAULT_WORLD_KEY := "hub"
@@ -60,6 +61,12 @@ static func world_scene_path(world_key: String) -> String:
 static func world_pack_base_url() -> String:
 	var value := OS.get_environment(WORLD_PACK_BASE_URL_ENV).strip_edges()
 	if value.is_empty():
+		value = _web_query_value("world_pack_base_url")
+	if value.is_empty() and OS.has_feature("web"):
+		value = _web_same_origin_world_pack_base_url()
+	if value.is_empty() and OS.has_feature("web"):
+		return DEFAULT_GITHUB_PAGES_WORLD_PACK_BASE_URL
+	if value.is_empty():
 		return DEFAULT_WORLD_PACK_BASE_URL
 	return value.trim_suffix("/")
 
@@ -79,6 +86,33 @@ static func world_pack_dir() -> String:
 
 static func world_pack_url(world_key: String) -> String:
 	return "%s/%s.pck" % [world_pack_base_url(), world_key.uri_encode()]
+
+
+static func _web_query_value(key: String) -> String:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return ""
+
+	var expression := "new URLSearchParams(window.location.search).get('%s') || ''" % key
+	var value: Variant = javascript.call("eval", expression, true)
+	return String(value).strip_edges() if typeof(value) == TYPE_STRING else ""
+
+
+static func _web_same_origin_world_pack_base_url() -> String:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return ""
+
+	var value: Variant = javascript.call("eval", "new URL('world_packs', window.location.href).href", true)
+	if typeof(value) != TYPE_STRING:
+		return ""
+	return String(value).strip_edges().trim_suffix("/")
 
 
 static func world_endpoint(world_key: String) -> Dictionary:
