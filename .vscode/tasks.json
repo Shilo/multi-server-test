@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Update PackRat subtree",
+      "type": "shell",
+      "command": "git",
+      "args": [
+        "subtree",
+        "pull",
+        "--prefix=addons/pack_rat",
+        "https://github.com/Shilo/pack-rat.git",
+        "addon",
+        "--squash"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
