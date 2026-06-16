@@ -130,13 +130,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .logs/web_smoke
+
+          dump_logs() {
+            echo "::group::web smoke logs"
+            for log in .logs/web_smoke/*.log; do
+              if [ -f "$log" ]; then
+                echo "--- ${log} ---"
+                cat "$log"
+              fi
+            done
+            echo "::endgroup::"
+          }
+
           python3 -m http.server 19200 --bind 127.0.0.1 --directory builds/web > .logs/web_smoke/static.out.log 2> .logs/web_smoke/static.err.log &
           static_pid="$!"
           MULTI_SERVER_WORLD_PACK_DIR="$PWD/builds/web/world_packs" \
           MULTI_SERVER_WORLD_PACK_BASE_URL="http://127.0.0.1:19200/world_packs" \
             ./builds/server/server.x86_64 --headless > .logs/web_smoke/master.out.log 2> .logs/web_smoke/master.err.log &
           master_pid="$!"
-          trap 'kill "$static_pid" "$master_pid" 2>/dev/null || true' EXIT
+          trap 'status=$?; if [ "$status" -ne 0 ]; then dump_logs; fi; kill "$static_pid" "$master_pid" 2>/dev/null || true; exit "$status"' EXIT
 
           for _ in $(seq 1 120); do
             if grep -q "MASTER_READY" .logs/web_smoke/master.out.log 2>/dev/null; then
