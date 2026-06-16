@@ -462,6 +462,11 @@ Release deploys intentionally publish the Web client and every world pack
 together. That keeps the client, PackRat PCK metadata, and server artifact on
 one version without partial-deploy ambiguity.
 
+If a release run fails after the workflow has committed/tagged the version but
+before GitHub Pages or artifact upload completes, rerun the workflow with the
+exact failed version in the `version` input. Do not use the empty auto-bump path
+for that retry, or it will intentionally create the next release version.
+
 `tools\export_all.ps1` patches the generated Web shell so the project version is
 applied to Godot's generated `index.js`, `index.wasm`, and `index.pck`
 requests. `tools\deploy_github_pages.ps1 -SkipExport` verifies that the staged

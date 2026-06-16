@@ -87,9 +87,8 @@ function Clear-PackRatHttpCache {
         return
     }
     Remove-Item -Force -Path (Join-Path $PackRatCacheRoot "cache.json") -ErrorAction SilentlyContinue
-    Get-ChildItem -LiteralPath $PackRatCacheRoot -File -Filter "*.pck" -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -LiteralPath $PackRatCacheRoot -File -Filter "*.part" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $PackRatCacheRoot -Recurse -File -Include "*.pck", "*.part" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notlike "*\editor_exports\*" } |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
@@ -239,5 +238,6 @@ finally {
     else {
         $env:MULTI_SERVER_WORLD_PACK_DIR = $originalPackDir
     }
+    Clear-PackRatHttpCache
     [System.IO.File]::WriteAllText($ProjectFile, $originalProjectFile, (New-Object System.Text.UTF8Encoding($false)))
 }
