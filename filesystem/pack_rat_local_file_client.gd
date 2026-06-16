@@ -69,9 +69,12 @@ static func copy_to_cache_part(
 	source_path: String,
 	download_path: String,
 	options: PackRatOptions,
-	owner: PackRatRequest
+	owner: PackRatRequest,
+	source_metadata: PackRatHttpResponse = null
 ) -> PackRatHttpResponse:
-	var response: PackRatHttpResponse = metadata(source_path)
+	var response: PackRatHttpResponse = source_metadata
+	if response == null:
+		response = metadata(source_path)
 	if not response.ok:
 		return response
 
@@ -113,6 +116,12 @@ static func copy_to_cache_part(
 			return PackRatHttpResponse.failed("Could not read local pack file: %s." % source_path)
 
 		target_file.store_buffer(buffer)
+		var write_error: Error = target_file.get_error()
+		if write_error != OK:
+			source_file.close()
+			target_file.close()
+			return PackRatHttpResponse.failed("Could not write local pack cache part %s (error %d)." % [download_path, write_error])
+
 		copied_size += buffer.size()
 		if simulated_seconds > 0.0 and not await _wait_for_simulated_progress(start_msec, copied_size, total_size, simulated_seconds, owner, tree):
 			source_file.close()
@@ -127,8 +136,17 @@ static func copy_to_cache_part(
 				target_file.close()
 				return PackRatHttpResponse.failed(PackRatResult.ERROR_CANCELED)
 
-	source_file.close()
+	var source_size_after_copy: int = FileAccess.get_size(source_path)
+	target_file.flush()
+	var final_write_error: Error = target_file.get_error()
 	target_file.close()
+	source_file.close()
+	if final_write_error != OK:
+		return PackRatHttpResponse.failed("Could not finish local pack cache part %s (error %d)." % [download_path, final_write_error])
+
+	if source_size_after_copy != copied_size:
+		return PackRatHttpResponse.failed("Local pack changed during copy: %s." % source_path)
+
 	response.ok = true
 	return response
 

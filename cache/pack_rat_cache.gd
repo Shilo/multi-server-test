@@ -1,8 +1,6 @@
 class_name PackRatCache extends RefCounted
 ## Internal [code]cache.json[/code] wrapper used by [PackRat].
 
-const _SCHEMA: int = 1
-
 var _cache_dir: String = ""
 var _items: Dictionary = {}
 var _changed_keys: PackedStringArray = []
@@ -81,8 +79,13 @@ func save() -> Error:
 	if file == null:
 		return FileAccess.get_open_error()
 
-	file.store_string(JSON.stringify({"schema": _SCHEMA, "items": latest_items}))
-	file = null
+	file.store_string(JSON.stringify({"items": latest_items}))
+	file.flush()
+	var write_error: Error = file.get_error()
+	file.close()
+	if write_error != OK:
+		DirAccess.remove_absolute(part_path)
+		return write_error
 
 	var remove_error: Error = OK
 	if FileAccess.file_exists(backup_path):
