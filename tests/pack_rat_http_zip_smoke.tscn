@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://tests/pack_rat_http_zip_smoke.gd" id="1_zip"]
-
-[node name="PackRatHttpZipSmoke" type="Node"]
-script = ExtResource("1_zip")

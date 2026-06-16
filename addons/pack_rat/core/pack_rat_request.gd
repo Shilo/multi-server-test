@@ -26,7 +26,6 @@ var cache_key: String = ""
 var result: PackRatResult
 
 var _local_pack_path: String = ""
-var _request_url: String = ""
 var _http_request: HTTPRequest
 var _is_canceled: bool = false
 var _is_completed: bool = false
@@ -58,14 +57,12 @@ func cancel() -> void:
 
 func _setup(
 	source_url: String,
-	request_url: String,
 	request_options: PackRatOptions,
 	request_id: String,
 	key: String,
 	local_pack_path: String = ""
 ) -> void:
 	url = source_url
-	_request_url = request_url
 	options = request_options
 	id = request_id
 	cache_key = key
