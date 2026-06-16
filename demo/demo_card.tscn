@@ -1,0 +1,162 @@
+[gd_scene format=3 uid="uid://ddi5fx5dkardc"]
+
+[ext_resource type="Script" uid="uid://bvxtur3dm5uvv" path="res://demo/demo_card.gd" id="1_card"]
+
+[sub_resource type="StyleBoxFlat" id="CardPanel"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(1, 1, 1, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.85098, 0.807843, 0.752941, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="ProgressFill"]
+bg_color = Color(0.152941, 0.501961, 0.423529, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[node name="PackRatDemoCard" type="PanelContainer" unique_id=336169898]
+size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("CardPanel")
+script = ExtResource("1_card")
+
+[node name="Margin" type="MarginContainer" parent="." unique_id=36360362]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="Stack" type="VBoxContainer" parent="Margin" unique_id=2045377035]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="HBoxContainer" parent="Margin/Stack" unique_id=1206474082]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="AccentBar" type="ColorRect" parent="Margin/Stack/Header" unique_id=1162537832]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(6, 0)
+layout_mode = 2
+color = Color(0.541176, 0.341176, 0.160784, 1)
+
+[node name="TitleStack" type="HBoxContainer" parent="Margin/Stack/Header" unique_id=1698908022]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="TitleLabel" type="Label" parent="Margin/Stack/Header/TitleStack" unique_id=1410223019]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.14902, 0.129412, 0.113725, 1)
+theme_override_font_sizes/font_size = 18
+text = "Pack"
+vertical_alignment = 1
+
+[node name="SummaryLabel" type="Label" parent="Margin/Stack/Header/TitleStack" unique_id=483963799]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.352941, 0.313726, 0.27451, 1)
+theme_override_font_sizes/font_size = 12
+text = "Summary"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="StatusRow" type="HBoxContainer" parent="Margin/Stack" unique_id=164001621]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusLabel" type="Label" parent="Margin/Stack/StatusRow" unique_id=338608199]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.14902, 0.129412, 0.113725, 1)
+theme_override_font_sizes/font_size = 13
+text = "Ready"
+vertical_alignment = 1
+
+[node name="DetailLabel" type="Label" parent="Margin/Stack/StatusRow" unique_id=720437185]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.423529, 0.384314, 0.345098, 1)
+theme_override_font_sizes/font_size = 11
+text = "Source"
+horizontal_alignment = 2
+vertical_alignment = 1
+autowrap_mode = 3
+clip_text = true
+text_overrun_behavior = 4
+max_lines_visible = 2
+
+[node name="ProgressBar" type="ProgressBar" parent="Margin/Stack" unique_id=1053769254]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/fill = SubResource("ProgressFill")
+show_percentage = false
+
+[node name="MetricRow" type="HBoxContainer" parent="Margin/Stack" unique_id=890221468]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BytesLabel" type="Label" parent="Margin/Stack/MetricRow" unique_id=761086904]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.423529, 0.384314, 0.345098, 1)
+theme_override_font_sizes/font_size = 11
+text = "Expected size"
+vertical_alignment = 1
+
+[node name="TimingLabel" type="Label" parent="Margin/Stack/MetricRow" unique_id=710044507]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.423529, 0.384314, 0.345098, 1)
+theme_override_font_sizes/font_size = 11
+text = "Last: none"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="Buttons" type="HFlowContainer" parent="Margin/Stack" unique_id=537958429]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
+
+[node name="LoadButton" type="Button" parent="Margin/Stack/Buttons" unique_id=1145036947]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Load"
+
+[node name="CancelButton" type="Button" parent="Margin/Stack/Buttons" unique_id=1265881004]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Cancel"
+
+[node name="PreviewButton" type="Button" parent="Margin/Stack/Buttons" unique_id=355142300]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Preview"
+
+[node name="ClearButton" type="Button" parent="Margin/Stack/Buttons" unique_id=2065258473]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Clear disk"

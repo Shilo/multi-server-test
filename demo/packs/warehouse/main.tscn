@@ -1,0 +1,131 @@
+[gd_scene format=3 uid="uid://3byluonui30j"]
+
+[ext_resource type="Script" uid="uid://bfduncj4b7uos" path="res://demo/packs/warehouse/warehouse_scene.gd" id="1_scene"]
+[ext_resource type="Texture2D" uid="uid://b2tkacsu1viqp" path="res://icon.svg" id="2_icon"]
+[ext_resource type="PackedScene" uid="uid://b6vk6y7wdkiuq" path="res://demo/packs/warehouse/box.tscn" id="3_box"]
+
+[sub_resource type="SegmentShape2D" id="FloorShape"]
+b = Vector2(900, 0)
+
+[sub_resource type="SegmentShape2D" id="LeftWallShape"]
+b = Vector2(0, 486)
+
+[sub_resource type="SegmentShape2D" id="RightWallShape"]
+a = Vector2(900, 0)
+b = Vector2(900, 486)
+
+[sub_resource type="SegmentShape2D" id="CeilingShape"]
+b = Vector2(900, 0)
+
+[node name="Warehouse" type="Control" unique_id=235730590]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_scene")
+box_scene = ExtResource("3_box")
+
+[node name="Page" type="MarginContainer" parent="." unique_id=714926565]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="Stack" type="VBoxContainer" parent="Page" unique_id=750047309]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="HBoxContainer" parent="Page/Stack" unique_id=2099971450]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Page/Stack/Header" unique_id=404812404]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.541176, 0.341176, 0.160784, 1)
+theme_override_font_sizes/font_size = 18
+text = "Warehouse PCK"
+vertical_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Page/Stack/Header" unique_id=816508948]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.352941, 0.313726, 0.27451, 1)
+theme_override_font_sizes/font_size = 12
+text = "Moving PackRat box room"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="Spacer" type="Control" parent="Page/Stack" unique_id=1769965601]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MascotWatermark" type="TextureRect" parent="." unique_id=741332185]
+modulate = Color(1, 0.82, 0.58, 0.88)
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -210.0
+offset_top = 18.0
+offset_right = -34.0
+offset_bottom = 194.0
+grow_horizontal = 0
+grow_vertical = 0
+texture = ExtResource("2_icon")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Floor" type="ColorRect" parent="." unique_id=87108725]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -34.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+color = Color(0.541176, 0.341176, 0.160784, 1)
+
+[node name="PhysicsWorld" type="Node2D" parent="." unique_id=995940220]
+
+[node name="BoxLayer" type="Node2D" parent="PhysicsWorld" unique_id=1819104956]
+unique_name_in_owner = true
+
+[node name="FloorBody" type="StaticBody2D" parent="PhysicsWorld" unique_id=1691617619]
+unique_name_in_owner = true
+
+[node name="FloorCollision" type="CollisionShape2D" parent="PhysicsWorld/FloorBody" unique_id=887066591]
+unique_name_in_owner = true
+shape = SubResource("FloorShape")
+
+[node name="LeftWallBody" type="StaticBody2D" parent="PhysicsWorld" unique_id=879598312]
+unique_name_in_owner = true
+
+[node name="LeftWallCollision" type="CollisionShape2D" parent="PhysicsWorld/LeftWallBody" unique_id=120406992]
+unique_name_in_owner = true
+shape = SubResource("LeftWallShape")
+
+[node name="RightWallBody" type="StaticBody2D" parent="PhysicsWorld" unique_id=1223682950]
+unique_name_in_owner = true
+
+[node name="RightWallCollision" type="CollisionShape2D" parent="PhysicsWorld/RightWallBody" unique_id=1173213696]
+unique_name_in_owner = true
+shape = SubResource("RightWallShape")
+
+[node name="CeilingBody" type="StaticBody2D" parent="PhysicsWorld" unique_id=668105145]
+unique_name_in_owner = true
+
+[node name="CeilingCollision" type="CollisionShape2D" parent="PhysicsWorld/CeilingBody" unique_id=796791260]
+unique_name_in_owner = true
+shape = SubResource("CeilingShape")

@@ -1,0 +1,59 @@
+name: Sync addon branch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "addons/pack_rat/**"
+      - ".github/workflows/sync-addon-branch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-addon-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync-addon:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git author
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync addon branch
+        shell: bash
+        env:
+          ADDON_DIR: addons/pack_rat
+        run: |
+          set -euo pipefail
+
+          git fetch origin "+refs/heads/addon:refs/remotes/origin/addon" || true
+
+          addon_tree="$(git rev-parse "HEAD:${ADDON_DIR}")"
+          if git rev-parse --verify --quiet "origin/addon^{tree}" >/dev/null; then
+            current_tree="$(git rev-parse "origin/addon^{tree}")"
+            if [ "${addon_tree}" = "${current_tree}" ]; then
+              echo "addon branch already up to date"
+              exit 0
+            fi
+
+            parent_args=(-p "origin/addon")
+          else
+            parent_args=()
+          fi
+
+          new_commit="$(git commit-tree "${addon_tree}" "${parent_args[@]}" -m "chore: sync addon branch from ${GITHUB_SHA::7}")"
+          git push origin "${new_commit}:refs/heads/addon"
