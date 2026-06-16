@@ -380,12 +380,11 @@ powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -SkipClie
 powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -WorldKeys none
 ```
 
-GitHub Actions runs the same script. Pushes to `main` rebuild the Web client
-when client/shared/export files change, rebuild only the affected Web world
-packs when `server/worlds/<world_key>/` changes, rebuild all Web world packs
-when shared/export files change, and remove stale deployed packs when worlds
-are deleted. Manual workflow dispatch can force the Web client and any world
-set with `all`, `none`, or a comma-separated list.
+GitHub Actions runs the same script only through manual workflow dispatch. This
+keeps production-style deploys intentional: a deploy can force the Web client,
+all world packs, no world packs, or a comma-separated world set. A future
+non-production `dev` branch can reintroduce auto-deploys without risking an
+accidental live game restart/update.
 
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.

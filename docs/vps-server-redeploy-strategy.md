@@ -49,11 +49,23 @@ server-side world scene must remain logically compatible.
 
 ## Recommendation
 
-Use two deploy lanes:
+Use two deploy lanes, but keep production promotion manual until the game has a
+real maintenance/drain/reconnect implementation.
 
 ### 1. Static Host Lane
 
-This lane can be mostly automatic.
+This lane can be mostly automatic for development environments, but production
+should be manually promoted if the goal is "client, PCKs, and server are always
+in sync." Automatically updating only the static host while the live server is
+still old creates a version split:
+
+```text
+new Web client/PCKs
+old master/world server executable
+```
+
+That split is fine only when the update is guaranteed content-compatible. For
+production simplicity, assume it is not guaranteed.
 
 Trigger examples:
 
@@ -87,6 +99,156 @@ export_presets.cfg/project.godot changed in server-relevant ways
 The CI can build and test the new server artifact automatically, but promotion
 to the live VPS should require a deploy step that can drain/restart safely.
 
+## Current Production Decision
+
+For the first production-ready VirtuCade path, prefer cold versioned deploys
+over live hot updates.
+
+This means:
+
+```text
+manual deploy trigger
+  -> build/stage updated world PCKs while the old game stays live
+  -> build/stage Web client while the old game stays live
+  -> build/stage server artifact while the old game stays live
+  -> verify/smoke the staged release
+  -> enter maintenance / stop gameplay server safely
+  -> deploy static host files
+  -> deploy server artifact
+  -> restart gameplay server
+  -> leave maintenance
+```
+
+The ordering matters:
+
+1. Build and verify all artifacts before stopping gameplay so a failed export
+   does not create avoidable downtime.
+2. Generate PCKs before the Web client so the client never points at missing or
+   stale pack files.
+3. Build the Web client before restarting the server so the browser-facing
+   version can be published before the server accepts the new version.
+4. Build and smoke the server artifact before maintenance so the final downtime
+   window is only backup, deploy, restart, and validation.
+5. Enter maintenance only for the final flip. During that window, stop new
+   logins/travel, save active players, back up SQLite, deploy static files,
+   deploy the server release, restart, then leave maintenance.
+
+Do not shut the gameplay server down before export/build. That sounds simple,
+but it turns a failed build into unnecessary downtime. The safe simplicity is:
+
+```text
+prepare everything first
+then stop/restart once
+```
+
+This is less magical than hot updating, but it avoids mixed states:
+
+```text
+old client + new PCK
+new client + old server
+old server + new world scene
+new server + missing PCK
+```
+
+Those mixed states are where most versioning and security bugs would live.
+
+## Client/Server Version Gate
+
+Every production connection should include a build/version token. The server
+should reject incompatible clients before login/world travel.
+
+Recommended first version token:
+
+```text
+BUILD_VERSION=<git commit SHA or CI build id>
+```
+
+The exact token can later become a structured value:
+
+```text
+client_build_hash
+server_build_hash
+content_build_hash
+protocol_version
+```
+
+But the first implementation should stay simple:
+
+- CI writes one build version into the Web client export.
+- CI writes the same build version into the server export.
+- Client sends that version during master connection.
+- Master compares it with its own version.
+- If it differs, master rejects the connection with a clear reason.
+- Web client shows a modal saying the game was updated and offers a reload.
+
+Do not trust this version for security by itself. It is compatibility gating,
+not authentication. Real user identity still needs authenticated sessions.
+
+## Web Reload And Cache Busting
+
+For Web clients hosted on GitHub Pages, cache busting should be explicit.
+GitHub Pages commonly serves static files with short cache lifetimes such as
+`Cache-Control: max-age=600`, and GitHub Pages does not provide app-level
+control over arbitrary response headers. That is usually fine, but it can still
+leave users temporarily running an old `index.html` or old `.js/.pck` files.
+
+Sources:
+
+- [GitHub Pages caching discussion](https://github.com/orgs/community/discussions/11884)
+- [MDN Cache-Control request header behavior](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control)
+
+Recommended reload behavior:
+
+```text
+version mismatch
+  -> show "Game updated" modal
+  -> reload button navigates to current page with ?v=<server_build_version>
+```
+
+Example:
+
+```text
+https://shilo.github.io/multi-server-test/?v=<build_version>
+```
+
+This makes the browser treat the page URL as new. For Godot's generated Web
+asset references inside `index.html`, the stronger long-term solution is to
+publish versioned file names or patch the generated HTML to include a build
+query string for `index.js`, `index.pck`, and `index.wasm`. Do not add a service
+worker/PWA cache until the version/update story is already proven, because
+service workers add another cache layer that can keep old clients alive.
+
+## Why Not Live-Hot-Reload PCKs?
+
+Godot's public API supports mounting resource packs with
+`ProjectSettings.load_resource_pack()`, but it does not provide a normal
+public API for unmounting a pack and clearing every already-loaded resource in a
+running process.
+
+Godot source behavior:
+
+- `ProjectSettings.load_resource_pack()` calls `PackedData::add_pack()`.
+- Loaded packs can replace paths for future loads.
+- Godot refreshes global class and UID caches after mounting.
+- Already-loaded resources/scenes/scripts may still exist in memory.
+- The docs warn that `DirAccess` will not show `res://` changes made after
+  calling `load_resource_pack()`.
+
+Therefore, "hot update" should mean:
+
+```text
+new transfers/processes use new content
+```
+
+not:
+
+```text
+mutate a running world process in place
+```
+
+For production stability, restart the process that owns the authoritative world
+logic instead of trying to live-swap its resources.
+
 ## Safe VPS Deploy Shape
 
 Use release directories:
@@ -117,8 +279,8 @@ The safest model for the current one-master architecture:
 9. Systemd/supervisor starts the new master release.
 10. Clients reconnect and resume from authenticated saved state.
 
-This is not seamless, but it is stable and secure. For a 100-200 CCU showcase,
-a short maintenance reconnect is safer than trying to live-swap the only master
+This is not seamless, but it is stable and secure. For a 100-200 CCU game, a
+short maintenance reconnect is safer than trying to live-swap the only master
 process.
 
 ## Future Rolling World Restart Model
@@ -185,12 +347,13 @@ through the master.
 
 For this project:
 
-1. Add smart GitHub Pages deploy for Web client and per-world PCK updates.
-2. Keep VPS gameplay deployment manual/gated for now.
-3. Add a future server deploy workflow that builds the server artifact and
-   uploads a versioned release directory.
-4. Add master maintenance mode before automated live VPS restarts.
-5. Add real authenticated sessions before relying on reconnect/resume.
+1. Convert production deploys to manual workflow dispatch.
+2. Add one build/version token shared by client and server.
+3. Reject mismatched client versions before login/world travel.
+4. Add Web mismatch modal with cache-busting reload.
+5. Add placeholder VPS stop/deploy/start steps before wiring real Hetzner
+   automation.
+6. Add real authenticated sessions before relying on reconnect/resume.
 
 This keeps content iteration fast while avoiding the fragile part: automatic
 live restart of the authoritative gameplay server.
