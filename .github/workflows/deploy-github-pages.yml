@@ -4,11 +4,6 @@ run-name: ${{ inputs.version && format('Release v{0}', inputs.version) || 'Relea
 on:
   workflow_dispatch:
     inputs:
-      release:
-        description: "Use release export"
-        required: true
-        default: true
-        type: boolean
       version:
         description: "Exact MAJOR.MINOR version to release. Leave empty to bump minor."
         required: false
@@ -17,14 +12,26 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: manual-release-deploy
   cancel-in-progress: false
 
+env:
+  GODOT_VERSION: "4.6.3-stable"
+  GODOT_TEMPLATE_VERSION: "4.6.3.stable"
+  GODOT_BIN: "${{ github.workspace }}/.godot/Godot_v4.6.3-stable_linux.x86_64"
+  PLAYWRIGHT_ROOT: "${{ runner.temp }}/multi-server-test-playwright"
+
 jobs:
-  deploy:
-    runs-on: windows-latest
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
       - name: Checkout
@@ -32,160 +39,163 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
       - name: Install Godot
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          $version = "4.6.3-stable"
-          $templateVersion = "4.6.3.stable"
-          $installRoot = "C:\godot"
-          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y unzip libfontconfig1
 
-          $godotZip = Join-Path $installRoot "godot.zip"
-          $templatesZip = Join-Path $installRoot "templates.zip"
-          Invoke-WebRequest "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v$($version)_win64.exe.zip" -OutFile $godotZip
-          Invoke-WebRequest "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v$($version)_export_templates.tpz" -OutFile $templatesZip
+          mkdir -p .godot
+          curl -L "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip" -o .godot/godot.zip
+          curl -L "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" -o .godot/templates.zip
+          unzip -q .godot/godot.zip -d .godot
+          unzip -q .godot/templates.zip -d .godot/templates
+          chmod +x "$GODOT_BIN"
 
-          Expand-Archive -LiteralPath $godotZip -DestinationPath $installRoot -Force
-          Expand-Archive -LiteralPath $templatesZip -DestinationPath (Join-Path $installRoot "templates") -Force
+          template_dir="$HOME/.local/share/godot/export_templates/${GODOT_TEMPLATE_VERSION}"
+          mkdir -p "$template_dir"
+          cp -a .godot/templates/templates/. "$template_dir/"
 
-          $templateDir = Join-Path $env:APPDATA "Godot\export_templates\$templateVersion"
-          New-Item -ItemType Directory -Force -Path $templateDir | Out-Null
-          Get-ChildItem -LiteralPath (Join-Path $installRoot "templates\templates") -Force |
-            Copy-Item -Destination $templateDir -Recurse -Force
+      - name: Install browser smoke dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PLAYWRIGHT_ROOT"
+          npm --prefix "$PLAYWRIGHT_ROOT" install --no-save playwright@1.61.0
+          "$PLAYWRIGHT_ROOT/node_modules/.bin/playwright" install --with-deps chromium
 
       - name: Configure Git
-        shell: pwsh
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Run project version unit test
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1
-
       - name: Set release project version
         id: version
-        shell: pwsh
+        shell: bash
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          $ErrorActionPreference = "Stop"
-          $requestedVersion = "$env:REQUESTED_VERSION".Trim()
-          if ([string]::IsNullOrWhiteSpace($requestedVersion)) {
-            powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -BumpMinor
-          } else {
-            powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -Set $requestedVersion
-          }
-          $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-          if ($exitCode -ne 0) {
-            throw "Project version update failed"
-          }
+          set -euo pipefail
+          python3 tools/project_version.py --self-test
+          if [ -n "${REQUESTED_VERSION}" ]; then
+            python3 tools/project_version.py --set "${REQUESTED_VERSION}"
+          else
+            python3 tools/project_version.py --bump-minor
+          fi
+          version="$(python3 tools/project_version.py --print | sed -E 's/^PROJECT_VERSION version=//')"
+          echo "project_version=${version}" >> "$GITHUB_OUTPUT"
+          echo "PROJECT_VERSION version=${version}"
 
-          $project = Get-Content -LiteralPath project.godot -Raw
-          if ($project -notmatch 'config/version="([0-9]+\.[0-9])"') {
-            throw "Could not read updated project version from project.godot"
-          }
-          $version = $Matches[1]
-          "project_version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "PROJECT_VERSION version=$version"
-
-      - name: Run version gate smoke
-        shell: pwsh
+      - name: Import project
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\run_version_gate_smoke.ps1 `
-            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
+          set -euo pipefail
+          "$GODOT_BIN" --headless --editor --path . --quit
 
-      - name: Run PackRat version cache smoke
-        shell: pwsh
+      - name: Export release artifacts
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\run_packrat_version_cache_smoke.ps1 `
-            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
+          set -euo pipefail
+          rm -rf builds
+          mkdir -p builds/server builds/web builds/world_packs builds/web/world_packs
 
-      - name: Export all release artifacts
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $args = @(
-            "-ExecutionPolicy", "Bypass",
-            "-File", "tools\export_all.ps1",
-            "-Godot", "C:\godot\Godot_v4.6.3-stable_win64.exe"
-          )
-          if ("${{ inputs.release }}" -eq "true") {
-            $args += "-Release"
-          }
-          & powershell @args
+          cp project.godot .godot/project.godot.release
+          grep -v '^RunInstanceGrid=' .godot/project.godot.release > project.godot
+
+          "$GODOT_BIN" --headless --path . --export-release "Linux Server" builds/server/server.x86_64
+          chmod +x builds/server/server.x86_64
+
+          "$GODOT_BIN" --headless --path . --export-release "Web Client" builds/web/index.html
+          python3 tools/patch_web_cache_bust.py --web-root builds/web --version "${{ steps.version.outputs.project_version }}"
+
+          while IFS= read -r world_dir; do
+            world_key="$(basename "$world_dir")"
+            test -f "$world_dir/${world_key}.tscn"
+            "$GODOT_BIN" --headless --path . --export-pack "World Pack - ${world_key}" "builds/world_packs/${world_key}.pck"
+            "$GODOT_BIN" --headless --path . --export-pack "Web World Pack - ${world_key}" "builds/web/world_packs/${world_key}.pck"
+            echo "WORLD_PACK_EXPORTED key=${world_key}"
+          done < <(find server/worlds -mindepth 1 -maxdepth 1 -type d | sort)
+
+          mv .godot/project.godot.release project.godot
+          echo "EXPORT_ALL_DONE"
 
       - name: Verify exports
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
+          set -euo pipefail
+          python3 tools/verify_export_artifacts.py --server-binary server/server.x86_64
 
       - name: Run Web smoke
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\run_web_smoke.ps1 `
-            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
-            -SkipExport
+          set -euo pipefail
+          mkdir -p .logs/web_smoke
+          python3 -m http.server 19200 --bind 127.0.0.1 --directory builds/web > .logs/web_smoke/static.out.log 2> .logs/web_smoke/static.err.log &
+          static_pid="$!"
+          MULTI_SERVER_WORLD_PACK_DIR="$PWD/builds/web/world_packs" \
+          MULTI_SERVER_WORLD_PACK_BASE_URL="http://127.0.0.1:19200/world_packs" \
+            ./builds/server/server.x86_64 --headless > .logs/web_smoke/master.out.log 2> .logs/web_smoke/master.err.log &
+          master_pid="$!"
+          trap 'kill "$static_pid" "$master_pid" 2>/dev/null || true' EXIT
+
+          for _ in $(seq 1 120); do
+            if grep -q "MASTER_READY" .logs/web_smoke/master.out.log 2>/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          grep -q "MASTER_READY" .logs/web_smoke/master.out.log
+
+          NODE_PATH="$PLAYWRIGHT_ROOT/node_modules" node tools/web_smoke.mjs --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
 
       - name: Commit release project version
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          $project = Get-Content -LiteralPath project.godot -Raw
-          if ($project -notmatch 'config/version="([0-9]+\.[0-9])"') {
-            throw "Could not read project version from project.godot"
-          }
-          $version = $Matches[1]
+          set -euo pipefail
+          version="${{ steps.version.outputs.project_version }}"
           git add project.godot
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "chore: bump project version to v$version"
-            git push origin HEAD:${{ github.ref_name }}
-          } else {
-            Write-Host "PROJECT_VERSION_NO_CHANGE version=$version"
-          }
+          if git diff --cached --quiet; then
+            echo "PROJECT_VERSION_NO_CHANGE version=${version}"
+          else
+            git commit -m "chore: bump project version to v${version}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Tag release commit
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          $project = Get-Content -LiteralPath project.godot -Raw
-          if ($project -notmatch 'config/version="([0-9]+\.[0-9])"') {
-            throw "Could not read project version from project.godot"
-          }
-          $version = $Matches[1]
-          $tag = "v$version"
+          set -euo pipefail
+          version="${{ steps.version.outputs.project_version }}"
+          tag="v${version}"
           git fetch --tags origin
-          git rev-parse -q --verify "refs/tags/$tag" *> $null
-          if ($LASTEXITCODE -eq 0) {
-            $tagCommit = git rev-list -n 1 $tag
-            $headCommit = git rev-parse HEAD
-            if ($tagCommit -ne $headCommit) {
-              throw "Release tag $tag already points at $tagCommit, expected $headCommit"
-            }
-            Write-Host "RELEASE_TAG_EXISTS tag=$tag commit=$(git rev-parse --short HEAD)"
-          } else {
-            git tag -a $tag -m "Release $tag"
-            git push origin $tag
-            Write-Host "RELEASE_TAG_CREATED tag=$tag commit=$(git rev-parse --short HEAD)"
-          }
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            tag_commit="$(git rev-list -n 1 "${tag}")"
+            head_commit="$(git rev-parse HEAD)"
+            if [ "$tag_commit" != "$head_commit" ]; then
+              echo "Release tag ${tag} already points at ${tag_commit}, expected ${head_commit}" >&2
+              exit 1
+            fi
+            echo "RELEASE_TAG_EXISTS tag=${tag} commit=$(git rev-parse --short HEAD)"
+          else
+            git tag -a "${tag}" -m "Release ${tag}"
+            git push origin "${tag}"
+            echo "RELEASE_TAG_CREATED tag=${tag} commit=$(git rev-parse --short HEAD)"
+          fi
 
-      - name: Deploy Web client and world packs to GitHub Pages
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 `
-            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
-            -SkipExport `
-            -Remote origin `
-            -Branch gh-pages
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: builds/web
+
+      - name: Deploy Pages
+        id: deploy
+        uses: actions/deploy-pages@v5
 
       - name: Upload server artifact
         uses: actions/upload-artifact@v7
@@ -198,7 +208,7 @@ jobs:
           if-no-files-found: error
 
       - name: VPS deploy reminder
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "VPS_DEPLOY_NOT_CONFIGURED"
-          Write-Host "When the VPS is ready, add the stop -> upload staged server -> start step here."
+          echo "VPS_DEPLOY_NOT_CONFIGURED"
+          echo "When the VPS is ready, add the stop -> upload staged Linux server -> start step here."

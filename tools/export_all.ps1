@@ -97,7 +97,7 @@ try {
             Remove-ClientServerSidecars (Split-Path $output -Parent)
         }
         if ($target.Name -eq "web_client") {
-            & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "patch_web_cache_bust.ps1") -WebRoot (Split-Path $output -Parent)
+            & python (Join-Path $PSScriptRoot "patch_web_cache_bust.py") --web-root (Split-Path $output -Parent)
             $patchExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
             if ($patchExitCode -ne 0) {
                 throw "Web cache-bust patch failed with exit code $patchExitCode"

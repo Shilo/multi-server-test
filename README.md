@@ -287,8 +287,8 @@ Project version unit smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1
 ```
 
-This validates strict `MAJOR.MINOR` parsing, minor rollover, and the Godot
-version writer. It backs up and restores `project.godot`.
+This validates strict `MAJOR.MINOR` parsing, minor rollover, and the local
+PowerShell compatibility wrapper. It backs up and restores `project.godot`.
 
 PackRat version/cache smoke:
 
@@ -363,19 +363,19 @@ release-shaped artifacts:
 powershell -ExecutionPolicy Bypass -File tools\export_all.ps1 -Release
 ```
 
-Inspect or update the project version with Godot:
+Inspect or update the project version:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -Print
-powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -Set 1.4
-powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -BumpMinor
+```bash
+python tools/project_version.py --print
+python tools/project_version.py --set 1.4
+python tools/project_version.py --bump-minor
 ```
 
 The version format is `MAJOR.MINOR`; minor rolls from `9` to the next major
 (`0.9 -> 1.0`). Local exports do not bump the version. They use the committed
 `application/config/version`.
 
-Outputs:
+Local PowerShell export outputs:
 
 - `builds/client/client.exe`
 - `builds/client/client.pck`
@@ -391,16 +391,22 @@ After exporting, verify that client artifacts do not bundle server/world scenes
 and that each platform world pack contains the expected isolated world scene:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
+python tools\verify_export_artifacts.py
+```
+
+The GitHub release workflow verifies Linux/Web release artifacts with:
+
+```bash
+python tools/verify_export_artifacts.py --server-binary server/server.x86_64
 ```
 
 World packs exported through Godot's `--export-pack` are not literal raw copies
 of only `server/worlds/<world_key>/`. They include the world scene remap, the
 converted `.godot/exported/...` scene, and small Godot-generated metadata such
 as `project.binary`, UID cache, global script class cache, and `icon.svg`.
-`tools\verify_export_artifacts.ps1` treats only those generated entries as
-allowed and fails if a world pack contains editor files, client files, another
-world folder, or any other unexpected source directory.
+The verification tools treat only those generated entries as allowed and fail if
+a world pack contains editor files, client files, another world folder, or any
+other unexpected source directory.
 
 The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts for native clients. The `builds/web/world_packs/*.pck` files are the Web-targeted DLC artifacts and should be served beside the Web export.
 
@@ -419,16 +425,12 @@ PackRat still decides whether to reuse or redownload a world pack from the
 server-provided `pack_modified_time` and `pack_size`, so app version bumps do
 not redownload unchanged packs.
 
-Current GitHub Pages test deployment:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1
-```
-
-This exports the Web client and all Web world packs with the current project
-version, verifies that runtime builds do not include the wrong folders, copies
-`builds/web/` to the `gh-pages` branch, adds `.nojekyll`, commits, and pushes.
-The deployed test page is:
+Current GitHub Pages deployment is handled by the manual GitHub Actions workflow.
+The repository Pages setting should be **Build and deployment -> Source:
+GitHub Actions**. The workflow exports the Web client and all Web world packs,
+verifies that runtime builds do not include the wrong folders, uploads
+`builds/web/` as a Pages artifact, and deploys that artifact with
+`actions/deploy-pages`. The deployed page is:
 
 ```text
 https://shilo.github.io/multi-server-test/
@@ -449,13 +451,13 @@ browser client connects to the local gameplay server while downloading Web
 client/PCK files from GitHub Pages.
 
 GitHub Actions uses manual workflow dispatch only. One run sets an exact
-`MAJOR.MINOR` version or bumps the minor version once, runs the version/cache
-smokes, exports all runtime artifacts from that version, verifies them, commits
-and tags the visible `project.godot` change, then deploys the Web client and all
-Web world packs to GitHub Pages and uploads the server artifact plus both native
-and Web world packs. If a release tag already exists, it must point at the exact
-release commit or the workflow fails before publishing. The VPS stop/upload/start
-step is intentionally not automated yet because the VPS service name, release
+`MAJOR.MINOR` version or bumps the minor version once, exports Linux server and
+Web artifacts from that version, verifies them, runs the exported Web smoke,
+commits and tags the visible `project.godot` change, deploys the Web client and
+all Web world packs to GitHub Pages, and uploads the Linux server artifact plus
+world packs. If a release tag already exists, it must point at the exact release
+commit or the workflow fails before publishing. The VPS stop/upload/start step
+is intentionally not automated yet because the VPS service name, release
 directory, SSH user, and database backup flow do not exist in this repo yet.
 
 The workflow title shows `Release v<version>` when an exact `version` input is
@@ -473,11 +475,11 @@ before GitHub Pages or artifact upload completes, rerun the workflow with the
 exact failed version in the `version` input. Do not use the empty auto-bump path
 for that retry, or it will intentionally create the next release version.
 
-`tools\export_all.ps1` patches the generated Web shell so the project version is
-applied to Godot's generated `index.js`, `index.wasm`, and `index.pck`
-requests. `tools\deploy_github_pages.ps1 -SkipExport` verifies that the staged
-Web export already has the current project version cache-bust token before
-publishing it.
+The release workflow patches the generated Web shell with
+`tools/patch_web_cache_bust.py` so the project version is applied to Godot's
+generated `index.js`, `index.wasm`, and `index.pck` requests. The local
+PowerShell export script still performs the same patch for Windows/editor
+diagnostics.
 
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.

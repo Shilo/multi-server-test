@@ -149,9 +149,19 @@ localhost/Hetzner later:
   gameplay traffic
 ```
 
-`tools/deploy_github_pages.ps1` exports the Web client and Web world packs,
-verifies the export contents, copies `builds/web/` to the `gh-pages` branch,
-adds `.nojekyll`, commits, and pushes.
+The manual GitHub Actions release workflow exports the Web client and Web world
+packs, verifies the export contents, uploads `builds/web/` as a GitHub Pages
+artifact, and deploys that artifact with `actions/deploy-pages`.
+
+Do not publish generated Godot Web files by pushing them to a `gh-pages` branch
+from CI. GitHub documents that commits pushed by the workflow `GITHUB_TOKEN` do
+not trigger a branch-based Pages build, and this project hit that exact failure:
+the `gh-pages` branch contained the built files while the public site still
+returned 404 until a Pages build was manually triggered.
+
+With the GitHub Actions publishing model, built PCK files are not committed as
+repository files. They remain inspectable through the workflow artifact and
+through their deployed URLs, such as `/world_packs/hub.pck?v=<version>`.
 
 After deployment, the browser URL is:
 

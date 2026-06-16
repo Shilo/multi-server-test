@@ -16,7 +16,7 @@ Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
 function Set-ProjectVersion($version) {
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "project_version.ps1") -Set $version | Out-Host
+    & python (Join-Path $PSScriptRoot "project_version.py") --set $version | Out-Host
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     if ($exitCode -ne 0) {
         throw "Could not set project version to $version"

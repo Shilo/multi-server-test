@@ -32,7 +32,7 @@ function Wait-LogMarker($path, $marker, $timeoutSeconds) {
 try {
     if (-not $SkipExport) {
         powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "export_all.ps1") -Godot $Godot
-        powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "verify_export_artifacts.ps1")
+        python (Join-Path $PSScriptRoot "verify_export_artifacts.py")
     }
 
     New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null

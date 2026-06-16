@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
-$VersionScript = Join-Path $PSScriptRoot "project_version.ps1"
+$VersionScript = Join-Path $PSScriptRoot "project_version.py"
 $LogRoot = Join-Path $ProjectRoot ".logs\project_version_test"
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
 
@@ -9,7 +9,7 @@ Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
 function Invoke-ProjectVersion([string[]]$VersionArgs) {
-    $output = & powershell -ExecutionPolicy Bypass -File $VersionScript @VersionArgs 2>&1
+    $output = & python $VersionScript @VersionArgs 2>&1
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     return @{
         ExitCode = $exitCode
@@ -57,14 +57,14 @@ function Write-StepResult($label, $result) {
 }
 
 try {
-    $selfTest = Invoke-ProjectVersion -VersionArgs @("-SelfTest")
+    $selfTest = Invoke-ProjectVersion -VersionArgs @("--self-test")
     Write-StepResult "self-test" $selfTest
     if ($selfTest.ExitCode -ne 0) {
         throw "Project version self-test failed: $($selfTest.Output)"
     }
 
     $expectedBump = Next-MinorVersion (Read-ProjectVersion)
-    $bump = Invoke-ProjectVersion -VersionArgs @("-BumpMinor")
+    $bump = Invoke-ProjectVersion -VersionArgs @("--bump-minor")
     Write-StepResult "bump-minor" $bump
     if ($bump.ExitCode -ne 0) {
         throw "Bumping project version failed: $($bump.Output)"
@@ -73,7 +73,7 @@ try {
 
     [System.IO.File]::WriteAllText($ProjectFile, $originalProjectFile, (New-Object System.Text.UTF8Encoding($false)))
 
-    $set = Invoke-ProjectVersion -VersionArgs @("-Set", "0.8")
+    $set = Invoke-ProjectVersion -VersionArgs @("--set", "0.8")
     Write-StepResult "set-0.8" $set
     if ($set.ExitCode -ne 0) {
         throw "Setting 0.8 failed: $($set.Output)"
