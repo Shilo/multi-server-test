@@ -149,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf builds
-          mkdir -p builds/server builds/web builds/world_packs builds/web/world_packs
+          mkdir -p builds/client builds/server builds/web builds/world_packs builds/web/world_packs
 
           project_backup="$RUNNER_TEMP/project.godot.release"
           cp project.godot "$project_backup"
@@ -163,6 +163,8 @@ jobs:
 
           "$GODOT_BIN" --headless --path . --export-release "Linux Server" builds/server/server.x86_64
           chmod +x builds/server/server.x86_64
+
+          "$GODOT_BIN" --headless --path . --export-release "Windows Client" builds/client/client.exe
 
           "$GODOT_BIN" --headless --path . --export-release "Web Client" builds/web/index.html
           python3 tools/patch_web_cache_bust.py --web-root builds/web --version "${{ steps.version.outputs.project_version }}"
@@ -265,6 +267,14 @@ jobs:
             builds/server/**
             builds/world_packs/*.pck
             builds/web/world_packs/*.pck
+          if-no-files-found: error
+
+      - name: Upload Windows client artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-client-v${{ steps.version.outputs.project_version }}
+          path: |
+            builds/client/**
           if-no-files-found: error
 
       - name: Upload Pages artifact

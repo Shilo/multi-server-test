@@ -50,14 +50,17 @@ Relevant Godot source:
 
 The old split was not harmless for future real assets.
 
-With a real VRAM-compressed probe texture placed inside `server/worlds/hub/`:
+During the research spike, a temporary VRAM-compressed probe texture was placed
+inside `server/worlds/hub/` and exported through the old split presets:
 
 - old `World Pack - hub` exported only the desktop `s3tc` variant
 - old `Web World Pack - hub` exported both `s3tc` and `etc2`
 
-After enabling `texture_format/etc2_astc=true` on `World Pack - hub`, the pack became byte-for-byte identical to the Web version.
+After enabling `texture_format/etc2_astc=true` on `World Pack - hub`, the pack
+became byte-for-byte identical to the Web version.
 
-That proves the pack split was only covering a preset configuration difference, not a true engine limitation.
+That showed the split was only covering a preset configuration difference, not
+a true engine limitation.
 
 ## Chosen Project Rule
 
@@ -95,7 +98,8 @@ Research:
 
 Testing:
 
-1. Compared current native/world and web/world PCKs for the existing tiny worlds.
+1. Compared current native/world and web/world PCKs for the existing tiny
+   worlds.
    - They were already byte-identical.
 2. Added temporary probe textures that forced VRAM platform variants.
 3. Exported old native/world and old web/world packs.
@@ -103,6 +107,15 @@ Testing:
 4. Enabled both texture families on the `World Pack - hub` preset.
 5. Re-exported and compared hashes.
    - Native/world and web/world became byte-identical.
+6. Added ongoing artifact verification that now enforces:
+   - project import settings keep both VRAM families enabled
+   - every `World Pack - <world>` preset keeps both texture families enabled
+   - the hosted web copies remain byte-for-byte mirrors of the source packs
+
+The current shipped worlds are still intentionally tiny and do not yet include
+committed imported texture content, so the automated guardrail today enforces
+the export configuration rather than re-running the temporary probe experiment
+inside CI on every build.
 
 ## Recommendation
 

@@ -7,6 +7,24 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def parse_sections(path: Path) -> dict[str, dict[str, str]]:
+    sections: dict[str, dict[str, str]] = {"root": {}}
+    current = "root"
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(";"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            sections.setdefault(current, {})
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        sections.setdefault(current, {})[key.strip()] = value.strip()
+    return sections
+
+
 def read_pck_entries(path: Path, pack_start: int = 0) -> list[str]:
     data = path.read_bytes()
     if data[pack_start:pack_start + 4] != b"GDPC":
@@ -68,13 +86,16 @@ def assert_no_editor_entries(path: Path, entries: list[str]) -> None:
     print(f"VERIFY_NO_EDITOR_ENTRIES_OK path={path}")
 
 
-def assert_no_server_entries(path: Path) -> None:
-    entries = read_pck_entries(path)
+def assert_no_server_entries_in_entries(path: Path, entries: list[str]) -> None:
     bad = [entry for entry in entries if entry.startswith("server/") or entry.startswith("res://server/")]
     if bad:
         raise SystemExit(f"Client/Web export includes server files in {path}: {', '.join(bad)}")
     assert_no_editor_entries(path, entries)
     print(f"VERIFY_CLIENT_PACK_OK path={path} entries={len(entries)}")
+
+
+def assert_no_server_entries(path: Path) -> None:
+    assert_no_server_entries_in_entries(path, read_pck_entries(path))
 
 
 def assert_no_client_entries(path: Path, entries: list[str]) -> None:
@@ -133,6 +154,38 @@ def assert_matching_world_pack_copy(source: Path, mirrored: Path, world_key: str
     print(f"VERIFY_WORLD_PACK_COPY_OK key={world_key} source={source} mirrored={mirrored}")
 
 
+def assert_universal_world_pack_settings(keys: list[str]) -> None:
+    project = parse_sections(PROJECT_ROOT / "project.godot")
+    rendering = project.get("rendering", {})
+    if rendering.get("textures/vram_compression/import_s3tc_bptc") != "true":
+        raise SystemExit("project.godot must keep textures/vram_compression/import_s3tc_bptc=true")
+    if rendering.get("textures/vram_compression/import_etc2_astc") != "true":
+        raise SystemExit("project.godot must keep textures/vram_compression/import_etc2_astc=true")
+
+    presets = parse_sections(PROJECT_ROOT / "export_presets.cfg")
+    names_to_sections: dict[str, str] = {}
+    for section, values in presets.items():
+        if section.endswith(".options"):
+            continue
+        name = values.get("name", "").strip('"')
+        if name:
+            names_to_sections[name] = section
+
+    for key in keys:
+        preset_name = f"World Pack - {key}"
+        section = names_to_sections.get(preset_name)
+        if not section:
+            raise SystemExit(f"Missing export preset {preset_name}")
+        options = f"{section}.options"
+        if options not in presets:
+            raise SystemExit(f"Missing export preset options section {options}")
+        if presets[options].get("texture_format/s3tc_bptc", "false") != "true":
+            raise SystemExit(f"{preset_name} must keep texture_format/s3tc_bptc=true")
+        if presets[options].get("texture_format/etc2_astc", "false") != "true":
+            raise SystemExit(f"{preset_name} must keep texture_format/etc2_astc=true")
+    print(f"VERIFY_UNIVERSAL_WORLD_PACK_SETTINGS_OK keys={','.join(keys)}")
+
+
 def world_keys() -> list[str]:
     keys: list[str] = []
     for directory in sorted((PROJECT_ROOT / "server" / "worlds").iterdir()):
@@ -155,6 +208,14 @@ def main() -> None:
     args = parser.parse_args()
 
     build_root = Path(args.build_root).resolve()
+    client_pack = build_root / "client" / "client.pck"
+    client_binary = build_root / "client" / "client.exe"
+    if client_pack.exists():
+        assert_no_server_entries(client_pack)
+        assert_no_server_sidecars(build_root / "client")
+    elif client_binary.exists():
+        assert_no_server_entries_in_entries(client_binary, embedded_pck_entries(client_binary))
+        assert_no_server_sidecars(build_root / "client")
     if not args.skip_web_client:
         assert_no_server_entries(build_root / "web" / "index.pck")
     assert_no_server_sidecars(build_root / "web")
@@ -172,6 +233,8 @@ def main() -> None:
         if unknown:
             raise SystemExit(f"Unknown worlds: {', '.join(unknown)}. Valid worlds: {', '.join(keys)}")
         keys = requested
+
+    assert_universal_world_pack_settings(keys)
 
     for key in keys:
         if not args.web_only:
