@@ -26,6 +26,7 @@ var pending_transfer := {}
 var denied_transfer := ""
 var requested_transfer_target := ""
 var requested_transfer_portal := ""
+var transfer_request_generation := 0
 var transfer_in_progress := false
 var pending_join_endpoint := {}
 var pending_join_world := ""
@@ -737,6 +738,7 @@ func _is_known_world_key(world_key: String) -> bool:
 
 
 func _transfer_via_portal(target_world: String) -> bool:
+	transfer_request_generation += 1
 	pending_transfer = {}
 	denied_transfer = ""
 	requested_transfer_target = ""
@@ -1021,9 +1023,11 @@ func _on_portal_requested(portal_name: String, target_world: String) -> void:
 
 	requested_transfer_target = target_world
 	requested_transfer_portal = portal_name
+	transfer_request_generation += 1
+	var request_generation := transfer_request_generation
 	NetLog.print_line("[CLIENT] requesting transfer from %s to %s via %s" % [active_world_key, target_world, portal_name])
 	world_endpoint.request_portal_use.rpc_id(1, portal_name)
-	call_deferred("_clear_stale_transfer_request", portal_name)
+	call_deferred("_clear_stale_transfer_request", portal_name, target_world, request_generation)
 
 
 func _start_travel_lease_keepalive(endpoint: Dictionary) -> void:
@@ -1123,9 +1127,13 @@ func _complete_manual_transfer(target_world: String) -> void:
 	requested_transfer_portal = ""
 
 
-func _clear_stale_transfer_request(portal_name: String) -> void:
+func _clear_stale_transfer_request(portal_name: String, target_world: String, request_generation: int) -> void:
 	await get_tree().create_timer(5.0).timeout
+	if transfer_request_generation != request_generation:
+		return
 	if requested_transfer_portal != portal_name:
+		return
+	if requested_transfer_target != target_world:
 		return
 	if transfer_in_progress or str(pending_transfer.get("target_world", "")) == requested_transfer_target:
 		return
