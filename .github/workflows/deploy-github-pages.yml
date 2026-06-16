@@ -100,6 +100,13 @@ jobs:
           powershell -ExecutionPolicy Bypass -File tools\run_version_gate_smoke.ps1 `
             -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
 
+      - name: Run PackRat version cache smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\run_packrat_version_cache_smoke.ps1 `
+            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
+
       - name: Export all release artifacts
         shell: pwsh
         run: |
@@ -160,6 +167,22 @@ jobs:
             git push origin HEAD:${{ github.ref_name }}
           } else {
             Write-Host "PROJECT_VERSION_NO_CHANGE version=$version"
+          }
+
+      - name: Tag release commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ steps.version.outputs.project_version }}"
+          $tag = "v$version"
+          git fetch --tags origin
+          git rev-parse -q --verify "refs/tags/$tag" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "RELEASE_TAG_EXISTS tag=$tag"
+          } else {
+            git tag -a $tag -m "Release $tag"
+            git push origin $tag
+            Write-Host "RELEASE_TAG_CREATED tag=$tag commit=$(git rev-parse --short HEAD)"
           }
 
       - name: VPS deploy reminder

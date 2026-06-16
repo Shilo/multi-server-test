@@ -290,6 +290,16 @@ powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1
 This validates strict `MAJOR.MINOR` parsing, minor rollover, and the Godot
 version writer. It backs up and restores `project.godot`.
 
+PackRat version/cache smoke:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_packrat_version_cache_smoke.ps1
+```
+
+This exports world packs once, downloads them at one app version, bumps only
+`application/config/version`, then confirms the next run keeps using PackRat
+cache hits for the unchanged pack metadata.
+
 Successful full editor smoke logs include:
 
 - `MASTER_READY`

@@ -1,6 +1,9 @@
 extends SceneTree
 
+const PROJECT_FILE := "res://project.godot"
 const VERSION_SETTING := "application/config/version"
+const VERSION_SECTION := "application"
+const VERSION_KEY := "config/version"
 const DEFAULT_VERSION := "0.1"
 
 
@@ -58,8 +61,9 @@ func _set_version(version: String) -> int:
 		push_error("Version must use MAJOR.MINOR with MINOR from 0 to 9, got: %s" % version)
 		return 2
 
-	ProjectSettings.set_setting(VERSION_SETTING, clean_version)
-	var error := ProjectSettings.save()
+	var config := _load_project_config()
+	config.set_value(VERSION_SECTION, VERSION_KEY, clean_version)
+	var error := config.save(PROJECT_FILE)
 	if error != OK:
 		push_error("Could not save project version %s (error %d)." % [clean_version, error])
 		return 1
@@ -69,7 +73,16 @@ func _set_version(version: String) -> int:
 
 
 func _current_version() -> String:
-	return str(ProjectSettings.get_setting(VERSION_SETTING, DEFAULT_VERSION)).strip_edges()
+	var config := _load_project_config()
+	return str(config.get_value(VERSION_SECTION, VERSION_KEY, DEFAULT_VERSION)).strip_edges()
+
+
+func _load_project_config() -> ConfigFile:
+	var config := ConfigFile.new()
+	var error := config.load(PROJECT_FILE)
+	if error != OK:
+		push_error("Could not load %s (error %d)." % [PROJECT_FILE, error])
+	return config
 
 
 func _is_valid_version(version: String) -> bool:
