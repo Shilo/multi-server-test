@@ -144,11 +144,14 @@ cache/mount path used by exported clients. The client prints
 it builds or reuses those editor packs.
 
 To force the HTTP/static download path locally instead, build and serve world
-packs, then pass the client arg:
+packs, start the master from a shell with the matching pack URL/path, then pass
+the client arg:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\export_world_packs.ps1
 powershell -ExecutionPolicy Bypass -File tools\start_world_pack_server.ps1
+$env:MULTI_SERVER_WORLD_PACK_BASE_URL="http://127.0.0.1:19100/world_packs"
+$env:MULTI_SERVER_WORLD_PACK_DIR=(Resolve-Path builds\world_packs)
 & $godot --path . --scene res://client/client.tscn -- force_packrat_world_packs
 ```
 
@@ -336,6 +339,34 @@ MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
 MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/web/world_packs>
 ```
 
+Current GitHub Pages test deployment:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1
+```
+
+This exports all artifacts, verifies that runtime builds do not include the
+wrong folders, copies `builds/web/` to the `gh-pages` branch, adds `.nojekyll`,
+commits, and pushes. The deployed test page is:
+
+```text
+https://shilo.github.io/multi-server-test/
+```
+
+For this GitHub Pages test, gameplay still runs locally. Start the master after
+exporting/deploying so it reads metadata from the same Web PCK files that
+GitHub Pages serves:
+
+```powershell
+$env:MULTI_SERVER_WORLD_PACK_BASE_URL="https://shilo.github.io/multi-server-test/world_packs"
+$env:MULTI_SERVER_WORLD_PACK_DIR=(Resolve-Path builds\web\world_packs)
+& $godot --headless --path . --scene res://server/master/master.tscn
+```
+
+The Web client keeps `CLIENT_HOST=127.0.0.1` for this test, so the GitHub Pages
+browser client connects to the local gameplay server while downloading Web
+client/PCK files from GitHub Pages.
+
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.
 The master reads pack size and modified time from `MULTI_SERVER_WORLD_PACK_DIR`;
@@ -420,9 +451,9 @@ Local defaults:
 ```text
 CLIENT_HOST=127.0.0.1 in shared/net/net_config.gd
 CLIENT_SCHEME=ws in shared/net/net_config.gd
-MULTI_SERVER_WORLD_PACK_BASE_URL=http://127.0.0.1:19100/world_packs
-editor MULTI_SERVER_WORLD_PACK_DIR=builds/world_packs
-exported server default=<server executable directory>/../world_packs
+default world pack URL=https://shilo.github.io/multi-server-test/world_packs
+editor default MULTI_SERVER_WORLD_PACK_DIR=builds/web/world_packs
+exported server default=<server executable directory>/../web/world_packs
 ```
 
 Production should set `CLIENT_HOST`/`CLIENT_SCHEME` for the public address the

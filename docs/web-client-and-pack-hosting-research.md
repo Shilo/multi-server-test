@@ -133,6 +133,47 @@ Sources:
 - [Cloudflare Pages vs GitHub Pages performance comparison](https://bejamas.com/compare/cloudflare-pages-vs-github-pages)
 - [Static site hosting speed test](https://www.ajnisbet.com/blog/static-site-speedtest)
 
+For this project, GitHub Pages is the recommended current test host. It gives
+us the important deployment boundary now:
+
+```text
+GitHub Pages:
+  website
+  Web client
+  Web-targeted PCK files
+
+localhost/Hetzner later:
+  master server
+  database
+  world server processes
+  gameplay traffic
+```
+
+`tools/deploy_github_pages.ps1` exports the Web client and Web world packs,
+verifies the export contents, copies `builds/web/` to the `gh-pages` branch,
+adds `.nojekyll`, commits, and pushes.
+
+After deployment, the browser URL is:
+
+```text
+https://shilo.github.io/multi-server-test/
+```
+
+The default PackRat URL advertised by the master is currently:
+
+```text
+https://shilo.github.io/multi-server-test/world_packs
+```
+
+The default server-side metadata folder is currently:
+
+```text
+builds/web/world_packs
+```
+
+That pairing matters. The master must send size/modified-time metadata for the
+same Web-targeted PCK files that GitHub Pages serves.
+
 ### Cloudflare Pages
 
 Cloudflare Pages is good for hosting the Web client shell. It advertises
@@ -148,6 +189,19 @@ Source: [Cloudflare Pages limits](https://developers.cloudflare.com/pages/platfo
 This means Cloudflare Pages alone is fine only while PCK files remain below
 25 MiB. If worlds grow, use Cloudflare Pages for the Web client and Cloudflare
 R2 for `/world_packs/`.
+
+There is also a Spain-specific availability concern. Spain has had repeated
+LaLiga anti-piracy blocks affecting shared Cloudflare IPs, especially during
+football match windows. This is not a total permanent Spain-wide Cloudflare
+block, but it has caused unrelated legitimate Cloudflare-hosted services to be
+unreachable for some Spanish users. If Spain availability matters, Cloudflare
+should not be treated as a risk-free default.
+
+Sources:
+
+- [Broadband TV News: Cloudflare legal action over LaLiga blocking](https://www.broadbandtvnews.com/2025/02/19/cloudflare-takes-legal-action-over-laligas-disproportionate-blocking-efforts/)
+- [Vercel: update on Spain and LALIGA blocks](https://vercel.com/blog/update-on-spain-and-laliga-blocks-of-the-internet)
+- [TechRadar: LaLiga internet disruptions in Spain](https://www.techradar.com/vpn/vpn-privacy-security/la-ligas-war-on-piracy-is-breaking-the-internet-in-spain-and-your-vpn-could-be-the-next-target)
 
 Best Cloudflare architecture:
 
@@ -216,8 +270,8 @@ Tradeoff:
 
 ## Recommendation
 
-Use GitHub Pages for the immediate public showcase only if all of this remains
-true:
+Use GitHub Pages for the immediate public showcase while all of this remains
+roughly true:
 
 - Web client plus all current PCK files fit comfortably under 1 GB.
 - Individual PCKs stay well below GitHub's practical large-file pain points.
@@ -231,7 +285,8 @@ GitHub Pages becomes too limiting, the same public hosting role can move to
 Cloudflare, Bunny, or another CDN/static host without changing the core game
 server architecture.
 
-For the more production-shaped VirtuCade path, prefer:
+For the more production-shaped VirtuCade path, keep the same responsibility
+split even if the static host changes:
 
 ```text
 Static web host:
@@ -245,9 +300,11 @@ Hetzner VPS:
   local mirrored PCK metadata folder
 ```
 
-If PCK files are always under 25 MiB, Cloudflare Pages can host both the Web
-client and PCK files directly. If PCK files can exceed 25 MiB, use Cloudflare
-Pages for the Web client and R2 for `/world_packs/`.
+If PCK files are always under 25 MiB and Spain availability is not a concern,
+Cloudflare Pages can host both the Web client and PCK files directly. If PCK
+files can exceed 25 MiB, use Cloudflare Pages for the Web client and R2 for
+`/world_packs/`. If Spain availability is important, compare Bunny or another
+non-Cloudflare static/CDN host before choosing Cloudflare.
 
 The same-origin path is important:
 

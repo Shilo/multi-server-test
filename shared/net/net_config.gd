@@ -2,7 +2,7 @@ const SERVER_HOST := "127.0.0.1"
 const CLIENT_HOST := "127.0.0.1"
 const CLIENT_SCHEME := "ws"
 const MASTER_PORT := 19080
-const LOCAL_WORLD_PACK_BASE_URL := "http://127.0.0.1:19100/world_packs"
+const GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
 const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
 const WORLD_PACK_DIR_ENV := "MULTI_SERVER_WORLD_PACK_DIR"
 const DEFAULT_WORLD_KEY := "hub"
@@ -70,7 +70,7 @@ static func world_pack_base_url() -> String:
 	if value.is_empty() and OS.has_feature("web"):
 		value = _web_same_origin_world_pack_base_url()
 	if value.is_empty():
-		return LOCAL_WORLD_PACK_BASE_URL
+		return GITHUB_PAGES_WORLD_PACK_BASE_URL
 	return value.trim_suffix("/")
 
 
@@ -83,8 +83,8 @@ static func world_pack_dir() -> String:
 	if not value.is_empty():
 		return value
 	if OS.has_feature("editor"):
-		return ProjectSettings.globalize_path("res://builds/world_packs")
-	return OS.get_executable_path().get_base_dir().get_base_dir().path_join("world_packs")
+		return ProjectSettings.globalize_path("res://builds/web/world_packs")
+	return OS.get_executable_path().get_base_dir().get_base_dir().path_join("web").path_join("world_packs")
 
 
 static func world_pack_url(world_key: String) -> String:
