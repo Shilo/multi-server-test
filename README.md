@@ -407,9 +407,10 @@ https://shilo.github.io/multi-server-test/deployment_manifest.json
 ```
 
 That manifest lists deployed Web files and world PCK files with file sizes,
-SHA-256 fingerprints, the project version, and the source commit. GitHub Pages
-does not provide an FTP-style file browser for Actions deployments, so this
-manifest is the lightweight way to check exactly what was published.
+SHA-256 fingerprints, the project version, the release commit, the workflow
+trigger commit, and the workflow run id. GitHub Pages does not provide an
+FTP-style file browser for Actions deployments, so this manifest is the
+lightweight way to check exactly what was published.
 
 World packs exported through Godot's `--export-pack` are not literal raw copies
 of only `server/worlds/<world_key>/`. They include the world scene remap, the
@@ -479,14 +480,18 @@ browser client connects to the local gameplay server while downloading Web
 client/PCK files from GitHub Pages.
 
 GitHub Actions uses manual workflow dispatch only. One run sets an exact
-`MAJOR.MINOR` version or bumps the minor version once, exports Linux server and
-Web artifacts from that version, verifies them, runs the exported Web smoke,
-commits and tags the visible `project.godot` change, deploys the Web client and
-all Web world packs to GitHub Pages, and uploads the Linux server artifact plus
-world packs. If a release tag already exists, it must point at the exact release
-commit or the workflow fails before publishing. The VPS stop/upload/start step
-is intentionally not automated yet because the VPS service name, release
-directory, SSH user, and database backup flow do not exist in this repo yet.
+`MAJOR.MINOR` version or bumps the minor version once, creates a local release
+commit for the visible `project.godot` change, exports Linux server and Web
+artifacts from that release commit, verifies them, runs the exported Web smoke,
+pushes the release commit, uploads the Linux server artifact plus world packs,
+deploys the Web client and all Web world packs to GitHub Pages, verifies the
+live hosted bytes against the deployment manifest, then tags the release commit.
+If a release tag already exists, it must point at the current commit or the
+workflow fails before publishing. Releases are intentionally restricted to the
+`main` branch. The VPS
+stop/upload/start step is intentionally not automated yet because the VPS
+service name, release directory, SSH user, and database backup flow do not exist
+in this repo yet.
 
 The workflow title shows `Release v<version>` when an exact `version` input is
 provided. Auto-bump runs are titled `Release auto-bump` because GitHub computes
@@ -496,12 +501,15 @@ name.
 
 Release deploys intentionally publish the Web client and every world pack
 together. That keeps the client, PackRat PCK metadata, and server artifact on
-one version without partial-deploy ambiguity.
+one version without partial-deploy ambiguity. The release tag is created after
+the hosted Pages verification step, so the tag means the release commit was
+built, smoked, uploaded as a server artifact, deployed to Pages, and checked
+against the hosted manifest.
 
-If a release run fails after the workflow has committed/tagged the version but
-before GitHub Pages or artifact upload completes, rerun the workflow with the
-exact failed version in the `version` input. Do not use the empty auto-bump path
-for that retry, or it will intentionally create the next release version.
+If a release run fails after the workflow has committed the version but before
+the final release tag is created, rerun the workflow with the exact failed
+version in the `version` input. Do not use the empty auto-bump path for that
+retry, or it will intentionally create the next release version.
 
 The release workflow patches the generated Web shell with
 `tools/patch_web_cache_bust.py` so the project version is applied to Godot's
@@ -512,15 +520,18 @@ diagnostics.
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.
 The master reads pack size and modified time from `MULTI_SERVER_WORLD_PACK_DIR`;
-the static host must serve files with matching bytes and modified time or
-PackRat will reject the download as stale.
+the static host must serve matching bytes. The release workflow also downloads
+every live GitHub Pages file listed in `deployment_manifest.json` after deploy
+and verifies its size/SHA-256 value.
 
 That means the simplest production path is to serve the same `world_packs/`
 directory that the master stats, or deploy in a way that preserves the pack
 files' modified times. A CDN/static host that rewrites `Last-Modified` can make
 the browser download fail metadata validation even when the bytes are correct;
-validate that during the VPS/GitHub Pages smoke before treating hosted Web as
-ready.
+the hosted verifier fails the release with `HOSTED_LAST_MODIFIED_MISMATCH` when
+it detects that risk. If GitHub Pages cannot preserve those headers, move the
+master to a metadata source that matches the static host before treating hosted
+Web as production-ready.
 
 The `server/` and `client/` folders are export-bundle ownership labels. The concern ends at what gets bundled into each executable/artifact; runtime clients can still mount a downloaded pack at a `res://server/worlds/...` path because that path is not user-facing.
 

@@ -195,8 +195,10 @@ export/deploy version = application/config/version
 `tools/project_version.py` reads, sets, and bumps the project version directly
 in `project.godot`. Local exports do not bump versions; GitHub's manual release
 workflow either sets an exact `MAJOR.MINOR` version or bumps the minor version
-once, exports and verifies every artifact from that same version, then commits
-and tags `project.godot` before publishing artifacts.
+once, creates a local `project.godot` release commit, exports and verifies every
+artifact from that release commit, pushes the release commit after local smoke
+passes, deploys the verified artifacts, then tags the release commit after
+hosted Pages verification succeeds.
 
 Runtime checks:
 
@@ -212,14 +214,18 @@ Current GitHub Actions release workflow:
 
 ```text
 manual trigger
+  -> require main branch
   -> set exact project version or bump minor once
+  -> create local project.godot release commit when the version changes
+  -> reject stale existing release tags
   -> export Linux server and Web artifacts with that version
   -> verify exports and world packs
   -> run exported Web smoke
-  -> commit project.godot when the version changes
-  -> tag the release commit
-  -> deploy Web client + Web world packs through GitHub Actions Pages
+  -> push release commit
   -> upload Linux server artifact and world packs
+  -> deploy Web client + Web world packs through GitHub Actions Pages
+  -> verify hosted Pages manifest, index.html, and world pack bytes
+  -> tag the release commit
   -> print VPS deploy reminder
 ```
 

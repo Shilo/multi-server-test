@@ -149,9 +149,12 @@ localhost/Hetzner later:
   gameplay traffic
 ```
 
-The manual GitHub Actions release workflow exports the Web client and Web world
-packs, verifies the export contents, uploads `builds/web/` as a GitHub Pages
-artifact, and deploys that artifact with `actions/deploy-pages`.
+The manual GitHub Actions release workflow creates a local project-version
+commit, exports the Web client and Web world packs from that release commit,
+verifies the export contents, pushes the release commit, uploads the Linux
+server artifact, uploads `builds/web/` as a GitHub Pages artifact, deploys that
+artifact with `actions/deploy-pages`, verifies the live hosted bytes against the
+deployment manifest, and only then tags the release commit.
 
 This should remain **Settings -> Pages -> Build and deployment -> Source:
 GitHub Actions**. Do not use **Deploy from a branch** for this project. Branch
@@ -182,9 +185,19 @@ tree. The reliable management model for this project is:
   `https://shilo.github.io/multi-server-test/deployment_manifest.json`.
 
 The manifest is generated during export and includes every deployed Web/PCK
-file path, size, SHA-256 fingerprint, project version, source commit, and
-workflow run id. This keeps the useful visibility of a generated deployment
-branch without creating a second mutable branch of generated binaries.
+file path, size, SHA-256 fingerprint, project version, release commit, workflow
+trigger commit, and workflow run id. This keeps the useful visibility of a
+generated deployment branch without creating a second mutable branch of
+generated binaries.
+
+The hosted verification step downloads the live `deployment_manifest.json` and
+every listed file from GitHub Pages, then compares their sizes and SHA-256
+fingerprints with the local release artifact. It also fails on
+`HOSTED_LAST_MODIFIED_MISMATCH` for world packs, because the current runtime
+passes filesystem `pack_modified_time` into PackRat and PackRat rejects hosted
+packs whose HTTP `Last-Modified` does not match. If GitHub Pages rewrites those
+headers, the workflow should fail until the server metadata strategy is changed
+to match the static host.
 
 Compared with the `mimic` repository, the same GitHub Actions Pages model is
 still correct, but the output is different. `mimic` deploys documentation and a

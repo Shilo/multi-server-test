@@ -38,7 +38,8 @@ def main() -> None:
 
     output_path = web_root / args.output
     version = args.version.strip() or read_version()
-    commit = os.environ.get("GITHUB_SHA", "").strip() or git_value(["rev-parse", "HEAD"])
+    commit = git_value(["rev-parse", "HEAD"]) or os.environ.get("GITHUB_SHA", "").strip()
+    workflow_trigger_commit = os.environ.get("GITHUB_SHA", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
 
     files = []
@@ -58,6 +59,10 @@ def main() -> None:
         "version": version,
         "commit": commit,
         "commit_short": commit[:12],
+        "release_commit": commit,
+        "release_commit_short": commit[:12],
+        "workflow_trigger_commit": workflow_trigger_commit,
+        "workflow_trigger_commit_short": workflow_trigger_commit[:12],
         "workflow_run_id": run_id,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "file_count": len(files),
