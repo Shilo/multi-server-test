@@ -1,9 +1,7 @@
 extends SceneTree
 
-const PROJECT_FILE := "res://project.godot"
 const VERSION_SETTING := "application/config/version"
-const VERSION_SECTION := "application"
-const VERSION_KEY := "config/version"
+const PROJECT_FILE := "res://project.godot"
 const DEFAULT_VERSION := "0.1"
 
 
@@ -12,7 +10,9 @@ func _init() -> void:
 
 
 func _run_and_quit() -> void:
-	quit(_run(OS.get_cmdline_user_args()))
+	var exit_code := _run(OS.get_cmdline_user_args())
+	await process_frame
+	quit(exit_code)
 
 
 func _run(args: PackedStringArray) -> int:
@@ -61,11 +61,13 @@ func _set_version(version: String) -> int:
 		push_error("Version must use MAJOR.MINOR with MINOR from 0 to 9, got: %s" % version)
 		return 2
 
-	var config := _load_project_config()
-	config.set_value(VERSION_SECTION, VERSION_KEY, clean_version)
-	var error := config.save(PROJECT_FILE)
+	ProjectSettings.set_setting(VERSION_SETTING, clean_version)
+	var error := ProjectSettings.save()
 	if error != OK:
 		push_error("Could not save project version %s (error %d)." % [clean_version, error])
+		return 1
+	if not _wait_for_project_file_version(clean_version):
+		push_error("Timed out waiting for %s to persist %s." % [PROJECT_FILE, clean_version])
 		return 1
 
 	print("PROJECT_VERSION_SET version=%s" % clean_version)
@@ -73,16 +75,17 @@ func _set_version(version: String) -> int:
 
 
 func _current_version() -> String:
-	var config := _load_project_config()
-	return str(config.get_value(VERSION_SECTION, VERSION_KEY, DEFAULT_VERSION)).strip_edges()
+	return str(ProjectSettings.get_setting(VERSION_SETTING, DEFAULT_VERSION)).strip_edges()
 
 
-func _load_project_config() -> ConfigFile:
-	var config := ConfigFile.new()
-	var error := config.load(PROJECT_FILE)
-	if error != OK:
-		push_error("Could not load %s (error %d)." % [PROJECT_FILE, error])
-	return config
+func _wait_for_project_file_version(version: String) -> bool:
+	var expected_line := 'config/version="%s"' % version
+	var deadline := Time.get_ticks_msec() + 5000
+	while Time.get_ticks_msec() <= deadline:
+		if FileAccess.get_file_as_string(PROJECT_FILE).contains(expected_line):
+			return true
+		OS.delay_msec(50)
+	return false
 
 
 func _is_valid_version(version: String) -> bool:
