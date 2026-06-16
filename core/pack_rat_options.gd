@@ -56,7 +56,7 @@ var offline_first: bool = false
 ## [member query_version_key] is missing. Defaults to the project's
 ## [code]application/config/version[/code]. When empty, PackRat does not append
 ## it. This only affects the outbound request URL, not PackRat's cache identity.
-var query_version: String = ""
+var query_version: String = _project_version()
 
 ## Query key used by [member query_version]. Defaults to [code]"v"[/code].
 ## Existing matching URL query keys are preserved unchanged.
@@ -98,10 +98,6 @@ var max_redirects: int = 8
 
 ## Forces a fresh download instead of using a matching cached pack.
 var always_download: bool = false
-
-
-func _init() -> void:
-	query_version = _project_version()
 
 
 ## Creates options with server-provided expected file metadata.
