@@ -316,6 +316,14 @@ and that each platform world pack contains the expected isolated world scene:
 powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
 ```
 
+World packs exported through Godot's `--export-pack` are not literal raw copies
+of only `server/worlds/<world_key>/`. They include the world scene remap, the
+converted `.godot/exported/...` scene, and small Godot-generated metadata such
+as `project.binary`, UID cache, global script class cache, and `icon.svg`.
+`tools\verify_export_artifacts.ps1` treats only those generated entries as
+allowed and fails if a world pack contains editor files, client files, another
+world folder, or any other unexpected source directory.
+
 The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts for native clients. The `builds/web/world_packs/*.pck` files are the Web-targeted DLC artifacts and should be served beside the Web export.
 
 For GitHub Pages or another static host, deploy the contents of `builds/web/` as
