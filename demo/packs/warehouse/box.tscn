@@ -1,0 +1,25 @@
+[gd_scene format=3 uid="uid://b6vk6y7wdkiuq"]
+
+[ext_resource type="Texture2D" uid="uid://b2tkacsu1viqp" path="res://icon.svg" id="1_icon"]
+
+[sub_resource type="PhysicsMaterial" id="BoxMaterial"]
+friction = 0.82
+bounce = 0.22
+
+[sub_resource type="RectangleShape2D" id="BoxShape"]
+size = Vector2(54, 46)
+
+[node name="Box" type="RigidBody2D"]
+physics_material_override = SubResource("BoxMaterial")
+mass = 0.85
+gravity_scale = 1.55
+linear_damp = 0.12
+angular_damp = 0.2
+
+[node name="Icon" type="Sprite2D" parent="."]
+texture = ExtResource("1_icon")
+scale = Vector2(0.075, 0.075)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 8)
+shape = SubResource("BoxShape")
