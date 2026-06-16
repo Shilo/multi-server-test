@@ -1,8 +1,12 @@
 const SERVER_HOST := "127.0.0.1"
-const CLIENT_HOST := "127.0.0.1"
-const CLIENT_SCHEME := "ws"
+const DEFAULT_CLIENT_HOST := "127.0.0.1"
+const DEFAULT_CLIENT_SCHEME := "ws"
 const MASTER_PORT := 19080
 const GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
+const CLIENT_HOST_ENV := "MULTI_SERVER_CLIENT_HOST"
+const CLIENT_SCHEME_ENV := "MULTI_SERVER_CLIENT_SCHEME"
+const TLS_CERT_PATH_ENV := "MULTI_SERVER_TLS_CERT"
+const TLS_KEY_PATH_ENV := "MULTI_SERVER_TLS_KEY"
 const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
 const WORLD_PACK_DIR_ENV := "MULTI_SERVER_WORLD_PACK_DIR"
 const DEFAULT_WORLD_KEY := "hub"
@@ -13,11 +17,31 @@ static var _world_keys_loaded := false
 
 
 static func master_url() -> String:
-	return "%s://%s:%d" % [CLIENT_SCHEME, CLIENT_HOST, MASTER_PORT]
+	return "%s://%s:%d" % [client_scheme(), client_host(), MASTER_PORT]
 
 
 static func local_master_url() -> String:
 	return "ws://%s:%d" % [SERVER_HOST, MASTER_PORT]
+
+
+static func client_host() -> String:
+	var value := OS.get_environment(CLIENT_HOST_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("server_host")
+	if value.is_empty():
+		return DEFAULT_CLIENT_HOST
+	return value
+
+
+static func client_scheme() -> String:
+	var value := OS.get_environment(CLIENT_SCHEME_ENV).strip_edges().to_lower()
+	if value.is_empty():
+		value = _web_query_value("server_scheme").to_lower()
+	if value.is_empty() and OS.has_feature("web"):
+		value = _web_same_origin_socket_scheme()
+	if value.is_empty():
+		return DEFAULT_CLIENT_SCHEME
+	return value
 
 
 static func world_keys() -> Array[String]:
@@ -49,7 +73,7 @@ static func is_valid_world_key(world_key: String) -> bool:
 
 
 static func world_url(world_key: String) -> String:
-	return "%s://%s:%d" % [CLIENT_SCHEME, CLIENT_HOST, world_port(world_key)]
+	return "%s://%s:%d" % [client_scheme(), client_host(), world_port(world_key)]
 
 
 static func world_port(world_key: String) -> int:
@@ -84,11 +108,44 @@ static func world_pack_dir() -> String:
 		return value
 	if OS.has_feature("editor"):
 		return ProjectSettings.globalize_path("res://builds/web/world_packs")
-	return OS.get_executable_path().get_base_dir().get_base_dir().path_join("web").path_join("world_packs")
+	return OS.get_executable_path().get_base_dir().get_base_dir().path_join("world_packs")
 
 
 static func world_pack_url(world_key: String) -> String:
 	return "%s/%s.pck" % [world_pack_base_url(), world_key.uri_encode()]
+
+
+static func tls_enabled() -> bool:
+	return not tls_cert_path().is_empty() and not tls_key_path().is_empty()
+
+
+static func tls_cert_path() -> String:
+	return OS.get_environment(TLS_CERT_PATH_ENV).strip_edges()
+
+
+static func tls_key_path() -> String:
+	return OS.get_environment(TLS_KEY_PATH_ENV).strip_edges()
+
+
+static func tls_server_options() -> TLSOptions:
+	var cert_path := tls_cert_path()
+	var key_path := tls_key_path()
+	if cert_path.is_empty() or key_path.is_empty():
+		return null
+
+	var certificate := X509Certificate.new()
+	var cert_err := certificate.load(cert_path)
+	if cert_err != OK:
+		push_error("[NET_CONFIG] failed to load TLS certificate %s err=%s" % [cert_path, cert_err])
+		return null
+
+	var key := CryptoKey.new()
+	var key_err := key.load(key_path)
+	if key_err != OK:
+		push_error("[NET_CONFIG] failed to load TLS key %s err=%s" % [key_path, key_err])
+		return null
+
+	return TLSOptions.server(key, certificate)
 
 
 static func _web_query_value(key: String) -> String:
@@ -116,6 +173,20 @@ static func _web_same_origin_world_pack_base_url() -> String:
 	if typeof(value) != TYPE_STRING:
 		return ""
 	return String(value).strip_edges().trim_suffix("/")
+
+
+static func _web_same_origin_socket_scheme() -> String:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return ""
+
+	var value: Variant = javascript.call("eval", "window.location.protocol === 'https:' ? 'wss' : 'ws'", true)
+	if typeof(value) != TYPE_STRING:
+		return ""
+	return String(value).strip_edges().to_lower()
 
 
 static func world_endpoint(world_key: String) -> Dictionary:

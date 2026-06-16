@@ -40,14 +40,23 @@ func _start_master_server() -> void:
 	)
 
 	var peer := WebSocketMultiplayerPeer.new()
-	var err := peer.create_server(NET_CONFIG.MASTER_PORT)
+	var err := peer.create_server(NET_CONFIG.MASTER_PORT, "*", NET_CONFIG.tls_server_options())
 	if err != OK:
 		push_error("[MASTER] failed to listen on port %d err=%s" % [NET_CONFIG.MASTER_PORT, err])
 		get_tree().quit(10)
 		return
 
 	master_api.multiplayer_peer = peer
-	NetLog.print_line("MASTER_READY port=%d build=%s" % [NET_CONFIG.MASTER_PORT, _project_version()])
+	NetLog.print_line(
+		"MASTER_READY port=%d build=%s public_master_url=%s world_pack_base_url=%s world_pack_dir=%s"
+		% [
+			NET_CONFIG.MASTER_PORT,
+			_project_version(),
+			NET_CONFIG.master_url(),
+			NET_CONFIG.world_pack_base_url(),
+			NET_CONFIG.world_pack_dir(),
+		]
+	)
 
 
 func _project_version() -> String:

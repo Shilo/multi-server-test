@@ -62,7 +62,7 @@ try {
 
     Wait-LogMarker (Join-Path $LogRoot "master.out.log") "MASTER_READY" 30
 
-    $webUrl = "http://127.0.0.1:$StaticPort/index.html?args=smoke_test,force_packrat_world_packs&run=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+    $webUrl = "http://127.0.0.1:$StaticPort/index.html?args=smoke_test,force_packrat_world_packs&server_host=localhost&server_scheme=ws&run=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
     $nodeScript = @'
 const { chromium } = require("playwright");
 const url = "__WEB_URL__";
