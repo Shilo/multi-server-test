@@ -862,13 +862,20 @@ func _show_version_mismatch_prompt(server_version: String, client_version: Strin
 	if smoke_test:
 		return
 
-	var action := "Reload to get the latest client before connecting." if OS.has_feature("web") else "Restart the game client to get the latest version before connecting."
+	var show_reload := OS.has_feature("web") and _web_url_version() != server_version
+	var action := ""
+	if show_reload:
+		action = "Reload to get the latest client before connecting."
+	elif OS.has_feature("web"):
+		action = "The game server and Web client are still updating. Try again shortly."
+	else:
+		action = "Restart the game client to get the latest version before connecting."
 	var message := "This game was updated. %s\n\nClient: %s\nServer: %s" % [
 		action,
 		client_version,
 		server_version,
 	]
-	_show_connection_prompt("Game Updated", message, OS.has_feature("web"), server_version)
+	_show_connection_prompt("Game Updated", message, show_reload, server_version)
 
 
 func _show_server_unavailable_prompt(title: String, message: String) -> void:
@@ -912,6 +919,18 @@ func _reload_web_client(server_version: String) -> void:
 	# query so stale GitHub Pages/browser caches do not keep serving old files.
 	var expression := "const u = new URL(window.location.href); u.searchParams.set('v', '%s'); window.location.replace(u.toString());" % version
 	javascript.call("eval", expression, true)
+
+
+func _web_url_version() -> String:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return ""
+
+	var value: Variant = javascript.call("eval", "new URLSearchParams(window.location.search).get('v') || ''", true)
+	return String(value) if typeof(value) == TYPE_STRING else ""
 
 
 func _start_join_keepalive(world_key: String) -> void:
