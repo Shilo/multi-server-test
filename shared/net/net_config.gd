@@ -1,7 +1,6 @@
 const SERVER_HOST := "127.0.0.1"
 const CLIENT_HOST := "127.0.0.1"
 const CLIENT_SCHEME := "ws"
-const BUILD_INFO := preload("res://shared/build/build_info.gd")
 const MASTER_PORT := 19080
 const GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
 const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
@@ -90,7 +89,7 @@ static func world_pack_dir() -> String:
 
 static func world_pack_url(world_key: String) -> String:
 	var url := "%s/%s.pck" % [world_pack_base_url(), world_key.uri_encode()]
-	var version := BUILD_INFO.version()
+	var version := str(ProjectSettings.get_setting("application/config/version", "0.1"))
 	if version.is_empty():
 		return url
 	return "%s?v=%s" % [url, version.uri_encode()]

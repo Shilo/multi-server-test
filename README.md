@@ -42,7 +42,6 @@ For the full walkthrough, read [Godot Multi-Server Architecture Guide](docs/godo
 
 - `addons/godot-sqlite/`: vendored `2shady4u/godot-sqlite` GDExtension (master-only SQLite).
 - `shared/main/`: feature-tag bootstrap scene.
-- `shared/build/`: generated build/version token used by client, master, and world servers.
 - `client/`: playable client root and UI, including `client/login/` (bottom-right login widget).
 - `server/master/`: master server scene, script, and world process manager. Hosts `MasterNet`.
 - `server/master/db/`: master-owned `DatabaseService` and repositories (the only SQLite access boundary).
@@ -105,26 +104,26 @@ For smoke tests and CI with the editor binary, launch the master and client scen
 
 ## Build Version Gate
 
-Editor/local runs use:
+The runtime compatibility version is the Godot project setting:
 
 ```text
-BuildInfo.version() == "dev"
+application/config/version="0.1"
 ```
 
-Export and deploy scripts temporarily rewrite
-`shared/build/build_info.gd` with the current Git commit hash before exporting,
-then restore the source file back to `dev`. The exported Web client and server
-therefore share the same build token without hand-managed release numbers.
+Client, master, and world server processes all read that same setting with
+`ProjectSettings.get_setting("application/config/version")`. The login panel
+shows the value as `v<version>` so testers can see which client build is
+running.
 
 On startup:
 
 1. Client connects to the master.
-2. Client calls `request_routes(BuildInfo.version())`.
+2. Client calls `request_routes(<application/config/version>)`.
 3. Master rejects the route request if the version differs.
 4. Web clients show a "Game Updated" prompt with a reload button that appends
-   `?v=<server_build_version>` for cache busting.
-5. World servers also include `BuildInfo.version()` when registering with the
-   master, so a stale world process cannot join a newer cluster.
+   `?v=<server_version>` for cache busting.
+5. World servers also include `application/config/version` when registering
+   with the master, so a stale world process cannot join a newer cluster.
 
 Web exports are patched after Godot finishes exporting so `index.html`,
 `index.js`, `index.wasm`, and `index.pck` are requested with the same build
@@ -278,9 +277,9 @@ Version gate smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_version_gate_smoke.ps1
 ```
 
-This temporarily launches the master with one generated build version and the
-client with another. It passes only if the client is rejected before any world
-process starts.
+This temporarily launches the master with one project version and the client
+with another. It passes only if the client is rejected before any world process
+starts, then restores `project.godot`.
 
 Successful full editor smoke logs include:
 
@@ -345,11 +344,17 @@ release-shaped artifacts:
 powershell -ExecutionPolicy Bypass -File tools\export_all.ps1 -Release
 ```
 
-To force a specific build token for a local export:
+Inspect or update the project version with Godot:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\export_all.ps1 -BuildVersion my-test-build
+& $godot --headless --path . --script tools\project_version.gd -- --print
+& $godot --headless --path . --script tools\project_version.gd -- --set 1.4
+& $godot --headless --path . --script tools\project_version.gd -- --bump-minor
 ```
+
+The version format is `MAJOR.MINOR`; minor rolls from `9` to the next major
+(`0.9 -> 1.0`). Local exports do not bump the version. They use the committed
+`application/config/version`.
 
 Outputs:
 
@@ -390,9 +395,10 @@ MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
 MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/web/world_packs>
 ```
 
-The master appends `?v=<build_version>` to advertised pack URLs. This keeps
-PackRat downloads aligned with the same build token used by the Web shell and
-avoids stale browser/static-host PCK cache hits after a release.
+The master appends `?v=<application/config/version>` to advertised pack URLs.
+PackRat still decides whether to reuse or redownload a world pack from the
+server-provided `pack_modified_time` and `pack_size`, so app version bumps do
+not redownload unchanged packs.
 
 Current GitHub Pages test deployment:
 
@@ -400,7 +406,7 @@ Current GitHub Pages test deployment:
 powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1
 ```
 
-This exports the Web client and all Web world packs with one generated build
+This exports the Web client and all Web world packs with the current project
 version, verifies that runtime builds do not include the wrong folders, copies
 `builds/web/` to the `gh-pages` branch, adds `.nojekyll`, commits, and pushes.
 The deployed test page is:
@@ -423,22 +429,24 @@ The Web client keeps `CLIENT_HOST=127.0.0.1` for this test, so the GitHub Pages
 browser client connects to the local gameplay server while downloading Web
 client/PCK files from GitHub Pages.
 
-GitHub Actions uses manual workflow dispatch only. One run exports all runtime
-artifacts from the same commit hash, verifies them, deploys the Web client and
-all Web world packs to GitHub Pages, and uploads the server artifact plus both
-native and Web world packs. The VPS stop/upload/start step is intentionally not
-automated yet because the VPS service name, release directory, SSH user, and
-database backup flow do not exist in this repo yet.
+GitHub Actions uses manual workflow dispatch only. One run sets an exact
+`MAJOR.MINOR` version or bumps the minor version once, commits that visible
+`project.godot` change, exports all runtime artifacts from that version,
+verifies them, deploys the Web client and all Web world packs to GitHub Pages,
+and uploads the server artifact plus both native and Web world packs. The VPS
+stop/upload/start step is intentionally not automated yet because the VPS
+service name, release directory, SSH user, and database backup flow do not
+exist in this repo yet.
 
 Release deploys intentionally publish the Web client and every world pack
 together. That keeps the client, PackRat PCK metadata, and server artifact on
 one version without partial-deploy ambiguity.
 
-`tools\export_all.ps1` patches the generated Web shell so the build version is
+`tools\export_all.ps1` patches the generated Web shell so the project version is
 applied to Godot's generated `index.js`, `index.wasm`, and `index.pck`
-requests. `tools\deploy_github_pages.ps1 -SkipExport -BuildVersion <version>`
-verifies that the staged Web export already has that matching cache-bust token
-before publishing it.
+requests. `tools\deploy_github_pages.ps1 -SkipExport` verifies that the staged
+Web export already has the current project version cache-bust token before
+publishing it.
 
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.
@@ -525,7 +533,7 @@ Local defaults:
 CLIENT_HOST=127.0.0.1 in shared/net/net_config.gd
 CLIENT_SCHEME=ws in shared/net/net_config.gd
 default world pack base URL=https://shilo.github.io/multi-server-test/world_packs
-advertised pack URLs append ?v=<build_version>
+advertised pack URLs append ?v=<application/config/version>
 editor default MULTI_SERVER_WORLD_PACK_DIR=builds/web/world_packs
 exported server default=<server executable directory>/../web/world_packs
 ```

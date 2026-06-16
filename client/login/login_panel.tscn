@@ -59,3 +59,10 @@ layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.45, 0.45, 1)
 theme_override_font_sizes/font_size = 11
 text = ""
+
+[node name="VersionLabel" type="Label" parent="VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.65, 0.65, 1)
+theme_override_font_sizes/font_size = 10
+text = "v0.1"
+horizontal_alignment = 2

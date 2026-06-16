@@ -1,7 +1,6 @@
 extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
-const BUILD_INFO := preload("res://shared/build/build_info.gd")
 
 var master_api: MultiplayerAPI
 
@@ -48,4 +47,8 @@ func _start_master_server() -> void:
 		return
 
 	master_api.multiplayer_peer = peer
-	NetLog.print_line("MASTER_READY port=%d build=%s" % [NET_CONFIG.MASTER_PORT, BUILD_INFO.version()])
+	NetLog.print_line("MASTER_READY port=%d build=%s" % [NET_CONFIG.MASTER_PORT, _project_version()])
+
+
+func _project_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "0.1"))

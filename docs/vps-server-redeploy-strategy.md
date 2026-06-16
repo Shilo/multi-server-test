@@ -157,10 +157,10 @@ Those mixed states are where most versioning and security bugs would live.
 Every production connection should include a build/version token. The server
 should reject incompatible clients before login/world travel.
 
-Recommended first version token:
+Implemented first version token:
 
 ```text
-BUILD_VERSION=<git commit SHA or CI build id>
+application/config/version=<MAJOR.MINOR>
 ```
 
 The exact token can later become a structured value:
@@ -172,10 +172,9 @@ content_build_hash
 protocol_version
 ```
 
-But the first implementation should stay simple:
+The first implementation stays simple:
 
-- CI writes one build version into the Web client export.
-- CI writes the same build version into the server export.
+- Godot stores one visible project version in `application/config/version`.
 - Client sends that version during master connection.
 - Master compares it with its own version.
 - If it differs, master rejects the connection with a clear reason.
@@ -189,30 +188,32 @@ not authentication. Real user identity still needs authenticated sessions.
 Current project behavior:
 
 ```text
-editor/local source version = dev
-export/deploy version       = current Git commit hash
+editor/local version = application/config/version
+export/deploy version = application/config/version
 ```
 
-`tools/write_build_info.ps1` writes the selected build token into
-`shared/build/build_info.gd`. Export scripts call it before exporting and then
-restore the source file, so normal local testing stays on `dev` and exported
-client/server artifacts get the same commit-derived version.
+`tools/project_version.gd` reads, sets, and bumps the project version through
+Godot's `ProjectSettings`. Local exports do not bump versions; GitHub's manual
+release workflow either sets an exact `MAJOR.MINOR` version or bumps the minor
+version once, commits `project.godot`, and then exports every artifact from that
+same version.
 
 Runtime checks:
 
-- Client sends `BuildInfo.version()` in `request_routes(...)`.
+- Client sends `application/config/version` in `request_routes(...)`.
 - Master rejects mismatched clients before sending routes.
-- Web clients show a reload prompt and append `?v=<server_build_version>`.
+- Web clients show a reload prompt and append `?v=<server_version>`.
 - Export/deploy scripts patch Godot's generated Web shell so `index.js`,
   `index.wasm`, and `index.pck` are requested with the same build query.
-- World servers send `BuildInfo.version()` during master registration.
+- World servers send `application/config/version` during master registration.
 - Master rejects stale world server registrations.
 
 Current GitHub Actions release workflow:
 
 ```text
 manual trigger
-  -> resolve Git commit build version
+  -> set exact project version or bump minor once
+  -> commit project.godot when the version changes
   -> export all artifacts with that version
   -> verify exports and world packs
   -> deploy Web client + Web world packs to GitHub Pages
@@ -247,13 +248,13 @@ Recommended reload behavior:
 ```text
 version mismatch
   -> show "Game updated" modal
-  -> reload button navigates to current page with ?v=<server_build_version>
+  -> reload button navigates to current page with ?v=<server_version>
 ```
 
 Example:
 
 ```text
-https://shilo.github.io/multi-server-test/?v=<build_version>
+https://shilo.github.io/multi-server-test/?v=<application/config/version>
 ```
 
 This makes the browser treat the page URL as new. The export/deploy scripts

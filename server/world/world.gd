@@ -1,7 +1,6 @@
 extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
-const BUILD_INFO := preload("res://shared/build/build_info.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
@@ -86,7 +85,7 @@ func _ready() -> void:
 		return
 
 	world_api.multiplayer_peer = peer
-	NetLog.print_line("WORLD_READY key=%s port=%d build=%s scene=%s" % [world_key, port, BUILD_INFO.version(), NET_CONFIG.world_scene_path(world_key)])
+	NetLog.print_line("WORLD_READY key=%s port=%d build=%s scene=%s" % [world_key, port, _project_version(), NET_CONFIG.world_scene_path(world_key)])
 	_connect_to_master()
 
 
@@ -201,9 +200,13 @@ func _register_with_master() -> void:
 		1,
 		world_key,
 		launch_token,
-		BUILD_INFO.version()
+		_project_version()
 	)
 	_start_registration_timer()
+
+
+func _project_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "0.1"))
 
 
 func _start_heartbeat() -> void:

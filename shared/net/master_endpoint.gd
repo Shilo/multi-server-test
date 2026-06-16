@@ -14,7 +14,6 @@ signal world_transfer_result_received(master_peer_id: int, target_world: String,
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
-const BUILD_INFO := preload("res://shared/build/build_info.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
 const TRAVEL_LEASE_REFRESH_SECONDS := 120.0
 const TRAVEL_LEASE_MAX_SECONDS := 3600.0
@@ -133,7 +132,7 @@ func request_routes(client_build_version := "") -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	var server_build_version := BUILD_INFO.version()
+	var server_build_version := _project_version()
 	var requested_build_version := str(client_build_version)
 	if requested_build_version != server_build_version:
 		NetLog.print_line("[MASTER] route rejected for peer %s reason=version_mismatch client=%s server=%s" % [
@@ -156,11 +155,12 @@ func register_world(world_key: String, launch_token: String, world_build_version
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	if str(world_build_version) != BUILD_INFO.version():
+	var server_build_version := _project_version()
+	if str(world_build_version) != server_build_version:
 		push_error("[MASTER] rejected world registration for %s due build version mismatch: world=%s server=%s" % [
 			world_key,
 			str(world_build_version),
-			BUILD_INFO.version(),
+			server_build_version,
 		])
 		shutdown_world.rpc_id(sender_id, "version_mismatch")
 		call_deferred("_disconnect_peer_after_rejection", sender_id)
@@ -179,6 +179,10 @@ func register_world(world_key: String, launch_token: String, world_build_version
 	NetLog.print_line("MASTER_WORLD_REGISTERED key=%s peer=%s url=%s" % [world_key, sender_id, normalized_endpoint["url"]])
 	world_process_manager.mark_world_registered(world_key)
 	world_registered_ack.rpc_id(sender_id, world_key)
+
+
+func _project_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "0.1"))
 
 
 @rpc("any_peer", "call_remote", "reliable")

@@ -5,18 +5,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$BuildInfoPath = Join-Path $ProjectRoot "shared\build\build_info.gd"
+$ProjectFile = Join-Path $ProjectRoot "project.godot"
 
-function Get-BuildInfoVersion {
-    $content = Get-Content -LiteralPath $BuildInfoPath -Raw
-    if ($content -match 'BUILD_VERSION\s*:=\s*"([^"]+)"') {
+function Get-ProjectVersion {
+    $content = Get-Content -LiteralPath $ProjectFile -Raw
+    if ($content -match 'config/version="([^"]+)"') {
         return $Matches[1]
     }
-    throw "Could not read BUILD_VERSION from $BuildInfoPath"
+    throw "Could not read application/config/version from $ProjectFile"
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = Get-BuildInfoVersion
+    $Version = Get-ProjectVersion
 }
 
 $encodedVersion = [System.Uri]::EscapeDataString($Version.Trim())

@@ -6,4 +6,3 @@
 /builds/*
 !/builds/.gdignore
 addons/**/~*
-shared/build/build_info.gd.uid

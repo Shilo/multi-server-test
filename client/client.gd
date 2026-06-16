@@ -1,7 +1,6 @@
 extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
-const BUILD_INFO := preload("res://shared/build/build_info.gd")
 const CHAT_SCENE := preload("res://client/chat/chat.tscn")
 const LOGIN_PANEL_SCENE := preload("res://client/login/login_panel.tscn")
 const SMOKE_TEST_ARG := "smoke_test"
@@ -66,7 +65,7 @@ var connection_dialog: AcceptDialog
 func _ready() -> void:
 	launch_args = _runtime_user_args()
 	smoke_test = SMOKE_TEST_ARG in launch_args or VERSION_GATE_BYPASS_TEST_ARG in launch_args
-	NetLog.print_line("[CLIENT] build version: %s" % BUILD_INFO.version())
+	NetLog.print_line("[CLIENT] build version: %s" % _project_version())
 	_setup_chat()
 	_setup_login_panel()
 	_setup_multiplayer_branches()
@@ -150,6 +149,8 @@ func _setup_login_panel() -> void:
 	login_panel.login_submitted.connect(_on_login_submitted)
 	login_panel.logout_requested.connect(_on_logout_requested)
 	canvas_layer.add_child(login_panel)
+	if login_panel.has_method("set_version_text"):
+		login_panel.set_version_text(_display_version())
 
 
 func _on_login_submitted(username: String) -> void:
@@ -414,7 +415,7 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 	if not ok:
 		_show_server_unavailable_prompt("Server Offline", "The game server is offline or restarting. Try again soon.")
 		return false
-	master_endpoint.request_routes.rpc_id(1, BUILD_INFO.version())
+	master_endpoint.request_routes.rpc_id(1, _project_version())
 	var route_predicate := func() -> bool:
 		return _has_initial_world_route() or not route_rejection_reason.is_empty()
 	ok = await _wait_until(route_predicate, 5.0, "master routes")
@@ -858,7 +859,7 @@ func _on_routes_rejected(reason: String, server_version: String, client_version:
 
 
 func _show_version_mismatch_prompt(server_version: String, client_version: String) -> void:
-	NetLog.print_line("[CLIENT] BUILD_VERSION_REJECTED client=%s server=%s" % [client_version, server_version])
+	NetLog.print_line("[CLIENT] PROJECT_VERSION_REJECTED client=%s server=%s" % [client_version, server_version])
 	if smoke_test:
 		return
 
@@ -1149,6 +1150,14 @@ func _connect_transfer_world(target_world: String) -> bool:
 func _set_status(text: String) -> void:
 	status_label.text = text
 	NetLog.print_line("[CLIENT] status: %s" % text)
+
+
+func _project_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "0.1"))
+
+
+func _display_version() -> String:
+	return "v%s" % _project_version()
 
 
 func _smoke_fail(reason: String) -> void:

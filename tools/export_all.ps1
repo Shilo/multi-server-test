@@ -1,6 +1,5 @@
 param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
-    [string]$BuildVersion = "",
     [switch]$Release
 )
 
@@ -8,7 +7,6 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildRoot = Join-Path $ProjectRoot "builds"
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
-$BuildInfoFile = Join-Path $ProjectRoot "shared\build\build_info.gd"
 
 $targets = @(
     @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe"; PckRequired = $true },
@@ -75,9 +73,7 @@ function Export-WorldPacks($worldPackRoot, $presetPrefix) {
 }
 
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
-$originalBuildInfoFile = Get-Content -LiteralPath $BuildInfoFile -Raw
 try {
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write_build_info.ps1") -Version $BuildVersion
     Remove-EditorAutoloadForExport
 
     foreach ($target in $targets) {
@@ -115,7 +111,6 @@ try {
 }
 finally {
     Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline
-    [System.IO.File]::WriteAllText($BuildInfoFile, $originalBuildInfoFile, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 Write-Host "EXPORT_ALL_DONE"

@@ -6,13 +6,17 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $LogRoot = Join-Path $ProjectRoot ".logs\version_gate"
-$BuildInfoFile = Join-Path $ProjectRoot "shared\build\build_info.gd"
+$ProjectFile = Join-Path $ProjectRoot "project.godot"
 
 Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
-function Write-BuildInfo($version) {
-    powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write_build_info.ps1") -Version $version | Out-Host
+function Set-ProjectVersion($version) {
+    & $Godot --headless --path $ProjectRoot --script (Join-Path $PSScriptRoot "project_version.gd") -- --set $version | Out-Host
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($exitCode -ne 0) {
+        throw "Could not set project version to $version"
+    }
 }
 
 function Start-Scene($name, $scenePath, $userArgs = @(), [switch]$Headless) {
@@ -50,15 +54,15 @@ function Wait-LogMarker($name, $marker, $timeoutSeconds) {
     throw "Timed out waiting for marker '$marker' in $name logs"
 }
 
-$originalBuildInfoFile = Get-Content -LiteralPath $BuildInfoFile -Raw
+$originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
 $master = $null
 $client = $null
 try {
-    Write-BuildInfo "server-smoke"
+    Set-ProjectVersion "8.8"
     $master = Start-Scene "master" "res://server/master/master.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY" 10
 
-    Write-BuildInfo "client-smoke"
+    Set-ProjectVersion "8.9"
     $client = Start-Scene "client" "res://client/client.tscn" @("smoke_test") -Headless
     $client.WaitForExit($TimeoutSeconds * 1000) | Out-Null
     $client.Refresh()
@@ -69,7 +73,7 @@ try {
 
     $clientLogPath = Join-Path $LogRoot "client.out.log"
     $clientLog = Get-Content -LiteralPath $clientLogPath -Raw
-    if (-not $clientLog.Contains("BUILD_VERSION_REJECTED client=client-smoke server=server-smoke")) {
+    if (-not $clientLog.Contains("PROJECT_VERSION_REJECTED client=8.9 server=8.8")) {
         Write-Host $clientLog
         throw "Version gate smoke did not log the expected client rejection"
     }
@@ -78,7 +82,7 @@ try {
         throw "Version gate smoke did not fail bootstrap after rejection"
     }
 
-    Write-BuildInfo "server-smoke"
+    Set-ProjectVersion "8.8"
     $client = Start-Scene "client_bypass" "res://client/client.tscn" @("version_gate_bypass_test") -Headless
     $client.WaitForExit($TimeoutSeconds * 1000) | Out-Null
     $client.Refresh()
@@ -107,7 +111,7 @@ try {
     Write-Host "VERSION_GATE_SMOKE_PASS logs=$LogRoot"
 }
 finally {
-    [System.IO.File]::WriteAllText($BuildInfoFile, $originalBuildInfoFile, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($ProjectFile, $originalProjectFile, (New-Object System.Text.UTF8Encoding($false)))
     if ($client -and -not $client.HasExited) {
         Stop-Process -Id $client.Id -Force -ErrorAction SilentlyContinue
     }

@@ -3,7 +3,6 @@ param(
     [string]$Remote = "origin",
     [string]$Branch = "gh-pages",
     [string]$CommitMessage = "deploy: update github pages build",
-    [string]$BuildVersion = "",
     [switch]$Release,
     [switch]$SkipExport,
     [switch]$SkipPush,
@@ -17,7 +16,6 @@ $WebRoot = Join-Path $BuildRoot "web"
 $WebWorldPackRoot = Join-Path $WebRoot "world_packs"
 $DeployRoot = Join-Path $ProjectRoot ".deploy\github_pages"
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
-$BuildInfoFile = Join-Path $ProjectRoot "shared\build\build_info.gd"
 $exportMode = if ($Release) { "--export-release" } else { "--export-debug" }
 
 function Invoke-Git($arguments, $workdir = $ProjectRoot) {
@@ -216,7 +214,7 @@ function Assert-FinalDeploySite($availableKeys) {
 
 function Assert-WebCacheBustVersion($expectedVersion) {
     if ([string]::IsNullOrWhiteSpace($expectedVersion)) {
-        throw "-BuildVersion is required when publishing a previously exported Web build."
+        throw "application/config/version is required when publishing a previously exported Web build."
     }
 
     $encodedVersion = [System.Uri]::EscapeDataString($expectedVersion.Trim())
@@ -231,10 +229,10 @@ function Assert-WebCacheBustVersion($expectedVersion) {
     $html = Get-Content -LiteralPath $indexHtml -Raw
     $js = Get-Content -LiteralPath $indexJs -Raw
     if (-not $html.Contains("index.js?v=$encodedVersion")) {
-        throw "Web export cache-bust mismatch in index.html. Re-export with -BuildVersion $expectedVersion."
+        throw "Web export cache-bust mismatch in index.html. Re-export with project version $expectedVersion."
     }
     if (-not $js.Contains("const GODOT_CACHE_BUST = `"?v=$encodedVersion`";")) {
-        throw "Web export cache-bust mismatch in index.js. Re-export with -BuildVersion $expectedVersion."
+        throw "Web export cache-bust mismatch in index.js. Re-export with project version $expectedVersion."
     }
     foreach ($fragment in @(
         'return `${loadPath}.wasm${GODOT_CACHE_BUST}`;',
@@ -277,25 +275,25 @@ function Commit-And-Push {
     Write-Host "GITHUB_PAGES_DEPLOY_PUSHED remote=$Remote branch=$Branch"
 }
 
+function Get-ProjectVersion {
+    $content = Get-Content -LiteralPath $ProjectFile -Raw
+    if ($content -match 'config/version="([^"]+)"') {
+        return $Matches[1]
+    }
+    throw "Could not read application/config/version from $ProjectFile"
+}
+
 $availableWorldKeys = Get-WorldKeys
 $requestedWorldKeys = $availableWorldKeys
+$projectVersion = Get-ProjectVersion
 
-$originalBuildInfoFile = Get-Content -LiteralPath $BuildInfoFile -Raw
-try {
-    if (-not $SkipExport) {
-        & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write_build_info.ps1") -Version $BuildVersion
-        Export-WebClient
-        Export-WebWorldPacks $requestedWorldKeys
-    }
-}
-finally {
-    if (-not $SkipExport) {
-        [System.IO.File]::WriteAllText($BuildInfoFile, $originalBuildInfoFile, (New-Object System.Text.UTF8Encoding($false)))
-    }
+if (-not $SkipExport) {
+    Export-WebClient
+    Export-WebWorldPacks $requestedWorldKeys
 }
 
 if ($SkipExport) {
-    Assert-WebCacheBustVersion $BuildVersion
+    Assert-WebCacheBustVersion $projectVersion
 }
 
 $verifyWorldKeys = if ($requestedWorldKeys.Count -eq 0) { "none" } else { $requestedWorldKeys -join "," }

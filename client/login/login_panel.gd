@@ -14,6 +14,7 @@ var _is_guest := true
 @onready var submit_button: Button = $VBox/Form/Buttons/SubmitButton
 @onready var cancel_button: Button = $VBox/Form/Buttons/CancelButton
 @onready var error_label: Label = $VBox/Form/ErrorLabel
+@onready var version_label: Label = $VBox/VersionLabel
 
 
 func _ready() -> void:
@@ -33,6 +34,10 @@ func set_identity(display_name: String, is_guest: bool) -> void:
 
 func show_error(reason: String) -> void:
 	error_label.text = reason
+
+
+func set_version_text(text: String) -> void:
+	version_label.text = text
 
 
 func _on_login_button_pressed() -> void:
