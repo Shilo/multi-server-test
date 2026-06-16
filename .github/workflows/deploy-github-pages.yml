@@ -163,7 +163,8 @@ jobs:
           done
           (echo > /dev/tcp/127.0.0.1/19080) >/dev/null 2>&1
 
-          NODE_PATH="$RUNNER_TEMP/multi-server-test-playwright/node_modules" node tools/web_smoke.mjs --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
+          cp tools/web_smoke.mjs "$RUNNER_TEMP/multi-server-test-playwright/web_smoke.mjs"
+          node "$RUNNER_TEMP/multi-server-test-playwright/web_smoke.mjs" --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
 
       - name: Commit release project version
         shell: bash
