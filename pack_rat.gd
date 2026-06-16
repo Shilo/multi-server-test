@@ -113,7 +113,7 @@ static func _request_url_for_source(url: String, options: PackRatOptions) -> Str
 	if not PackRatCachePaths.is_http_url(url):
 		return url
 
-	return _versioned_url_internal(url, options.query_version, options.query_version_key, false)
+	return versioned_url(url, options.query_version, options.query_version_key, false)
 
 
 static func _cache_key_for_source(url: String, id: String, options: PackRatOptions) -> String:
@@ -296,20 +296,19 @@ static func can_download_github_releases() -> bool:
 ## - [param url]: Base URL for a remote pack or static file.
 ## - [param query_version]: Content version such as a build number, tag, or file token.
 ## - [param query_version_key]: Query key to set. Defaults to [code]"v"[/code].
+## - [param replace_existing_query_version]: Whether an existing matching query
+## key should be replaced. PackRat's automatic request URL versioning keeps
+## existing keys unchanged.
 ## [br][br]
 ## Returns:
-## - [param url] with [param query_version_key] set to [param query_version]. Existing matching
-## query keys are replaced, URL fragments are preserved, and empty key/version
-## values return [param url] unchanged.
-static func versioned_url(url: String, query_version: Variant, query_version_key: String = "v") -> String:
-	return _versioned_url_internal(url, query_version, query_version_key, true)
-
-
-static func _versioned_url_internal(
+## - [param url] with [param query_version_key] set to [param query_version].
+## URL fragments are preserved, and empty key/version values return [param url]
+## unchanged.
+static func versioned_url(
 	url: String,
 	query_version: Variant,
-	query_version_key: String,
-	replace_existing: bool
+	query_version_key: String = "v",
+	replace_existing_query_version: bool = true
 ) -> String:
 	var clean_key: String = query_version_key.strip_edges()
 	var clean_version: String = str(query_version).strip_edges()
@@ -337,7 +336,7 @@ static func _versioned_url_internal(
 	for part in query.split("&", false):
 		var key: String = part.get_slice("=", 0)
 		if key == clean_key or key == encoded_key:
-			if not replace_existing:
+			if not replace_existing_query_version:
 				return url
 			if not replaced:
 				output_parts.append("%s=%s" % [encoded_key, encoded_version])
