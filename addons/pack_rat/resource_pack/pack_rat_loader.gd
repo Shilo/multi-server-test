@@ -123,7 +123,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	if local_pack_path.is_empty():
 		download = await PackRatHttpClient.request(request_url, part_path, options, request)
 	else:
-		download = await PackRatLocalFileClient.copy_to_cache_part(local_pack_path, part_path, options, request)
+		download = await PackRatLocalFileClient.copy_to_cache_part(local_pack_path, part_path, options, request, metadata)
 	if capture_timings:
 		_merge_timings(result.timings_msec, download.timings_msec, "download_")
 	_record_timing(result, capture_timings, "download_msec", download_start_msec)
