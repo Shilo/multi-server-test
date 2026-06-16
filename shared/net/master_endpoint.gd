@@ -1,6 +1,7 @@
 extends Node
 
 signal routes_received(routes: Dictionary)
+signal routes_rejected(reason: String, server_version: String, client_version: String)
 signal travel_lease_granted(target_world: String, endpoint: Dictionary)
 signal transfer_denied(target_world: String)
 signal world_join_approved(world_key: String, endpoint: Dictionary)
@@ -13,6 +14,7 @@ signal world_transfer_result_received(master_peer_id: int, target_world: String,
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
+const BUILD_INFO := preload("res://shared/build/build_info.gd")
 const HEARTBEAT_TIMEOUT_SECONDS := 5.0
 const TRAVEL_LEASE_REFRESH_SECONDS := 120.0
 const TRAVEL_LEASE_MAX_SECONDS := 3600.0
@@ -21,6 +23,7 @@ const MAX_TRAVEL_LEASES_TOTAL := 2048
 const MAX_PENDING_WORLD_ADMISSIONS_TOTAL := 2048
 
 var registered_worlds := {}
+var validated_client_peers := {}
 var peer_worlds := {}
 var world_last_seen := {}
 var travel_leases := {}
@@ -59,6 +62,7 @@ func create_login_resume_lease(peer_id: int, world_key: String, has_spawn: bool,
 func unregister_peer(peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
+	validated_client_peers.erase(peer_id)
 	if world_process_manager and world_process_manager.has_method("release_join_reservations_for_peer"):
 		world_process_manager.release_join_reservations_for_peer(peer_id)
 	_release_peer_travel_leases(peer_id)
@@ -115,22 +119,52 @@ func is_registered_world_peer(peer_id: int) -> bool:
 	return peer_worlds.has(peer_id)
 
 
+func is_validated_client_peer(peer_id: int) -> bool:
+	return validated_client_peers.has(peer_id) and not is_registered_world_peer(peer_id)
+
+
+func reject_unvalidated_client_peer(peer_id: int, rpc_name: String) -> void:
+	_require_validated_client_peer(peer_id, rpc_name)
+
+
 @rpc("any_peer", "call_remote", "reliable")
-func request_routes() -> void:
+func request_routes(client_build_version := "") -> void:
 	if not multiplayer.is_server():
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	var server_build_version := BUILD_INFO.version()
+	var requested_build_version := str(client_build_version)
+	if requested_build_version != server_build_version:
+		NetLog.print_line("[MASTER] route rejected for peer %s reason=version_mismatch client=%s server=%s" % [
+			sender_id,
+			requested_build_version,
+			server_build_version,
+		])
+		reject_routes.rpc_id(sender_id, "version_mismatch", server_build_version, requested_build_version)
+		call_deferred("_disconnect_peer_after_rejection", sender_id)
+		return
+
+	_mark_client_peer_validated(sender_id)
 	NetLog.print_line("[MASTER] route request from peer %s; registered_worlds=%d" % [sender_id, registered_world_count()])
 	call_deferred("_send_routes_when_available", sender_id, NET_CONFIG.initial_world())
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func register_world(world_key: String, launch_token: String) -> void:
+func register_world(world_key: String, launch_token: String, world_build_version := "") -> void:
 	if not multiplayer.is_server():
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if str(world_build_version) != BUILD_INFO.version():
+		push_error("[MASTER] rejected world registration for %s due build version mismatch: world=%s server=%s" % [
+			world_key,
+			str(world_build_version),
+			BUILD_INFO.version(),
+		])
+		shutdown_world.rpc_id(sender_id, "version_mismatch")
+		call_deferred("_disconnect_peer_after_rejection", sender_id)
+		return
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		push_error("[MASTER] rejected invalid world registration: %s" % world_key)
 		return
@@ -172,6 +206,8 @@ func request_world_join(world_key: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "request_world_join"):
+		return
 	NetLog.print_line("[MASTER] WORLD_JOIN_REQUEST_RECEIVED key=%s peer=%s" % [world_key, sender_id])
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
@@ -191,6 +227,8 @@ func refresh_travel_lease(travel_lease_id: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "refresh_travel_lease"):
+		return
 	var lease := _travel_lease_for_peer(sender_id, travel_lease_id)
 	if lease.is_empty():
 		return
@@ -211,6 +249,8 @@ func redeem_travel_lease(travel_lease_id: String, expected_world_key := "") -> v
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "redeem_travel_lease"):
+		return
 	var lease := _consume_travel_lease(sender_id, travel_lease_id)
 	if lease.is_empty():
 		deny_world_join.rpc_id(sender_id, expected_world_key, "invalid_travel_lease")
@@ -240,6 +280,8 @@ func release_travel_lease(travel_lease_id: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "release_travel_lease"):
+		return
 	var lease := _travel_lease_for_peer(sender_id, travel_lease_id)
 	if lease.is_empty():
 		return
@@ -298,6 +340,8 @@ func refresh_world_join(world_key: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "refresh_world_join"):
+		return
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		return
 	if world_process_manager and world_process_manager.has_method("refresh_world_join"):
@@ -310,6 +354,8 @@ func release_world_join(world_key: String, travel_lease_id := "") -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "release_world_join"):
+		return
 	if not NET_CONFIG.is_valid_world_key(world_key):
 		return
 	_cancel_active_world_join_request(sender_id, world_key, travel_lease_id)
@@ -376,6 +422,15 @@ func receive_routes(routes: Dictionary) -> void:
 
 	NetLog.print_line("[CLIENT] received master routes")
 	routes_received.emit(routes)
+
+
+@rpc("authority", "call_remote", "reliable")
+func reject_routes(reason: String, server_version: String, client_version: String) -> void:
+	if multiplayer.is_server():
+		return
+
+	NetLog.print_line("[CLIENT] route request rejected: %s client=%s server=%s" % [reason, client_version, server_version])
+	routes_rejected.emit(reason, server_version, client_version)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -933,6 +988,28 @@ func _is_peer_open(peer_id: int) -> bool:
 
 func _disconnect_peer(peer_id: int) -> void:
 	NET_UTIL.disconnect_peer(multiplayer, peer_id)
+
+
+func _disconnect_peer_after_rejection(peer_id: int) -> void:
+	await get_tree().create_timer(0.2).timeout
+	if not is_inside_tree():
+		return
+	if _is_peer_open(peer_id):
+		_disconnect_peer(peer_id)
+
+
+func _mark_client_peer_validated(peer_id: int) -> void:
+	validated_client_peers[peer_id] = true
+	if account_endpoint and account_endpoint.has_method("create_guest_session"):
+		account_endpoint.create_guest_session(peer_id)
+
+
+func _require_validated_client_peer(peer_id: int, rpc_name: String) -> bool:
+	if is_validated_client_peer(peer_id):
+		return true
+	NetLog.print_line("[MASTER] rejected unvalidated client RPC peer=%s rpc=%s" % [peer_id, rpc_name])
+	call_deferred("_disconnect_peer_after_rejection", peer_id)
+	return false
 
 
 func _expire_stale_worlds() -> void:

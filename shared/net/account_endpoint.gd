@@ -3,9 +3,9 @@ extends Node
 ## and ChatEndpoint. The master is the only process that owns sessions and the
 ## only process that talks to the database.
 ##
-## Every connected client gets a guest session immediately. A name-only "login"
-## (no password — proper auth is out of scope for this MVP) promotes the session
-## to an account, loading its saved world + position. Logout reverts to a fresh
+## Every version-validated client gets a guest session. A name-only "login" (no
+## password — proper auth is out of scope for this MVP) promotes the session to
+## an account, loading its saved world + position. Logout reverts to a fresh
 ## guest. See docs/virtucade-database-mvp.md.
 
 # Client-side signals.
@@ -32,6 +32,8 @@ func configure(database: Node, master: Node) -> void:
 # ---------------------------------------------------------------------------
 
 func create_guest_session(peer_id: int) -> void:
+	if sessions.has(peer_id):
+		return
 	_guest_counter += 1
 	var session := {
 		"account_id": 0,
@@ -99,6 +101,9 @@ func login(raw_username: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _is_validated_client_peer(sender_id):
+		_reject_unvalidated_client_peer(sender_id, "login")
+		return
 	if not sessions.has(sender_id):
 		return
 
@@ -137,6 +142,9 @@ func logout() -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _is_validated_client_peer(sender_id):
+		_reject_unvalidated_client_peer(sender_id, "logout")
+		return
 	if not sessions.has(sender_id) or bool(sessions[sender_id].get("is_guest", true)):
 		return
 
@@ -170,6 +178,17 @@ func _push_session(peer_id: int) -> void:
 		bool(session["is_guest"]),
 		int(session["account_id"])
 	)
+
+
+func _is_validated_client_peer(peer_id: int) -> bool:
+	if not master_endpoint or not master_endpoint.has_method("is_validated_client_peer"):
+		return false
+	return master_endpoint.is_validated_client_peer(peer_id)
+
+
+func _reject_unvalidated_client_peer(peer_id: int, rpc_name: String) -> void:
+	if master_endpoint and master_endpoint.has_method("reject_unvalidated_client_peer"):
+		master_endpoint.reject_unvalidated_client_peer(peer_id, rpc_name)
 
 
 # ---------------------------------------------------------------------------

@@ -258,7 +258,7 @@ World orchestration behavior:
 World registration behavior:
 
 1. A world connects to `MasterNet`.
-2. The world calls `register_world(world_key, launch_token)`.
+2. The world calls `register_world(world_key, launch_token, build_version)`.
 3. Master validates the key and launch token against a child process it started.
 4. Master computes and stores the live endpoint by world key.
 5. Master prints `MASTER_WORLD_REGISTERED key=<world_key>`.

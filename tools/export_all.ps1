@@ -1,5 +1,6 @@
 param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
+    [string]$BuildVersion = "",
     [switch]$Release
 )
 
@@ -7,6 +8,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildRoot = Join-Path $ProjectRoot "builds"
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
+$BuildInfoFile = Join-Path $ProjectRoot "shared\build\build_info.gd"
 
 $targets = @(
     @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe"; PckRequired = $true },
@@ -73,7 +75,9 @@ function Export-WorldPacks($worldPackRoot, $presetPrefix) {
 }
 
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
+$originalBuildInfoFile = Get-Content -LiteralPath $BuildInfoFile -Raw
 try {
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write_build_info.ps1") -Version $BuildVersion
     Remove-EditorAutoloadForExport
 
     foreach ($target in $targets) {
@@ -96,6 +100,13 @@ try {
         if ($target.Name -eq "client" -or $target.Name -eq "web_client") {
             Remove-ClientServerSidecars (Split-Path $output -Parent)
         }
+        if ($target.Name -eq "web_client") {
+            & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "patch_web_cache_bust.ps1") -WebRoot (Split-Path $output -Parent)
+            $patchExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+            if ($patchExitCode -ne 0) {
+                throw "Web cache-bust patch failed with exit code $patchExitCode"
+            }
+        }
         Write-Host "EXPORT_DONE $($target.Name)"
     }
 
@@ -104,6 +115,7 @@ try {
 }
 finally {
     Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline
+    [System.IO.File]::WriteAllText($BuildInfoFile, $originalBuildInfoFile, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 Write-Host "EXPORT_ALL_DONE"

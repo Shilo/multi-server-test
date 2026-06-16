@@ -184,6 +184,47 @@ But the first implementation should stay simple:
 Do not trust this version for security by itself. It is compatibility gating,
 not authentication. Real user identity still needs authenticated sessions.
 
+## Implemented Versioning Shape
+
+Current project behavior:
+
+```text
+editor/local source version = dev
+export/deploy version       = current Git commit hash
+```
+
+`tools/write_build_info.ps1` writes the selected build token into
+`shared/build/build_info.gd`. Export scripts call it before exporting and then
+restore the source file, so normal local testing stays on `dev` and exported
+client/server artifacts get the same commit-derived version.
+
+Runtime checks:
+
+- Client sends `BuildInfo.version()` in `request_routes(...)`.
+- Master rejects mismatched clients before sending routes.
+- Web clients show a reload prompt and append `?v=<server_build_version>`.
+- Export/deploy scripts patch Godot's generated Web shell so `index.js`,
+  `index.wasm`, and `index.pck` are requested with the same build query.
+- World servers send `BuildInfo.version()` during master registration.
+- Master rejects stale world server registrations.
+
+Current GitHub Actions release workflow:
+
+```text
+manual trigger
+  -> resolve Git commit build version
+  -> export all artifacts with that version
+  -> verify exports and world packs
+  -> deploy Web client + Web world packs to GitHub Pages
+  -> upload server artifact
+  -> print VPS deploy reminder
+```
+
+The VPS stop/upload/start step is intentionally not wired yet. It needs real
+host details, a service/supervisor name, a release directory layout, and SQLite
+backup/migration commands. Until those exist, uploading the server artifact is
+safer than pretending the workflow can restart production.
+
 ## Web Reload And Cache Busting
 
 For Web clients hosted on GitHub Pages, cache busting should be explicit.
@@ -211,12 +252,12 @@ Example:
 https://shilo.github.io/multi-server-test/?v=<build_version>
 ```
 
-This makes the browser treat the page URL as new. For Godot's generated Web
-asset references inside `index.html`, the stronger long-term solution is to
-publish versioned file names or patch the generated HTML to include a build
-query string for `index.js`, `index.pck`, and `index.wasm`. Do not add a service
-worker/PWA cache until the version/update story is already proven, because
-service workers add another cache layer that can keep old clients alive.
+This makes the browser treat the page URL as new. The export/deploy scripts
+also patch Godot's generated Web shell so the same build query is used for
+`index.js`, `index.pck`, `index.wasm`, and related loader-side files. Do not add
+a service worker/PWA cache until the version/update story is already proven,
+because service workers add another cache layer that can keep old clients
+alive.
 
 ## Why Not Live-Hot-Reload PCKs?
 
@@ -347,13 +388,15 @@ through the master.
 
 For this project:
 
-1. Convert production deploys to manual workflow dispatch.
-2. Add one build/version token shared by client and server.
-3. Reject mismatched client versions before login/world travel.
-4. Add Web mismatch modal with cache-busting reload.
-5. Add placeholder VPS stop/deploy/start steps before wiring real Hetzner
-   automation.
-6. Add real authenticated sessions before relying on reconnect/resume.
+1. Configure the VPS release directory, systemd/supervisor service, SSH user,
+   and backup path.
+2. Add a manual workflow step that enters maintenance, backs up SQLite, stops
+   the service, uploads the staged server artifact, restarts the service, and
+   checks health.
+3. Add real authenticated sessions before relying on reconnect/resume.
+4. Validate GitHub Pages `Last-Modified` behavior against PackRat metadata; if
+   it is inconsistent, move pack freshness to immutable filenames or a static
+   manifest before public launch.
 
 This keeps content iteration fast while avoiding the fragile part: automatic
 live restart of the authoritative gameplay server.

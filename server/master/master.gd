@@ -1,6 +1,7 @@
 extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
+const BUILD_INFO := preload("res://shared/build/build_info.gd")
 
 var master_api: MultiplayerAPI
 
@@ -31,10 +32,6 @@ func _start_master_server() -> void:
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
 	master_api.peer_connected.connect(func(peer_id: int) -> void:
 		NetLog.print_line("[MASTER] peer connected: %s" % peer_id)
-		# World server peers also connect to MasterNet; only client peers get a
-		# guest session. World registration arrives separately and is filtered
-		# downstream by is_registered_world_peer.
-		account_endpoint.create_guest_session(peer_id)
 	)
 	master_api.peer_disconnected.connect(func(peer_id: int) -> void:
 		NetLog.print_line("[MASTER] peer disconnected: %s" % peer_id)
@@ -51,4 +48,4 @@ func _start_master_server() -> void:
 		return
 
 	master_api.multiplayer_peer = peer
-	NetLog.print_line("MASTER_READY port=%d" % NET_CONFIG.MASTER_PORT)
+	NetLog.print_line("MASTER_READY port=%d build=%s" % [NET_CONFIG.MASTER_PORT, BUILD_INFO.version()])

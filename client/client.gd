@@ -1,11 +1,13 @@
 extends Node
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
+const BUILD_INFO := preload("res://shared/build/build_info.gd")
 const CHAT_SCENE := preload("res://client/chat/chat.tscn")
 const LOGIN_PANEL_SCENE := preload("res://client/login/login_panel.tscn")
 const SMOKE_TEST_ARG := "smoke_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
+const VERSION_GATE_BYPASS_TEST_ARG := "version_gate_bypass_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
 const EDITOR_PACK_EXPORT_PRESET_PREFIX := "World Pack - "
 const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
@@ -47,7 +49,9 @@ var world_pack_last_logged_msec := 0
 var travel_lease_keepalive_id := ""
 var travel_lease_keepalive_active := false
 var travel_lease_keepalive_generation := 0
+var route_rejection_reason := ""
 var launch_args := PackedStringArray()
+var connection_dialog: AcceptDialog
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -61,13 +65,15 @@ var launch_args := PackedStringArray()
 
 func _ready() -> void:
 	launch_args = _runtime_user_args()
+	smoke_test = SMOKE_TEST_ARG in launch_args or VERSION_GATE_BYPASS_TEST_ARG in launch_args
+	NetLog.print_line("[CLIENT] build version: %s" % BUILD_INFO.version())
 	_setup_chat()
 	_setup_login_panel()
 	_setup_multiplayer_branches()
-	smoke_test = SMOKE_TEST_ARG in launch_args
 	master_endpoint.routes_received.connect(func(new_routes: Dictionary) -> void:
 		routes = new_routes
 	)
+	master_endpoint.routes_rejected.connect(_on_routes_rejected)
 	master_endpoint.travel_lease_granted.connect(_on_travel_lease_granted)
 	master_endpoint.transfer_denied.connect(_on_transfer_denied)
 	master_endpoint.world_join_approved.connect(_on_world_join_approved)
@@ -99,7 +105,9 @@ func _ready() -> void:
 	)
 
 	var user_args := launch_args
-	if DB_PERSIST_TEST_ARG in user_args and user_args.size() >= 3:
+	if VERSION_GATE_BYPASS_TEST_ARG in user_args:
+		run_version_gate_bypass_test()
+	elif DB_PERSIST_TEST_ARG in user_args and user_args.size() >= 3:
 		run_db_persist_test(str(user_args[1]), str(user_args[2]))
 	elif smoke_test:
 		run_smoke_test()
@@ -119,6 +127,8 @@ func _setup_multiplayer_branches() -> void:
 		join_keepalive_world = ""
 		_set_chat_connected(false)
 		_add_chat_system_line("master disconnected")
+		if route_rejection_reason.is_empty():
+			_show_server_unavailable_prompt("Connection Lost", "The game server disconnected. It may be restarting for an update.")
 	)
 	world_api.server_disconnected.connect(func() -> void:
 		NetLog.print_line("[CLIENT] world server disconnected")
@@ -225,6 +235,33 @@ func run_smoke_test() -> void:
 	await get_tree().create_timer(1.0).timeout
 	NetLog.print_line("SMOKE_PASS")
 	get_tree().quit(0)
+
+
+func run_version_gate_bypass_test() -> void:
+	smoke_test = true
+	NetLog.print_line("VERSION_GATE_BYPASS_STEP start")
+	var ok := await _connect_api(master_api, NET_CONFIG.master_url(), "master")
+	if not ok:
+		NetLog.print_line("VERSION_GATE_BYPASS_FAIL could not connect to master")
+		get_tree().quit(1)
+		return
+
+	account_endpoint.login.rpc_id(1, "bypass")
+	chat_endpoint.send_chat.rpc_id(1, "bypass")
+	master_endpoint.request_world_join.rpc_id(1, NET_CONFIG.initial_world())
+	ok = await _wait_until(
+		func() -> bool:
+			return not _is_master_connected(),
+		3.0,
+		"unvalidated peer disconnect",
+		false
+	)
+	if ok:
+		NetLog.print_line("VERSION_GATE_BYPASS_PASS")
+		get_tree().quit(0)
+	else:
+		NetLog.print_line("VERSION_GATE_BYPASS_FAIL master kept unvalidated peer connected")
+		get_tree().quit(1)
 
 
 ## Two-phase persistence test driven over the real network stack.
@@ -372,14 +409,19 @@ func _smoke_transfer_sequence() -> Array[String]:
 
 
 func _bootstrap_connections(require_all_worlds: bool) -> bool:
+	route_rejection_reason = ""
 	var ok := await _connect_api(master_api, NET_CONFIG.master_url(), "master")
 	if not ok:
+		_show_server_unavailable_prompt("Server Offline", "The game server is offline or restarting. Try again soon.")
 		return false
-	master_endpoint.request_routes.rpc_id(1)
+	master_endpoint.request_routes.rpc_id(1, BUILD_INFO.version())
 	var route_predicate := func() -> bool:
-		return _has_initial_world_route()
+		return _has_initial_world_route() or not route_rejection_reason.is_empty()
 	ok = await _wait_until(route_predicate, 5.0, "master routes")
 	if not ok:
+		_show_server_unavailable_prompt("Server Unavailable", "The game server connected but did not send route data. It may be restarting.")
+		return false
+	if not route_rejection_reason.is_empty():
 		return false
 	NetLog.print_line("SMOKE_STEP client connected to master" if require_all_worlds else "[CLIENT] connected to master")
 
@@ -804,6 +846,72 @@ func _connect_api(api: MultiplayerAPI, url: String, label: String, timeout_secon
 		return false
 	NetLog.print_line("[CLIENT] connected to %s" % label)
 	return true
+
+
+func _on_routes_rejected(reason: String, server_version: String, client_version: String) -> void:
+	route_rejection_reason = reason
+	if reason == "version_mismatch":
+		_set_status("Game updated; reload required")
+		_show_version_mismatch_prompt(server_version, client_version)
+	else:
+		_show_server_unavailable_prompt("Connection Rejected", "The game server rejected this connection: %s" % reason)
+
+
+func _show_version_mismatch_prompt(server_version: String, client_version: String) -> void:
+	NetLog.print_line("[CLIENT] BUILD_VERSION_REJECTED client=%s server=%s" % [client_version, server_version])
+	if smoke_test:
+		return
+
+	var action := "Reload to get the latest client before connecting." if OS.has_feature("web") else "Restart the game client to get the latest version before connecting."
+	var message := "This game was updated. %s\n\nClient: %s\nServer: %s" % [
+		action,
+		client_version,
+		server_version,
+	]
+	_show_connection_prompt("Game Updated", message, OS.has_feature("web"), server_version)
+
+
+func _show_server_unavailable_prompt(title: String, message: String) -> void:
+	NetLog.print_line("[CLIENT] CONNECTION_PROMPT title=%s message=%s" % [title, message])
+	if smoke_test:
+		return
+	_show_connection_prompt(title, message)
+
+
+func _show_connection_prompt(title: String, message: String, show_reload := false, server_version := "") -> void:
+	if connection_dialog:
+		if connection_dialog.get_parent():
+			connection_dialog.get_parent().remove_child(connection_dialog)
+		connection_dialog.queue_free()
+
+	connection_dialog = AcceptDialog.new()
+	connection_dialog.name = "ConnectionPrompt"
+	connection_dialog.title = title
+	connection_dialog.dialog_text = message
+	connection_dialog.exclusive = true
+	canvas_layer.add_child(connection_dialog)
+	if show_reload:
+		connection_dialog.add_button("Reload", true, "reload")
+		connection_dialog.custom_action.connect(func(action: StringName) -> void:
+			if action == &"reload":
+				_reload_web_client(server_version)
+		)
+	connection_dialog.popup_centered(Vector2i(440, 180))
+
+
+func _reload_web_client(server_version: String) -> void:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return
+
+	var version := server_version.uri_encode()
+	# Web exports reload through the same static host with an explicit version
+	# query so stale GitHub Pages/browser caches do not keep serving old files.
+	var expression := "const u = new URL(window.location.href); u.searchParams.set('v', '%s'); window.location.replace(u.toString());" % version
+	javascript.call("eval", expression, true)
 
 
 func _start_join_keepalive(world_key: String) -> void:

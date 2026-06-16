@@ -1,32 +1,19 @@
-name: Deploy GitHub Pages
+name: Manual Release Deploy
 
 on:
   workflow_dispatch:
     inputs:
-      deploy_client:
-        description: "Deploy Web client"
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-      worlds:
-        description: "World packs to deploy: all, none, or comma-separated world keys"
-        required: true
-        default: "all"
-        type: string
       release:
         description: "Use release export"
         required: true
-        default: false
+        default: true
         type: boolean
 
 permissions:
   contents: write
 
 concurrency:
-  group: github-pages-deploy
+  group: manual-release-deploy
   cancel-in-progress: false
 
 jobs:
@@ -39,27 +26,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect deploy targets
-        id: targets
+      - name: Resolve build version
+        id: version
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $deployClient = "${{ inputs.deploy_client }}"
-          $worlds = "${{ inputs.worlds }}".Trim()
-          if ([string]::IsNullOrWhiteSpace($worlds)) {
-            $worlds = "none"
-          }
-
-          $skipClient = if ($deployClient -eq "true") { "false" } else { "true" }
-          $skipExport = if ($skipClient -eq "true" -and $worlds -eq "none") { "true" } else { "false" }
-          "deploy_client=$deployClient" >> $env:GITHUB_OUTPUT
-          "skip_client=$skipClient" >> $env:GITHUB_OUTPUT
-          "worlds=$worlds" >> $env:GITHUB_OUTPUT
-          "skip_export=$skipExport" >> $env:GITHUB_OUTPUT
-          Write-Host "DEPLOY_TARGETS deploy_client=$deployClient worlds=$worlds skip_export=$skipExport"
+          $version = (git rev-parse --short=12 HEAD).Trim()
+          "build_version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "BUILD_VERSION $version"
 
       - name: Install Godot
-        if: steps.targets.outputs.skip_export != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -87,25 +63,57 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Deploy GitHub Pages
+      - name: Run version gate smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\run_version_gate_smoke.ps1 `
+            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
+
+      - name: Export all release artifacts
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $args = @(
             "-ExecutionPolicy", "Bypass",
-            "-File", "tools\deploy_github_pages.ps1",
+            "-File", "tools\export_all.ps1",
             "-Godot", "C:\godot\Godot_v4.6.3-stable_win64.exe",
-            "-WorldKeys", "${{ steps.targets.outputs.worlds }}",
-            "-Remote", "origin",
-            "-Branch", "gh-pages"
+            "-BuildVersion", "${{ steps.version.outputs.build_version }}"
           )
-          if ("${{ steps.targets.outputs.skip_client }}" -eq "true") {
-            $args += "-SkipClient"
-          }
-          if ("${{ steps.targets.outputs.skip_export }}" -eq "true") {
-            $args += "-SkipExport"
-          }
-          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.release }}" -eq "true") {
+          if ("${{ inputs.release }}" -eq "true") {
             $args += "-Release"
           }
           & powershell @args
+
+      - name: Verify exports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
+
+      - name: Deploy Web client and world packs to GitHub Pages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 `
+            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
+            -BuildVersion "${{ steps.version.outputs.build_version }}" `
+            -WorldKeys all `
+            -SkipExport `
+            -Remote origin `
+            -Branch gh-pages
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ steps.version.outputs.build_version }}
+          path: |
+            builds/server/**
+            builds/world_packs/*.pck
+          if-no-files-found: error
+
+      - name: VPS deploy reminder
+        shell: pwsh
+        run: |
+          Write-Host "VPS_DEPLOY_NOT_CONFIGURED"
+          Write-Host "When the VPS is ready, add the stop -> upload staged server -> start step here."

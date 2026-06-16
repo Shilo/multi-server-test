@@ -30,6 +30,10 @@ func send_chat(message: String) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not _is_validated_client_peer(sender_id):
+		NetLog.print_line("[CHAT] rejected unvalidated peer %s" % sender_id)
+		_reject_unvalidated_client_peer(sender_id, "send_chat")
+		return
 	if not _allow_message(sender_id):
 		NetLog.print_line("[CHAT] rate limited peer %s" % sender_id)
 		return
@@ -71,6 +75,17 @@ func _is_world_peer(peer_id: int) -> bool:
 	if not master_endpoint or not master_endpoint.has_method("is_registered_world_peer"):
 		return false
 	return master_endpoint.is_registered_world_peer(peer_id)
+
+
+func _is_validated_client_peer(peer_id: int) -> bool:
+	if not master_endpoint or not master_endpoint.has_method("is_validated_client_peer"):
+		return false
+	return master_endpoint.is_validated_client_peer(peer_id)
+
+
+func _reject_unvalidated_client_peer(peer_id: int, rpc_name: String) -> void:
+	if master_endpoint and master_endpoint.has_method("reject_unvalidated_client_peer"):
+		master_endpoint.reject_unvalidated_client_peer(peer_id, rpc_name)
 
 
 func _is_peer_open(peer_id: int) -> bool:

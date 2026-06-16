@@ -3,6 +3,7 @@ param(
     [string]$Remote = "origin",
     [string]$Branch = "gh-pages",
     [string]$CommitMessage = "deploy: update github pages build",
+    [string]$BuildVersion = "",
     [string]$WorldKeys = "all",
     [switch]$SkipClient,
     [switch]$Release,
@@ -18,6 +19,7 @@ $WebRoot = Join-Path $BuildRoot "web"
 $WebWorldPackRoot = Join-Path $WebRoot "world_packs"
 $DeployRoot = Join-Path $ProjectRoot ".deploy\github_pages"
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
+$BuildInfoFile = Join-Path $ProjectRoot "shared\build\build_info.gd"
 $exportMode = if ($Release) { "--export-release" } else { "--export-debug" }
 
 function Invoke-Git($arguments, $workdir = $ProjectRoot) {
@@ -122,6 +124,11 @@ function Export-WebClient {
 
     Wait-FileStable $output
     Wait-FileStable $pckOutput
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "patch_web_cache_bust.ps1") -WebRoot $WebRoot
+    $patchExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($patchExitCode -ne 0) {
+        throw "Web cache-bust patch failed with exit code $patchExitCode"
+    }
     Write-Host "GITHUB_PAGES_EXPORT_WEB_CLIENT_DONE"
 }
 
@@ -253,11 +260,28 @@ function Commit-And-Push {
 $availableWorldKeys = Get-WorldKeys
 $requestedWorldKeys = Get-RequestedWorldKeys $availableWorldKeys
 
-if (-not $SkipExport) {
-    if (-not $SkipClient) {
-        Export-WebClient
+$originalBuildInfoFile = Get-Content -LiteralPath $BuildInfoFile -Raw
+try {
+    if (-not $SkipExport) {
+        & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write_build_info.ps1") -Version $BuildVersion
+        if (-not $SkipClient) {
+            Export-WebClient
+        }
+        Export-WebWorldPacks $requestedWorldKeys
     }
-    Export-WebWorldPacks $requestedWorldKeys
+}
+finally {
+    if (-not $SkipExport) {
+        [System.IO.File]::WriteAllText($BuildInfoFile, $originalBuildInfoFile, (New-Object System.Text.UTF8Encoding($false)))
+    }
+}
+
+if ($SkipExport -and -not $SkipClient -and -not [string]::IsNullOrWhiteSpace($BuildVersion)) {
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "patch_web_cache_bust.ps1") -WebRoot $WebRoot -Version $BuildVersion
+    $patchExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($patchExitCode -ne 0) {
+        throw "Web cache-bust patch failed with exit code $patchExitCode"
+    }
 }
 
 $verifyWorldKeys = if ($requestedWorldKeys.Count -eq 0) { "none" } else { $requestedWorldKeys -join "," }
