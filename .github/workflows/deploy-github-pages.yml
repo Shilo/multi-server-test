@@ -59,13 +59,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Set release project version
-        id: version
+      - name: Run project version unit test
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1 `
+            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
+
+      - name: Set release project version
+        id: version
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
           $godot = "C:\godot\Godot_v4.6.3-stable_win64.exe"
-          $requestedVersion = "${{ inputs.version }}".Trim()
+          $requestedVersion = "$env:REQUESTED_VERSION".Trim()
           if ([string]::IsNullOrWhiteSpace($requestedVersion)) {
             & $godot --headless --path . --script tools\project_version.gd -- --bump-minor
           } else {
@@ -83,15 +92,6 @@ jobs:
           $version = $Matches[1]
           "project_version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "PROJECT_VERSION version=$version"
-
-          git add project.godot
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "chore: bump project version to v$version"
-            git push origin HEAD:${{ github.ref_name }}
-          } else {
-            Write-Host "PROJECT_VERSION_NO_CHANGE version=$version"
-          }
 
       - name: Run version gate smoke
         shell: pwsh
@@ -120,6 +120,14 @@ jobs:
           $ErrorActionPreference = "Stop"
           powershell -ExecutionPolicy Bypass -File tools\verify_export_artifacts.ps1
 
+      - name: Run Web smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\run_web_smoke.ps1 `
+            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
+            -SkipExport
+
       - name: Deploy Web client and world packs to GitHub Pages
         shell: pwsh
         run: |
@@ -139,6 +147,20 @@ jobs:
             builds/world_packs/*.pck
             builds/web/world_packs/*.pck
           if-no-files-found: error
+
+      - name: Commit release project version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ steps.version.outputs.project_version }}"
+          git add project.godot
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "chore: bump project version to v$version"
+            git push origin HEAD:${{ github.ref_name }}
+          } else {
+            Write-Host "PROJECT_VERSION_NO_CHANGE version=$version"
+          }
 
       - name: VPS deploy reminder
         shell: pwsh

@@ -281,6 +281,15 @@ This temporarily launches the master with one project version and the client
 with another. It passes only if the client is rejected before any world process
 starts, then restores `project.godot`.
 
+Project version unit smoke:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1
+```
+
+This validates strict `MAJOR.MINOR` parsing, minor rollover, and the Godot
+version writer. It backs up and restores `project.godot`.
+
 Successful full editor smoke logs include:
 
 - `MASTER_READY`

@@ -111,11 +111,12 @@ try {
     Write-Host "VERSION_GATE_SMOKE_PASS logs=$LogRoot"
 }
 finally {
-    [System.IO.File]::WriteAllText($ProjectFile, $originalProjectFile, (New-Object System.Text.UTF8Encoding($false)))
     if ($client -and -not $client.HasExited) {
         Stop-Process -Id $client.Id -Force -ErrorAction SilentlyContinue
     }
     if ($master -and -not $master.HasExited) {
         Stop-Process -Id $master.Id -Force -ErrorAction SilentlyContinue
     }
+    Start-Sleep -Milliseconds 200
+    [System.IO.File]::WriteAllText($ProjectFile, $originalProjectFile, (New-Object System.Text.UTF8Encoding($false)))
 }
