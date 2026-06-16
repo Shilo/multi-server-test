@@ -4,8 +4,6 @@ param(
     [string]$Branch = "gh-pages",
     [string]$CommitMessage = "deploy: update github pages build",
     [string]$BuildVersion = "",
-    [string]$WorldKeys = "all",
-    [switch]$SkipClient,
     [switch]$Release,
     [switch]$SkipExport,
     [switch]$SkipPush,
@@ -50,27 +48,6 @@ function Get-WorldKeys {
         $keys += $directory.Name
     }
     return $keys
-}
-
-function Get-RequestedWorldKeys($availableKeys) {
-    if ($WorldKeys -eq "all") {
-        return $availableKeys
-    }
-    if ($WorldKeys -eq "none") {
-        return @()
-    }
-
-    $requestedKeys = @(
-        $WorldKeys.Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
-            ForEach-Object { $_.Trim() } |
-            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    )
-    foreach ($worldKey in $requestedKeys) {
-        if (-not ($availableKeys -contains $worldKey)) {
-            throw "Unknown world '$worldKey'. Valid worlds: $($availableKeys -join ', ')"
-        }
-    }
-    return $requestedKeys
 }
 
 function Wait-FileStable($path, $timeoutSeconds = 30) {
@@ -229,10 +206,53 @@ function Assert-FinalDeploySite($availableKeys) {
         }
     }
 
-    foreach ($worldKey in $availableKeys) {
-        $path = Join-Path $DeployRoot "world_packs\$worldKey.pck"
+	foreach ($worldKey in $availableKeys) {
+		$path = Join-Path $DeployRoot "world_packs\$worldKey.pck"
+		if (-not (Test-Path -LiteralPath $path)) {
+			throw "Final GitHub Pages site is missing world pack '$worldKey'. Run a full release deploy."
+		}
+	}
+}
+
+function Assert-WebCacheBustVersion($expectedVersion) {
+    if ([string]::IsNullOrWhiteSpace($expectedVersion)) {
+        throw "-BuildVersion is required when publishing a previously exported Web build."
+    }
+
+    $encodedVersion = [System.Uri]::EscapeDataString($expectedVersion.Trim())
+    $indexHtml = Join-Path $WebRoot "index.html"
+    $indexJs = Join-Path $WebRoot "index.js"
+    foreach ($path in @($indexHtml, $indexJs)) {
         if (-not (Test-Path -LiteralPath $path)) {
-            throw "Final GitHub Pages site is missing world pack '$worldKey'. Run with -WorldKeys all."
+            throw "Missing Web export file for cache-bust verification: $path"
+        }
+    }
+
+    $html = Get-Content -LiteralPath $indexHtml -Raw
+    $js = Get-Content -LiteralPath $indexJs -Raw
+    if (-not $html.Contains("index.js?v=$encodedVersion")) {
+        throw "Web export cache-bust mismatch in index.html. Re-export with -BuildVersion $expectedVersion."
+    }
+    if (-not $js.Contains("const GODOT_CACHE_BUST = `"?v=$encodedVersion`";")) {
+        throw "Web export cache-bust mismatch in index.js. Re-export with -BuildVersion $expectedVersion."
+    }
+    foreach ($fragment in @(
+        'return `${loadPath}.wasm${GODOT_CACHE_BUST}`;',
+        'loadPromise = preloader.loadPromise(`${loadPath}.wasm${GODOT_CACHE_BUST}`, size, true);',
+        'const packUrl = `${pack}${GODOT_CACHE_BUST}`;',
+        'this.preloadFile(packUrl, pack),'
+    )) {
+        if (-not $js.Contains($fragment)) {
+            throw "Web export cache-bust loader fragment is missing: $fragment"
+        }
+    }
+
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if ($node) {
+        & $node.Source --check $indexJs
+        $nodeExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        if ($nodeExitCode -ne 0) {
+            throw "Web export JavaScript syntax check failed with exit code $nodeExitCode"
         }
     }
 }
@@ -258,15 +278,13 @@ function Commit-And-Push {
 }
 
 $availableWorldKeys = Get-WorldKeys
-$requestedWorldKeys = Get-RequestedWorldKeys $availableWorldKeys
+$requestedWorldKeys = $availableWorldKeys
 
 $originalBuildInfoFile = Get-Content -LiteralPath $BuildInfoFile -Raw
 try {
     if (-not $SkipExport) {
         & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write_build_info.ps1") -Version $BuildVersion
-        if (-not $SkipClient) {
-            Export-WebClient
-        }
+        Export-WebClient
         Export-WebWorldPacks $requestedWorldKeys
     }
 }
@@ -276,12 +294,8 @@ finally {
     }
 }
 
-if ($SkipExport -and -not $SkipClient -and -not [string]::IsNullOrWhiteSpace($BuildVersion)) {
-    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "patch_web_cache_bust.ps1") -WebRoot $WebRoot -Version $BuildVersion
-    $patchExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-    if ($patchExitCode -ne 0) {
-        throw "Web cache-bust patch failed with exit code $patchExitCode"
-    }
+if ($SkipExport) {
+    Assert-WebCacheBustVersion $BuildVersion
 }
 
 $verifyWorldKeys = if ($requestedWorldKeys.Count -eq 0) { "none" } else { $requestedWorldKeys -join "," }
@@ -291,9 +305,6 @@ $verifyArgs = @(
     "-WebOnly",
     "-WorldKeys", $verifyWorldKeys
 )
-if ($SkipClient) {
-    $verifyArgs += "-SkipWebClient"
-}
 & powershell @verifyArgs
 $verifyExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
 if ($verifyExitCode -ne 0) {
@@ -302,9 +313,7 @@ if ($verifyExitCode -ne 0) {
 
 Prepare-DeployWorktree
 try {
-    if (-not $SkipClient) {
-        Copy-WebClientToDeploy
-    }
+    Copy-WebClientToDeploy
     Copy-WorldPacksToDeploy $requestedWorldKeys $availableWorldKeys
     Assert-FinalDeploySite $availableWorldKeys
     Commit-And-Push

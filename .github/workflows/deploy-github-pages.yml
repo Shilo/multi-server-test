@@ -98,7 +98,6 @@ jobs:
           powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 `
             -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
             -BuildVersion "${{ steps.version.outputs.build_version }}" `
-            -WorldKeys all `
             -SkipExport `
             -Remote origin `
             -Branch gh-pages
@@ -110,6 +109,7 @@ jobs:
           path: |
             builds/server/**
             builds/world_packs/*.pck
+            builds/web/world_packs/*.pck
           if-no-files-found: error
 
       - name: VPS deploy reminder

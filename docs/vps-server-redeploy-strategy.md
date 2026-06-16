@@ -216,9 +216,13 @@ manual trigger
   -> export all artifacts with that version
   -> verify exports and world packs
   -> deploy Web client + Web world packs to GitHub Pages
-  -> upload server artifact
+  -> upload server artifact, native world packs, and Web world packs
   -> print VPS deploy reminder
 ```
+
+The release workflow intentionally publishes every world pack with the Web
+client. Partial pack deploys are deferred because this project's production
+strategy is a cold, all-artifacts-in-sync release rather than live hot updates.
 
 The VPS stop/upload/start step is intentionally not wired yet. It needs real
 host details, a service/supervisor name, a release directory layout, and SQLite
@@ -296,8 +300,14 @@ Use release directories:
 
 ```text
 /opt/virtucade/releases/<git_sha>/
-  server.exe or server binary
-  world_packs/ mirror for metadata if needed
+  server/
+    server.exe or server binary
+    server-side dependencies
+  world_packs/
+    native/client world packs if needed
+  web/
+    world_packs/
+      Web-targeted world packs used by the server's default metadata path
 
 /opt/virtucade/current -> /opt/virtucade/releases/<git_sha>
 ```

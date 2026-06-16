@@ -37,6 +37,9 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 $html = Get-Content -LiteralPath $indexHtml -Raw
 $html = [regex]::Replace($html, 'src="index\.js(?:\?v=[^"]*)?"', "src=`"index.js?v=$encodedVersion`"")
+if (-not $html.Contains("index.js?v=$encodedVersion")) {
+    throw "Could not patch Web HTML script tag with build version $Version"
+}
 [System.IO.File]::WriteAllText($indexHtml, $html, $utf8NoBom)
 
 $js = Get-Content -LiteralPath $indexJs -Raw
@@ -47,8 +50,10 @@ if ($js -match 'const GODOT_CACHE_BUST = "[^"]*";') {
 else {
     $js = [regex]::Replace($js, '^var Godot=', "$cacheBustLine`nvar Godot=", 1)
 }
+if (-not $js.Contains($cacheBustLine)) {
+    throw "Could not patch Web loader cache-bust constant"
+}
 
-$packReplacement = 'const pack = this.config.mainPack || `${exe}.pck`;' + "`n`t`t`t`t" + 'const packUrl = `${pack}${GODOT_CACHE_BUST}`;'
 $replacements = @{
     'return `${loadPath}.audio.worklet.js`;' = 'return `${loadPath}.audio.worklet.js${GODOT_CACHE_BUST}`;'
     'return `${loadPath}.audio.position.worklet.js`;' = 'return `${loadPath}.audio.position.worklet.js${GODOT_CACHE_BUST}`;'
@@ -56,7 +61,6 @@ $replacements = @{
     'return `${loadPath}.side.wasm`;' = 'return `${loadPath}.side.wasm${GODOT_CACHE_BUST}`;'
     'return `${loadPath}.wasm`;' = 'return `${loadPath}.wasm${GODOT_CACHE_BUST}`;'
     'loadPromise = preloader.loadPromise(`${loadPath}.wasm`, size, true);' = 'loadPromise = preloader.loadPromise(`${loadPath}.wasm${GODOT_CACHE_BUST}`, size, true);'
-    'const pack = this.config.mainPack || `${exe}.pck`;' = $packReplacement
     'this.preloadFile(pack, pack),' = 'this.preloadFile(packUrl, pack),'
 }
 
@@ -67,5 +71,37 @@ foreach ($key in $replacements.Keys) {
     $js = $js.Replace($key, $replacements[$key])
 }
 
+$packPattern = 'const pack = this\.config\.mainPack \|\| `\$\{exe\}\.pck`;(\r?\n\s*const packUrl = `\$\{pack\}\$\{GODOT_CACHE_BUST\}`;)*'
+$packReplacement = 'const pack = this.config.mainPack || `${exe}.pck`;' + "`n`t`t`t`t" + 'const packUrl = `${pack}${GODOT_CACHE_BUST}`;'
+if (-not [regex]::IsMatch($js, $packPattern)) {
+    throw "Could not patch expected Web loader pack fragment"
+}
+$js = [regex]::Replace(
+    $js,
+    $packPattern,
+    [System.Text.RegularExpressions.MatchEvaluator] { param($match) $packReplacement },
+    1
+)
+foreach ($fragment in @(
+    'return `${loadPath}.wasm${GODOT_CACHE_BUST}`;',
+    'loadPromise = preloader.loadPromise(`${loadPath}.wasm${GODOT_CACHE_BUST}`, size, true);',
+    'const packUrl = `${pack}${GODOT_CACHE_BUST}`;',
+    'this.preloadFile(packUrl, pack),'
+)) {
+    if (-not $js.Contains($fragment)) {
+        throw "Web loader cache-bust fragment is missing after patch: $fragment"
+    }
+}
+
 [System.IO.File]::WriteAllText($indexJs, $js, $utf8NoBom)
+
+$node = Get-Command node -ErrorAction SilentlyContinue
+if ($node) {
+    & $node.Source --check $indexJs
+    $nodeExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($nodeExitCode -ne 0) {
+        throw "Patched Web loader failed JavaScript syntax check with exit code $nodeExitCode"
+    }
+}
+
 Write-Host "WEB_CACHE_BUST_PATCHED version=$Version root=$resolvedWebRoot"

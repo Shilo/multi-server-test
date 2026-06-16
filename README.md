@@ -390,6 +390,10 @@ MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
 MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/web/world_packs>
 ```
 
+The master appends `?v=<build_version>` to advertised pack URLs. This keeps
+PackRat downloads aligned with the same build token used by the Web shell and
+avoids stale browser/static-host PCK cache hits after a release.
+
 Current GitHub Pages test deployment:
 
 ```powershell
@@ -419,29 +423,22 @@ The Web client keeps `CLIENT_HOST=127.0.0.1` for this test, so the GitHub Pages
 browser client connects to the local gameplay server while downloading Web
 client/PCK files from GitHub Pages.
 
-Smart/incremental deploy examples:
-
-```powershell
-# Rebuild and deploy only one Web world pack, keeping the existing Web client.
-powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -SkipClient -WorldKeys hub
-
-# Rebuild and deploy all Web world packs, keeping the existing Web client.
-powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -SkipClient -WorldKeys all
-
-# Rebuild and deploy only the Web client, keeping existing world packs.
-powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -WorldKeys none
-```
-
 GitHub Actions uses manual workflow dispatch only. One run exports all runtime
 artifacts from the same commit hash, verifies them, deploys the Web client and
-all Web world packs to GitHub Pages, and uploads the server artifact. The VPS
-stop/upload/start step is intentionally not automated yet because the VPS
-service name, release directory, SSH user, and database backup flow do not exist
-in this repo yet.
+all Web world packs to GitHub Pages, and uploads the server artifact plus both
+native and Web world packs. The VPS stop/upload/start step is intentionally not
+automated yet because the VPS service name, release directory, SSH user, and
+database backup flow do not exist in this repo yet.
 
-`tools\export_all.ps1` and `tools\deploy_github_pages.ps1` both patch the
-generated Web shell so the build version is applied to Godot's generated
-`index.js`, `index.wasm`, and `index.pck` requests.
+Release deploys intentionally publish the Web client and every world pack
+together. That keeps the client, PackRat PCK metadata, and server artifact on
+one version without partial-deploy ambiguity.
+
+`tools\export_all.ps1` patches the generated Web shell so the build version is
+applied to Godot's generated `index.js`, `index.wasm`, and `index.pck`
+requests. `tools\deploy_github_pages.ps1 -SkipExport -BuildVersion <version>`
+verifies that the staged Web export already has that matching cache-bust token
+before publishing it.
 
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.
@@ -527,7 +524,8 @@ Local defaults:
 ```text
 CLIENT_HOST=127.0.0.1 in shared/net/net_config.gd
 CLIENT_SCHEME=ws in shared/net/net_config.gd
-default world pack URL=https://shilo.github.io/multi-server-test/world_packs
+default world pack base URL=https://shilo.github.io/multi-server-test/world_packs
+advertised pack URLs append ?v=<build_version>
 editor default MULTI_SERVER_WORLD_PACK_DIR=builds/web/world_packs
 exported server default=<server executable directory>/../web/world_packs
 ```
