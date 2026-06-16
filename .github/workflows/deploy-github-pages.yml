@@ -171,7 +171,7 @@ jobs:
             world_key="$(basename "$world_dir")"
             test -f "$world_dir/${world_key}.tscn"
             "$GODOT_BIN" --headless --path . --export-pack "World Pack - ${world_key}" "builds/world_packs/${world_key}.pck"
-            "$GODOT_BIN" --headless --path . --export-pack "Web World Pack - ${world_key}" "builds/web/world_packs/${world_key}.pck"
+            cp "builds/world_packs/${world_key}.pck" "builds/web/world_packs/${world_key}.pck"
             echo "WORLD_PACK_EXPORTED key=${world_key}"
           done < <(find server/worlds -mindepth 1 -maxdepth 1 -type d | sort)
 

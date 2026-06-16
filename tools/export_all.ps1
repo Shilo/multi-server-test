@@ -68,8 +68,20 @@ function Export-WorldPacks($worldPackRoot, $presetPrefix) {
     Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\worlds") -Directory |
         ForEach-Object {
             Wait-FileStable (Join-Path $worldPackRoot "$($_.Name).pck")
-        }
+    }
     Write-Host "EXPORT_WORLD_PACKS_DONE"
+}
+
+function Mirror-WorldPacksToWebHost($sourceRoot, $webWorldPackRoot) {
+    Remove-Item -Recurse -Force -Path $webWorldPackRoot -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $webWorldPackRoot | Out-Null
+    Get-ChildItem -LiteralPath $sourceRoot -File -Filter "*.pck" |
+        Copy-Item -Destination $webWorldPackRoot -Force
+    Get-ChildItem -LiteralPath $webWorldPackRoot -File -Filter "*.pck" |
+        ForEach-Object {
+            Wait-FileStable $_.FullName
+        }
+    Write-Host "EXPORT_WORLD_PACKS_MIRRORED source=$sourceRoot destination=$webWorldPackRoot"
 }
 
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
@@ -106,8 +118,10 @@ try {
         Write-Host "EXPORT_DONE $($target.Name)"
     }
 
-    Export-WorldPacks (Join-Path $BuildRoot "world_packs") "World Pack - "
-    Export-WorldPacks (Join-Path $BuildRoot "web\world_packs") "Web World Pack - "
+    $worldPackRoot = Join-Path $BuildRoot "world_packs"
+    $webWorldPackRoot = Join-Path $BuildRoot "web\world_packs"
+    Export-WorldPacks $worldPackRoot "World Pack - "
+    Mirror-WorldPacksToWebHost $worldPackRoot $webWorldPackRoot
     & python (Join-Path $PSScriptRoot "write_deployment_manifest.py") --web-root (Join-Path $BuildRoot "web")
     $manifestExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     if ($manifestExitCode -ne 0) {

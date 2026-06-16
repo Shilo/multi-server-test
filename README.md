@@ -194,8 +194,11 @@ That forced path should print `WORLD_PACK_START`, `WORLD_PACK_PROGRESS`, and
 waiting on a dead `http://127.0.0.1:19100/world_packs/...` URL and will print
 `WORLD_PACK_FAILED` when the PackRat request times out/fails.
 
-Editor mode uses the `World Pack - <world_key>` export preset for each world,
-copies the generated pack through PackRat's normal cache/mount path, and
+Editor mode uses the `World Pack - <world_key>` export preset for each world.
+Those presets are the universal pack presets: they enable both desktop
+(`s3tc/bptc`) and mobile (`etc2/astc`) texture variants so the same exported
+PCK can be used by Windows, Web, macOS, Linux, iOS, and Android clients.
+PackRat then copies the generated pack through its normal cache/mount path and
 simulates one second of local load progress for uncached packs.
 
 ## Editor Run Instances
@@ -296,9 +299,9 @@ PackRat version/cache smoke:
 powershell -ExecutionPolicy Bypass -File tools\run_packrat_version_cache_smoke.ps1
 ```
 
-This exports world packs once, downloads them at one app version, bumps only
-`application/config/version`, then confirms the next run keeps using PackRat
-cache hits for the unchanged pack metadata.
+This exports universal world packs once, downloads them at one app version,
+bumps only `application/config/version`, then confirms the next run keeps using
+PackRat cache hits for the unchanged pack metadata.
 
 Successful full editor smoke logs include:
 
@@ -384,8 +387,8 @@ Local PowerShell export outputs:
 - `builds/web/index.js`
 - `builds/web/index.pck`
 - `builds/web/index.wasm`
-- `builds/world_packs/*.pck` for Windows/native clients
-- `builds/web/world_packs/*.pck` for Web clients
+- `builds/world_packs/*.pck` as the universal source-of-truth world packs
+- `builds/web/world_packs/*.pck` as byte-for-byte mirrored copies for Web/static hosting
 
 After exporting, verify that client artifacts do not bundle server/world scenes
 and that each platform world pack contains the expected isolated world scene:
@@ -420,7 +423,7 @@ The verification tools treat only those generated entries as allowed and fail if
 a world pack contains editor files, client files, another world folder, or any
 other unexpected source directory.
 
-The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts for native clients. The `builds/web/world_packs/*.pck` files are the Web-targeted DLC artifacts and should be served beside the Web export.
+The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are the universal client-downloadable DLC artifacts. `builds/web/world_packs/*.pck` is only a hosted mirror of those same files so the Web export can serve them beside `index.html`.
 
 For CDN/static hosting, deploy the contents of `builds/web/` as the Web site.
 Keep `builds/web/world_packs/*.pck` beside `index.html` under the
@@ -440,10 +443,11 @@ app version bumps do not redownload unchanged packs.
 
 Current GitHub Pages deployment is handled by the manual GitHub Actions workflow.
 The repository Pages setting should be **Build and deployment -> Source:
-GitHub Actions**. The workflow exports the Web client and all Web world packs,
-verifies that runtime builds do not include the wrong folders, uploads
-`builds/web/` as a Pages artifact, and deploys that artifact with
-`actions/deploy-pages`. The deployed page is:
+GitHub Actions**. The workflow exports the Web client, exports one universal
+world-pack set, mirrors those PCKs into `builds/web/world_packs/`, verifies
+that runtime builds do not include the wrong folders, uploads `builds/web/` as
+a Pages artifact, and deploys that artifact with `actions/deploy-pages`. The
+deployed page is:
 
 ```text
 https://shilo.github.io/multi-server-test/
@@ -552,14 +556,19 @@ PackRat editor-export testing uses four additional Windows Desktop PCK presets:
 - `World Pack - right_world`
 - `World Pack - top_world`
 
-Production Web packs use matching Web presets:
-
-- `Web World Pack - hub`
-- `Web World Pack - left_world`
-- `Web World Pack - right_world`
-- `Web World Pack - top_world`
-
-Smoke/CI launches master and client scenes directly when testing from the editor binary. Editor runs use PackRat editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads from a temporary local static server under `.logs/smoke/pack_server/`, while `-UsePackRatEditorExports` explicitly asserts the default PackRat editor export flow. Production and smoke world packs are exported through Godot's `--export-pack` CLI. Native/editor packs use `World Pack - <world_key>` presets; Web-hosted packs use `Web World Pack - <world_key>` presets.
+These same `World Pack - <world_key>` presets are also the production universal
+pack presets. Each one has both `texture_format/s3tc_bptc=true` and
+`texture_format/etc2_astc=true`, while the project keeps
+`rendering/textures/vram_compression/import_s3tc_bptc=true` and
+`rendering/textures/vram_compression/import_etc2_astc=true` enabled so imported
+textures actually generate both variants. Smoke/CI launches master and client
+scenes directly when testing from the editor binary. Editor runs use PackRat
+editor exports by default. `-UsePackRatWorldPacks` exercises HTTP downloads
+from a temporary local static server under `.logs/smoke/pack_server/`, while
+`-UsePackRatEditorExports` explicitly asserts the default PackRat editor export
+flow. Production and smoke world packs are exported through Godot's
+`--export-pack` CLI once, then mirrored into `builds/web/world_packs/` for Web
+hosting.
 
 `tools\export_world_packs.ps1` fails early when a discovered world folder is
 missing the matching export preset for the selected prefix. This keeps new
@@ -609,7 +618,7 @@ default client host=127.0.0.1 in shared/net/net_config.gd
 default client scheme=ws in shared/net/net_config.gd
 default world pack base URL=https://shilo.github.io/multi-server-test/world_packs
 PackRat request URLs append ?v=<application/config/version> when missing
-editor default MULTI_SERVER_WORLD_PACK_DIR=builds/web/world_packs
+editor default MULTI_SERVER_WORLD_PACK_DIR=builds/world_packs
 exported server default=<server executable directory>/../world_packs
 ```
 

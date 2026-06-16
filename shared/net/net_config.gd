@@ -107,7 +107,7 @@ static func world_pack_dir() -> String:
 	if not value.is_empty():
 		return value
 	if OS.has_feature("editor"):
-		return ProjectSettings.globalize_path("res://builds/web/world_packs")
+		return ProjectSettings.globalize_path("res://builds/world_packs")
 	return OS.get_executable_path().get_base_dir().get_base_dir().path_join("world_packs")
 
 

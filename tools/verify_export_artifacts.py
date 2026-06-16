@@ -125,6 +125,14 @@ def assert_world_pack(path: Path, world_key: str) -> None:
     print(f"VERIFY_WORLD_PACK_OK key={world_key} path={path} entries={len(entries)}")
 
 
+def assert_matching_world_pack_copy(source: Path, mirrored: Path, world_key: str) -> None:
+    if source.read_bytes() != mirrored.read_bytes():
+        raise SystemExit(
+            f"Universal world pack copy mismatch for {world_key}: {source} != {mirrored}"
+        )
+    print(f"VERIFY_WORLD_PACK_COPY_OK key={world_key} source={source} mirrored={mirrored}")
+
+
 def world_keys() -> list[str]:
     keys: list[str] = []
     for directory in sorted((PROJECT_ROOT / "server" / "worlds").iterdir()):
@@ -169,6 +177,12 @@ def main() -> None:
         if not args.web_only:
             assert_world_pack(build_root / "world_packs" / f"{key}.pck", key)
         assert_world_pack(build_root / "web" / "world_packs" / f"{key}.pck", key)
+        if not args.web_only:
+            assert_matching_world_pack_copy(
+                build_root / "world_packs" / f"{key}.pck",
+                build_root / "web" / "world_packs" / f"{key}.pck",
+                key,
+            )
 
     print("VERIFY_EXPORT_ARTIFACTS_DONE")
 
