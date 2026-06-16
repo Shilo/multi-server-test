@@ -23,7 +23,6 @@ env:
   GODOT_VERSION: "4.6.3-stable"
   GODOT_TEMPLATE_VERSION: "4.6.3.stable"
   GODOT_BIN: "${{ github.workspace }}/.godot/Godot_v4.6.3-stable_linux.x86_64"
-  PLAYWRIGHT_ROOT: "${{ runner.temp }}/multi-server-test-playwright"
 
 jobs:
   release:
@@ -64,6 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          PLAYWRIGHT_ROOT="$RUNNER_TEMP/multi-server-test-playwright"
           mkdir -p "$PLAYWRIGHT_ROOT"
           npm --prefix "$PLAYWRIGHT_ROOT" install --no-save playwright@1.61.0
           "$PLAYWRIGHT_ROOT/node_modules/.bin/playwright" install --with-deps chromium
@@ -152,7 +152,7 @@ jobs:
           done
           grep -q "MASTER_READY" .logs/web_smoke/master.out.log
 
-          NODE_PATH="$PLAYWRIGHT_ROOT/node_modules" node tools/web_smoke.mjs --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
+          NODE_PATH="$RUNNER_TEMP/multi-server-test-playwright/node_modules" node tools/web_smoke.mjs --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
 
       - name: Commit release project version
         shell: bash
