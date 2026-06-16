@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Install Godot
         shell: bash
@@ -91,12 +91,6 @@ jobs:
           version="$(python3 tools/project_version.py --print | sed -E 's/^PROJECT_VERSION version=//')"
           echo "project_version=${version}" >> "$GITHUB_OUTPUT"
           echo "PROJECT_VERSION version=${version}"
-
-      - name: Import project
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$GODOT_BIN" --headless --editor --path . --quit
 
       - name: Export release artifacts
         shell: bash
