@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildRoot = Join-Path $ProjectRoot "builds"
+$ProjectFile = Join-Path $ProjectRoot "project.godot"
 
 $targets = @(
     @{ Name = "client"; Preset = "Windows Client"; Path = "client\client.exe"; PckRequired = $true },
@@ -16,6 +17,12 @@ $exportMode = if ($Release) { "--export-release" } else { "--export-debug" }
 
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
 Remove-Item -Recurse -Force -Path (Join-Path $BuildRoot "master_server"), (Join-Path $BuildRoot "world_server") -ErrorAction SilentlyContinue
+
+function Remove-EditorAutoloadForExport {
+    $content = Get-Content -LiteralPath $ProjectFile
+    $filtered = $content | Where-Object { $_ -notmatch '^RunInstanceGrid=' }
+    Set-Content -LiteralPath $ProjectFile -Value $filtered
+}
 
 function Wait-FileStable($path, $timeoutSeconds = 30) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
@@ -65,30 +72,38 @@ function Export-WorldPacks($worldPackRoot, $presetPrefix) {
     Write-Host "EXPORT_WORLD_PACKS_DONE"
 }
 
-foreach ($target in $targets) {
-    $output = Join-Path $BuildRoot $target.Path
-    $pckOutput = [System.IO.Path]::ChangeExtension($output, ".pck")
-    New-Item -ItemType Directory -Force -Path (Split-Path $output -Parent) | Out-Null
-    Remove-Item -Force -Path $output, $pckOutput -ErrorAction SilentlyContinue
+$originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
+try {
+    Remove-EditorAutoloadForExport
 
-    Write-Host "EXPORT_START $($target.Name) $output"
-    & $Godot --headless --path $ProjectRoot $exportMode $target.Preset $output
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-    if ($exitCode -ne 0) {
-        throw "Export failed for $($target.Name) with exit code $exitCode"
+    foreach ($target in $targets) {
+        $output = Join-Path $BuildRoot $target.Path
+        $pckOutput = [System.IO.Path]::ChangeExtension($output, ".pck")
+        New-Item -ItemType Directory -Force -Path (Split-Path $output -Parent) | Out-Null
+        Remove-Item -Force -Path $output, $pckOutput -ErrorAction SilentlyContinue
+
+        Write-Host "EXPORT_START $($target.Name) $output"
+        & $Godot --headless --path $ProjectRoot $exportMode $target.Preset $output
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        if ($exitCode -ne 0) {
+            throw "Export failed for $($target.Name) with exit code $exitCode"
+        }
+
+        Wait-FileStable $output
+        if ($target.PckRequired) {
+            Wait-FileStable $pckOutput
+        }
+        if ($target.Name -eq "client" -or $target.Name -eq "web_client") {
+            Remove-ClientServerSidecars (Split-Path $output -Parent)
+        }
+        Write-Host "EXPORT_DONE $($target.Name)"
     }
 
-    Wait-FileStable $output
-    if ($target.PckRequired) {
-        Wait-FileStable $pckOutput
-    }
-    if ($target.Name -eq "client" -or $target.Name -eq "web_client") {
-        Remove-ClientServerSidecars (Split-Path $output -Parent)
-    }
-    Write-Host "EXPORT_DONE $($target.Name)"
+    Export-WorldPacks (Join-Path $BuildRoot "world_packs") "World Pack - "
+    Export-WorldPacks (Join-Path $BuildRoot "web\world_packs") "Web World Pack - "
 }
-
-Export-WorldPacks (Join-Path $BuildRoot "world_packs") "World Pack - "
-Export-WorldPacks (Join-Path $BuildRoot "web\world_packs") "Web World Pack - "
+finally {
+    Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline
+}
 
 Write-Host "EXPORT_ALL_DONE"

@@ -162,7 +162,7 @@ func _try_connect_to_master() -> void:
 	master_connection_started = true
 
 	var peer := WebSocketMultiplayerPeer.new()
-	var err := peer.create_client(NET_CONFIG.master_url())
+	var err := peer.create_client(NET_CONFIG.local_master_url())
 	if err != OK:
 		push_error("[WORLD %s] create_client failed for master registry err=%s" % [world_key, err])
 		master_connection_started = false
@@ -171,7 +171,7 @@ func _try_connect_to_master() -> void:
 		return
 
 	master_api.multiplayer_peer = peer
-	NetLog.print_line("[WORLD %s] registering with master at %s" % [world_key, NET_CONFIG.master_url()])
+	NetLog.print_line("[WORLD %s] registering with master at %s" % [world_key, NET_CONFIG.local_master_url()])
 	_wait_for_master_connection(peer)
 
 

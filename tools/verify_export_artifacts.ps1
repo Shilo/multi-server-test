@@ -55,7 +55,19 @@ function Assert-NoServerEntries($path) {
     if ($serverEntries.Count -gt 0) {
         throw "Client export includes server files in ${path}: $($serverEntries -join ', ')"
     }
+    Assert-NoEditorEntries $path $entries
     Write-Host "VERIFY_CLIENT_PACK_OK path=$path entries=$($entries.Count)"
+}
+
+function Assert-NoEditorEntries($path, $entries = $null) {
+    if ($null -eq $entries) {
+        $entries = Read-PckEntries $path
+    }
+    $editorEntries = @($entries | Where-Object { $_ -like "res://editor/*" })
+    if ($editorEntries.Count -gt 0) {
+        throw "Runtime export includes editor files in ${path}: $($editorEntries -join ', ')"
+    }
+    Write-Host "VERIFY_NO_EDITOR_ENTRIES_OK path=$path"
 }
 
 function Assert-NoServerSidecars($path) {
@@ -74,6 +86,7 @@ function Assert-NoServerSidecars($path) {
 
 function Assert-WorldPack($path, $worldKey) {
     $entries = Read-PckEntries $path
+    Assert-NoEditorEntries $path $entries
     $expectedScene = "server/worlds/$worldKey/$worldKey.tscn"
     $expectedRemap = "$expectedScene.remap"
     if (-not (($entries -contains $expectedScene) -or ($entries -contains $expectedRemap))) {
