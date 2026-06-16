@@ -19,6 +19,29 @@ function Set-ProjectVersion($version) {
     }
 }
 
+function Refresh-ScriptClassCache {
+    $cachePath = Join-Path $ProjectRoot ".godot\global_script_class_cache.cfg"
+    if ((Test-Path $cachePath) -and (Select-String -Path $cachePath -SimpleMatch 'class": &"NetLog"' -Quiet)) {
+        return
+    }
+
+    $out = Join-Path $LogRoot "script_cache_refresh.out.log"
+    $err = Join-Path $LogRoot "script_cache_refresh.err.log"
+    $args = @("--headless", "--path", $ProjectRoot, "--editor", "--quit")
+    $process = Start-Process -FilePath $Godot -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+    $process.WaitForExit(30000) | Out-Null
+    $process.Refresh()
+    if (-not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "Script class cache refresh timed out"
+    }
+    if (-not (Test-Path $cachePath) -or -not (Select-String -Path $cachePath -SimpleMatch 'class": &"NetLog"' -Quiet)) {
+        if (Test-Path $out) { Write-Host (Get-Content $out -Raw) }
+        if (Test-Path $err) { Write-Host (Get-Content $err -Raw) }
+        throw "Script class cache refresh did not discover NetLog"
+    }
+}
+
 function Start-Scene($name, $scenePath, $userArgs = @(), [switch]$Headless) {
     $out = Join-Path $LogRoot "$name.out.log"
     $err = Join-Path $LogRoot "$name.err.log"
@@ -58,6 +81,8 @@ $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
 $master = $null
 $client = $null
 try {
+    Refresh-ScriptClassCache
+
     Set-ProjectVersion "8.8"
     $master = Start-Scene "master" "res://server/master/master.tscn" @() -Headless
     Wait-LogMarker "master" "MASTER_READY" 10
