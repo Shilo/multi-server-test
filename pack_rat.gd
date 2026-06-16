@@ -113,7 +113,7 @@ static func _request_url_for_source(url: String, options: PackRatOptions) -> Str
 	if not PackRatCachePaths.is_http_url(url):
 		return url
 
-	return _versioned_url_internal(url, options.version, options.version_key, false)
+	return _versioned_url_internal(url, options.query_version, options.query_version_key, false)
 
 
 static func _cache_key_for_source(url: String, id: String, options: PackRatOptions) -> String:
@@ -294,25 +294,25 @@ static func can_download_github_releases() -> bool:
 ## [br][br]
 ## Parameters:
 ## - [param url]: Base URL for a remote pack or static file.
-## - [param version]: Content version such as a build number, tag, or file token.
-## - [param version_key]: Query key to set. Defaults to [code]"v"[/code].
+## - [param query_version]: Content version such as a build number, tag, or file token.
+## - [param query_version_key]: Query key to set. Defaults to [code]"v"[/code].
 ## [br][br]
 ## Returns:
-## - [param url] with [param version_key] set to [param version]. Existing matching
+## - [param url] with [param query_version_key] set to [param query_version]. Existing matching
 ## query keys are replaced, URL fragments are preserved, and empty key/version
 ## values return [param url] unchanged.
-static func versioned_url(url: String, version: Variant, version_key: String = "v") -> String:
-	return _versioned_url_internal(url, version, version_key, true)
+static func versioned_url(url: String, query_version: Variant, query_version_key: String = "v") -> String:
+	return _versioned_url_internal(url, query_version, query_version_key, true)
 
 
 static func _versioned_url_internal(
 	url: String,
-	version: Variant,
-	version_key: String,
+	query_version: Variant,
+	query_version_key: String,
 	replace_existing: bool
 ) -> String:
-	var clean_key: String = version_key.strip_edges()
-	var clean_version: String = str(version).strip_edges()
+	var clean_key: String = query_version_key.strip_edges()
+	var clean_version: String = str(query_version).strip_edges()
 	if clean_key.is_empty() or clean_version.is_empty():
 		return url
 	var encoded_key: String = clean_key.uri_encode()
