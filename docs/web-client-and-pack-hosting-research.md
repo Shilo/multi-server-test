@@ -9,9 +9,25 @@ should not compete with the master/world server processes for bandwidth. The
 web client host should also host the downloadable PCK files when practical, so
 players load the game and worlds from one public domain.
 
-The game server VPS should run the master server, world server processes, and
-database. It should not be the default public file host for PCK downloads once
-the project is treated as a showcase product.
+Think of the deployment as two separate responsibilities:
+
+```text
+VPS/game host:
+  master server
+  database
+  world server processes
+  gameplay networking bandwidth
+
+Static web host:
+  website
+  Web client files
+  downloadable PCK files
+  browser/client download bandwidth
+```
+
+The game server VPS should not be the default public file host for PCK
+downloads once the project is treated as a showcase product. Separating these
+roles keeps heavy one-time downloads from interfering with live gameplay.
 
 ## Current Project Shape
 
@@ -95,6 +111,8 @@ GitHub Pages is therefore reasonable for:
 - 10 MB-ish packs.
 - Low update frequency.
 - Modest unique user count.
+- Proving that downloadable client files are hosted separately from the
+  gameplay VPS.
 
 GitHub Pages is weak for:
 
@@ -103,6 +121,17 @@ GitHub Pages is weak for:
 - Large packs.
 - A polished production launch where rate limits or soft quota warnings would
   be embarrassing.
+
+Speed is not the main reason to avoid GitHub Pages early. Public static-host
+benchmarks generally show GitHub Pages can be fast enough for static files,
+though Cloudflare is often faster and more configurable. The practical concerns
+are bandwidth limits, published site size, less control over cache/CDN behavior,
+and the risk of rate limiting or GitHub support pressure if the project grows.
+
+Sources:
+
+- [Cloudflare Pages vs GitHub Pages performance comparison](https://bejamas.com/compare/cloudflare-pages-vs-github-pages)
+- [Static site hosting speed test](https://www.ajnisbet.com/blog/static-site-speedtest)
 
 ### Cloudflare Pages
 
@@ -195,11 +224,18 @@ true:
 - Expected monthly PCK transfer stays below roughly 100 GB.
 - Updates are infrequent enough that returning users usually keep cached packs.
 
+This is a useful prototype path because it already exercises the production
+boundary: the browser downloads the Web client and PCK files from a static web
+host, while the VPS handles only master/world/database gameplay traffic. If
+GitHub Pages becomes too limiting, the same public hosting role can move to
+Cloudflare, Bunny, or another CDN/static host without changing the core game
+server architecture.
+
 For the more production-shaped VirtuCade path, prefer:
 
 ```text
-Cloudflare-hosted public domain:
-  /                 Web client
+Static web host:
+  /                 Website / Web client
   /world_packs/     PCK files
 
 Hetzner VPS:
