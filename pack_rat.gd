@@ -64,8 +64,9 @@ static func load_resource_pack_async(url: String, options: PackRatOptions = Pack
 
 	var id: String = PackRatCachePaths.id_for_url(url, request_options)
 	var key: String = _cache_key_for_source(url, id, request_options)
+	var request_url: String = _request_url_for_source(url, request_options)
 	var request: PackRatRequest = PackRatRequest.new()
-	request._setup(url, request_options, id, key, local_pack_path)
+	request._setup(url, request_url, request_options, id, key, local_pack_path)
 	if local_pack_path.is_empty() and not _uses_editor_pack_export(request_options):
 		var fast_result: PackRatResult = PackRatLoader.fast_cache_result(url, id, key, request_options)
 		if fast_result != null:
@@ -106,6 +107,28 @@ static func _local_pack_path_for_url(url: String, options: PackRatOptions) -> St
 
 static func _uses_editor_pack_export(options: PackRatOptions) -> bool:
 	return PackRatEditorPackExport.is_available() and not options.editor_pack_export_preset.strip_edges().is_empty()
+
+
+static func _request_url_for_source(url: String, options: PackRatOptions) -> String:
+	if not PackRatCachePaths.is_http_url(url):
+		return url
+
+	if not options.auto_project_version_query:
+		return url
+
+	var query_key: String = options.project_version_query_key.strip_edges()
+	if query_key.is_empty():
+		return url
+
+	var project_version: Variant = ProjectSettings.get_setting("application/config/version")
+	if typeof(project_version) == TYPE_NIL:
+		return url
+
+	var clean_version: String = str(project_version).strip_edges()
+	if clean_version.is_empty():
+		return url
+
+	return versioned_url_if_missing(url, clean_version, query_key)
 
 
 static func _cache_key_for_source(url: String, id: String, options: PackRatOptions) -> String:
@@ -294,6 +317,31 @@ static func can_download_github_releases() -> bool:
 ## query keys are replaced, URL fragments are preserved, and empty key/version
 ## values return [param url] unchanged.
 static func versioned_url(url: String, version: Variant, version_key: String = "v") -> String:
+	return _versioned_url_internal(url, version, version_key, true)
+
+
+## Sets a stable content-version query value on [param url] only when missing.
+## [br][br]
+## Parameters:
+## - [param url]: Base URL for a remote pack or static file.
+## - [param version]: Content version such as a build number, tag, or file token.
+## - [param version_key]: Query key to append. Defaults to [code]"v"[/code].
+## [br][br]
+## Returns:
+## - [param url] with [param version_key] appended only when that key does not
+## already exist. Existing matching query keys are preserved unchanged, URL
+## fragments are preserved, and empty key/version values return [param url]
+## unchanged.
+static func versioned_url_if_missing(url: String, version: Variant, version_key: String = "v") -> String:
+	return _versioned_url_internal(url, version, version_key, false)
+
+
+static func _versioned_url_internal(
+	url: String,
+	version: Variant,
+	version_key: String,
+	replace_existing: bool
+) -> String:
 	var clean_key: String = version_key.strip_edges()
 	var clean_version: String = str(version).strip_edges()
 	if clean_key.is_empty() or clean_version.is_empty():
@@ -320,6 +368,8 @@ static func versioned_url(url: String, version: Variant, version_key: String = "
 	for part in query.split("&", false):
 		var key: String = part.get_slice("=", 0)
 		if key == clean_key or key == encoded_key:
+			if not replace_existing:
+				return url
 			if not replaced:
 				output_parts.append("%s=%s" % [encoded_key, encoded_version])
 				replaced = true

@@ -52,6 +52,14 @@ var progress_total_size: int = 0
 ## remote updates. Cache misses still download normally.
 var offline_first: bool = false
 
+## Appends the project's [code]application/config/version[/code] as a query
+## string to HTTP request URLs when the chosen key is not already present.
+## This only affects the outbound request URL, not PackRat's cache identity.
+var auto_project_version_query: bool = false
+
+## Query key used by [member auto_project_version_query]. Defaults to [code]"v"[/code].
+var project_version_query_key: String = "v"
+
 ## Extra HTTP headers passed to HEAD and GET requests.
 var request_headers: PackedStringArray = []
 
@@ -127,6 +135,8 @@ func copy() -> PackRatOptions:
 	options.expected_modified_time = expected_modified_time
 	options.progress_total_size = progress_total_size
 	options.offline_first = offline_first
+	options.auto_project_version_query = auto_project_version_query
+	options.project_version_query_key = project_version_query_key
 	options.request_headers = request_headers.duplicate()
 	options.accept_gzip = accept_gzip
 	options.timeout_seconds = timeout_seconds
