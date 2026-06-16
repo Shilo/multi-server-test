@@ -400,6 +400,17 @@ The GitHub release workflow verifies Linux/Web release artifacts with:
 python tools/verify_export_artifacts.py --server-binary server/server.x86_64
 ```
 
+The deployed Web site also includes a generated manifest for release auditing:
+
+```text
+https://shilo.github.io/multi-server-test/deployment_manifest.json
+```
+
+That manifest lists deployed Web files and world PCK files with file sizes,
+SHA-256 fingerprints, the project version, and the source commit. GitHub Pages
+does not provide an FTP-style file browser for Actions deployments, so this
+manifest is the lightweight way to check exactly what was published.
+
 World packs exported through Godot's `--export-pack` are not literal raw copies
 of only `server/worlds/<world_key>/`. They include the world scene remap, the
 converted `.godot/exported/...` scene, and small Godot-generated metadata such
@@ -434,6 +445,23 @@ verifies that runtime builds do not include the wrong folders, uploads
 
 ```text
 https://shilo.github.io/multi-server-test/
+```
+
+Do not use **Deploy from a branch** or a generated `gh-pages` branch for this
+project. Branch deployment is useful for simple static files, but this project
+must atomically build and publish the Web client, Web PCK files, Linux server
+artifact, version bump, and release tag from one manual release workflow.
+Generated Web/PCK binaries should stay out of git history.
+
+GitHub Pages does not provide an FTP-style file browser for Actions
+deployments. Use these release records instead:
+
+- Git history and tags for source/version history, for example `v0.6`.
+- The workflow run artifacts for generated release outputs.
+- The live deployment manifest for published Web/PCK files:
+
+```text
+https://shilo.github.io/multi-server-test/deployment_manifest.json
 ```
 
 For this GitHub Pages test, gameplay still runs locally. Start the master after

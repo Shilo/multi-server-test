@@ -153,6 +153,14 @@ The manual GitHub Actions release workflow exports the Web client and Web world
 packs, verifies the export contents, uploads `builds/web/` as a GitHub Pages
 artifact, and deploys that artifact with `actions/deploy-pages`.
 
+This should remain **Settings -> Pages -> Build and deployment -> Source:
+GitHub Actions**. Do not use **Deploy from a branch** for this project. Branch
+deployment is best when the repository already contains the static files to
+serve, or when a simple documentation branch is acceptable. This project has a
+real release build: Godot Web files, Web-targeted world PCKs, Linux server
+artifact, version bump, and release tag all need to be produced and validated by
+one workflow.
+
 Do not publish generated Godot Web files by pushing them to a `gh-pages` branch
 from CI. GitHub documents that commits pushed by the workflow `GITHUB_TOKEN` do
 not trigger a branch-based Pages build, and this project hit that exact failure:
@@ -162,6 +170,27 @@ returned 404 until a Pages build was manually triggered.
 With the GitHub Actions publishing model, built PCK files are not committed as
 repository files. They remain inspectable through the workflow artifact and
 through their deployed URLs, such as `/world_packs/hub.pck?v=<version>`.
+
+GitHub Actions Pages does not expose an FTP-like browser for the deployed file
+tree. The reliable management model for this project is:
+
+- keep source and release version in git on `main`;
+- keep release history as tags such as `v0.6`;
+- keep generated binaries out of git history;
+- inspect generated release outputs through workflow artifacts;
+- inspect the live deployed file list through
+  `https://shilo.github.io/multi-server-test/deployment_manifest.json`.
+
+The manifest is generated during export and includes every deployed Web/PCK
+file path, size, SHA-256 fingerprint, project version, source commit, and
+workflow run id. This keeps the useful visibility of a generated deployment
+branch without creating a second mutable branch of generated binaries.
+
+Compared with the `mimic` repository, the same GitHub Actions Pages model is
+still correct, but the output is different. `mimic` deploys documentation and a
+playable Web example. `multi-server-test` deploys a Web game plus runtime DLC
+PCK files, so the world packs must live inside the Pages artifact and be listed
+in the deployment manifest.
 
 After deployment, the browser URL is:
 

@@ -116,6 +116,8 @@ jobs:
             echo "WORLD_PACK_EXPORTED key=${world_key}"
           done < <(find server/worlds -mindepth 1 -maxdepth 1 -type d | sort)
 
+          python3 tools/write_deployment_manifest.py --web-root builds/web --version "${{ steps.version.outputs.project_version }}"
+
           mv .godot/project.godot.release project.godot
           echo "EXPORT_ALL_DONE"
 

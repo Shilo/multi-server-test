@@ -108,6 +108,11 @@ try {
 
     Export-WorldPacks (Join-Path $BuildRoot "world_packs") "World Pack - "
     Export-WorldPacks (Join-Path $BuildRoot "web\world_packs") "Web World Pack - "
+    & python (Join-Path $PSScriptRoot "write_deployment_manifest.py") --web-root (Join-Path $BuildRoot "web")
+    $manifestExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    if ($manifestExitCode -ne 0) {
+        throw "Deployment manifest generation failed with exit code $manifestExitCode"
+    }
 }
 finally {
     Set-Content -LiteralPath $ProjectFile -Value $originalProjectFile -NoNewline
