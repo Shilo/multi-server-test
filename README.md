@@ -326,9 +326,10 @@ world folder, or any other unexpected source directory.
 
 The server executable contains the master server, world server, and all discovered world scenes. Starting it with no user args runs the master. The master starts one additional process per active world key by creating another instance of the same executable and passing the world key plus a private launch token. The `builds/world_packs/*.pck` files are client-downloadable DLC artifacts for native clients. The `builds/web/world_packs/*.pck` files are the Web-targeted DLC artifacts and should be served beside the Web export.
 
-For GitHub Pages or another static host, deploy the contents of `builds/web/` as
-the Web site. Keep `builds/web/world_packs/*.pck` beside `index.html` under the
-`world_packs/` path. The master/VPS should advertise that same public pack base:
+For CDN/static hosting, deploy the contents of `builds/web/` as the Web site.
+Keep `builds/web/world_packs/*.pck` beside `index.html` under the
+`world_packs/` path, or upload that folder to a dedicated static file host. The
+master/VPS should advertise that same public pack base:
 
 ```text
 MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
