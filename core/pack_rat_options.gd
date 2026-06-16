@@ -52,13 +52,14 @@ var progress_total_size: int = 0
 ## remote updates. Cache misses still download normally.
 var offline_first: bool = false
 
-## Appends the project's [code]application/config/version[/code] as a query
-## string to HTTP request URLs when the chosen key is not already present.
-## This only affects the outbound request URL, not PackRat's cache identity.
-var auto_project_version_query: bool = false
+## Stable request URL version. Defaults to the project's
+## [code]application/config/version[/code]. When empty, PackRat does not append
+## a version query. This only affects the outbound request URL, not PackRat's
+## cache identity.
+var version: String = ""
 
-## Query key used by [member auto_project_version_query]. Defaults to [code]"v"[/code].
-var project_version_query_key: String = "v"
+## Query key used by [member version]. Defaults to [code]"v"[/code].
+var version_key: String = "v"
 
 ## Extra HTTP headers passed to HEAD and GET requests.
 var request_headers: PackedStringArray = []
@@ -98,6 +99,10 @@ var max_redirects: int = 8
 var always_download: bool = false
 
 
+func _init() -> void:
+	version = _project_version()
+
+
 ## Creates options with server-provided expected file metadata.
 static func from_expected_metadata(expected_modified_time: int, expected_size: int) -> PackRatOptions:
 	var options: PackRatOptions = PackRatOptions.new()
@@ -135,8 +140,8 @@ func copy() -> PackRatOptions:
 	options.expected_modified_time = expected_modified_time
 	options.progress_total_size = progress_total_size
 	options.offline_first = offline_first
-	options.auto_project_version_query = auto_project_version_query
-	options.project_version_query_key = project_version_query_key
+	options.version = version
+	options.version_key = version_key
 	options.request_headers = request_headers.duplicate()
 	options.accept_gzip = accept_gzip
 	options.timeout_seconds = timeout_seconds
@@ -147,3 +152,11 @@ func copy() -> PackRatOptions:
 	options.max_redirects = max_redirects
 	options.always_download = always_download
 	return options
+
+
+static func _project_version() -> String:
+	var project_version: Variant = ProjectSettings.get_setting("application/config/version")
+	if typeof(project_version) == TYPE_NIL:
+		return ""
+
+	return str(project_version).strip_edges()
