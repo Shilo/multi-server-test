@@ -151,17 +151,17 @@ jobs:
           trap 'status=$?; if [ "$status" -ne 0 ]; then dump_logs; fi; kill "$static_pid" "$master_pid" 2>/dev/null || true; exit "$status"' EXIT
 
           for _ in $(seq 1 480); do
-            if grep -q "MASTER_READY" .logs/web_smoke/master.out.log 2>/dev/null; then
+            if (echo > /dev/tcp/127.0.0.1/19080) >/dev/null 2>&1; then
               break
             fi
             if ! kill -0 "$master_pid" 2>/dev/null; then
               wait "$master_pid" || true
-              echo "Master server exited before MASTER_READY." >&2
+              echo "Master server exited before opening port 19080." >&2
               break
             fi
             sleep 0.25
           done
-          grep -q "MASTER_READY" .logs/web_smoke/master.out.log
+          (echo > /dev/tcp/127.0.0.1/19080) >/dev/null 2>&1
 
           NODE_PATH="$RUNNER_TEMP/multi-server-test-playwright/node_modules" node tools/web_smoke.mjs --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
 
