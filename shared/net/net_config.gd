@@ -88,11 +88,7 @@ static func world_pack_dir() -> String:
 
 
 static func world_pack_url(world_key: String) -> String:
-	var url := "%s/%s.pck" % [world_pack_base_url(), world_key.uri_encode()]
-	var version := str(ProjectSettings.get_setting("application/config/version", "0.1"))
-	if version.is_empty():
-		return url
-	return "%s?v=%s" % [url, version.uri_encode()]
+	return "%s/%s.pck" % [world_pack_base_url(), world_key.uri_encode()]
 
 
 static func _web_query_value(key: String) -> String:

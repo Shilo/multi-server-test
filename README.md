@@ -432,10 +432,11 @@ MULTI_SERVER_WORLD_PACK_BASE_URL=https://<owner>.github.io/<repo>/world_packs
 MULTI_SERVER_WORLD_PACK_DIR=<server filesystem path to builds/web/world_packs>
 ```
 
-The master appends `?v=<application/config/version>` to advertised pack URLs.
-PackRat still decides whether to reuse or redownload a world pack from the
-server-provided `pack_modified_time` and `pack_size`, so app version bumps do
-not redownload unchanged packs.
+The master advertises stable pack URLs without a version query. PackRat appends
+`?v=<application/config/version>` to outbound HTTP requests when the URL does
+not already include `v`. PackRat still decides whether to reuse or redownload a
+world pack from the server-provided `pack_modified_time` and `pack_size`, so
+app version bumps do not redownload unchanged packs.
 
 Current GitHub Pages deployment is handled by the manual GitHub Actions workflow.
 The repository Pages setting should be **Build and deployment -> Source:
@@ -605,7 +606,7 @@ Local defaults:
 CLIENT_HOST=127.0.0.1 in shared/net/net_config.gd
 CLIENT_SCHEME=ws in shared/net/net_config.gd
 default world pack base URL=https://shilo.github.io/multi-server-test/world_packs
-advertised pack URLs append ?v=<application/config/version>
+PackRat request URLs append ?v=<application/config/version> when missing
 editor default MULTI_SERVER_WORLD_PACK_DIR=builds/web/world_packs
 exported server default=<server executable directory>/../web/world_packs
 ```

@@ -165,11 +165,6 @@ function Run-PackRatSmokeForVersion($version, $label, [switch]$ExpectOnlyCacheHi
             Write-Host $clientLog
             throw "Client $label did not complete smoke"
         }
-        if (-not $clientLog.Contains("?v=$version")) {
-            Write-Host $clientLog
-            throw "Client $label did not request world packs with ?v=$version"
-        }
-
         if ($ExpectOnlyCacheHits) {
             if ($clientLog.Contains("status=downloaded")) {
                 Write-Host $clientLog

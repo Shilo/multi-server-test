@@ -172,7 +172,8 @@ returned 404 until a Pages build was manually triggered.
 
 With the GitHub Actions publishing model, built PCK files are not committed as
 repository files. They remain inspectable through the workflow artifact and
-through their deployed URLs, such as `/world_packs/hub.pck?v=<version>`.
+through the request URLs PackRat uses at runtime, such as
+`/world_packs/hub.pck?v=<version>`.
 
 GitHub Actions Pages does not expose an FTP-like browser for the deployed file
 tree. The reliable management model for this project is:
