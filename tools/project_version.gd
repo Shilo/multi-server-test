@@ -58,7 +58,7 @@ func _bump_minor() -> int:
 func _set_version(version: String) -> int:
 	var clean_version := version.strip_edges()
 	if not _is_valid_version(clean_version):
-		push_error("Version must use MAJOR.MINOR with MINOR from 0 to 9, got: %s" % version)
+		push_error("Version must use canonical MAJOR.MINOR with no leading zeroes and MINOR from 0 to 9, got: %s" % version)
 		return 2
 
 	ProjectSettings.set_setting(VERSION_SETTING, clean_version)

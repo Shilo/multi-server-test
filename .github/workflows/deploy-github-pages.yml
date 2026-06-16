@@ -151,26 +151,6 @@ jobs:
             -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
             -SkipExport
 
-      - name: Deploy Web client and world packs to GitHub Pages
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 `
-            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
-            -SkipExport `
-            -Remote origin `
-            -Branch gh-pages
-
-      - name: Upload server artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-v${{ steps.version.outputs.project_version }}
-          path: |
-            builds/server/**
-            builds/world_packs/*.pck
-            builds/web/world_packs/*.pck
-          if-no-files-found: error
-
       - name: Commit release project version
         shell: pwsh
         run: |
@@ -202,12 +182,37 @@ jobs:
           git fetch --tags origin
           git rev-parse -q --verify "refs/tags/$tag" *> $null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "RELEASE_TAG_EXISTS tag=$tag"
+            $tagCommit = git rev-list -n 1 $tag
+            $headCommit = git rev-parse HEAD
+            if ($tagCommit -ne $headCommit) {
+              throw "Release tag $tag already points at $tagCommit, expected $headCommit"
+            }
+            Write-Host "RELEASE_TAG_EXISTS tag=$tag commit=$(git rev-parse --short HEAD)"
           } else {
             git tag -a $tag -m "Release $tag"
             git push origin $tag
             Write-Host "RELEASE_TAG_CREATED tag=$tag commit=$(git rev-parse --short HEAD)"
           }
+
+      - name: Deploy Web client and world packs to GitHub Pages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 `
+            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe" `
+            -SkipExport `
+            -Remote origin `
+            -Branch gh-pages
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-v${{ steps.version.outputs.project_version }}
+          path: |
+            builds/server/**
+            builds/world_packs/*.pck
+            builds/web/world_packs/*.pck
+          if-no-files-found: error
 
       - name: VPS deploy reminder
         shell: pwsh

@@ -449,13 +449,14 @@ browser client connects to the local gameplay server while downloading Web
 client/PCK files from GitHub Pages.
 
 GitHub Actions uses manual workflow dispatch only. One run sets an exact
-`MAJOR.MINOR` version or bumps the minor version once, commits that visible
-`project.godot` change, exports all runtime artifacts from that version,
-verifies them, deploys the Web client and all Web world packs to GitHub Pages,
-and uploads the server artifact plus both native and Web world packs. The VPS
-stop/upload/start step is intentionally not automated yet because the VPS
-service name, release directory, SSH user, and database backup flow do not
-exist in this repo yet.
+`MAJOR.MINOR` version or bumps the minor version once, runs the version/cache
+smokes, exports all runtime artifacts from that version, verifies them, commits
+and tags the visible `project.godot` change, then deploys the Web client and all
+Web world packs to GitHub Pages and uploads the server artifact plus both native
+and Web world packs. If a release tag already exists, it must point at the exact
+release commit or the workflow fails before publishing. The VPS stop/upload/start
+step is intentionally not automated yet because the VPS service name, release
+directory, SSH user, and database backup flow do not exist in this repo yet.
 
 Release deploys intentionally publish the Web client and every world pack
 together. That keeps the client, PackRat PCK metadata, and server artifact on

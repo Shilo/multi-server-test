@@ -16,8 +16,20 @@ Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
 function Set-ProjectVersion($version) {
-    & $Godot --headless --path $ProjectRoot --script (Join-Path $PSScriptRoot "project_version.gd") -- --set $version | Out-Host
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    $safeVersion = $version -replace '[^a-zA-Z0-9_.-]', '_'
+    $out = Join-Path $LogRoot "project_version_$safeVersion.out.log"
+    $err = Join-Path $LogRoot "project_version_$safeVersion.err.log"
+    $args = @("--headless", "--path", $ProjectRoot, "--script", (Join-Path $PSScriptRoot "project_version.gd"), "--", "--set", $version)
+    $process = Start-Process -FilePath $Godot -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
+    $process.WaitForExit(30000) | Out-Null
+    $process.Refresh()
+    if (-not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "Project version command timed out while setting $version"
+    }
+    if (Test-Path $out) { Write-Host (Get-Content -LiteralPath $out -Raw) }
+    if (Test-Path $err) { Write-Host (Get-Content -LiteralPath $err -Raw) }
+    $exitCode = if ($null -eq $process.ExitCode) { 0 } else { $process.ExitCode }
     if ($exitCode -ne 0) {
         throw "Could not set project version to $version"
     }
@@ -82,6 +94,10 @@ function Clear-PackRatHttpCache {
 }
 
 function Start-PackServer {
+    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        throw "Python is required to serve world packs for this smoke test."
+    }
+
     $out = Join-Path $LogRoot "world_pack_http.out.log"
     $err = Join-Path $LogRoot "world_pack_http.err.log"
     $args = @("-m", "http.server", "$WorldPackPort", "--bind", "127.0.0.1", "--directory", $WorldPackServeRoot)
