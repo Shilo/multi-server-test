@@ -1,7 +1,9 @@
 param(
     [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe",
     [string]$OutputDir = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) "builds\world_packs"),
-    [string]$PresetPrefix = "World Pack - "
+    [string]$PresetPrefix = "World Pack - ",
+    [Alias("WorldKeys")]
+    [string]$WorldKeyFilter = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,6 +98,23 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Remove-Item -Force -Path (Join-Path $OutputDir "*.uploading.pck") -ErrorAction SilentlyContinue
 
 $worldKeys = Get-WorldKeys
+if ($WorldKeyFilter -ne "all") {
+    $requestedKeys = @(
+        $WorldKeyFilter.Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if ($requestedKeys.Count -eq 0) {
+        Write-Host "WORLD_PACK_EXPORT_DONE count=0 dir=$OutputDir preset_prefix=$PresetPrefix"
+        exit 0
+    }
+    foreach ($worldKey in $requestedKeys) {
+        if (-not ($worldKeys -contains $worldKey)) {
+            throw "Unknown world '$worldKey'. Valid worlds: $($worldKeys -join ', ')"
+        }
+    }
+    $worldKeys = $requestedKeys
+}
 Assert-WorldPackPresets $worldKeys
 foreach ($worldKey in $worldKeys) {
     Export-WorldPack $worldKey

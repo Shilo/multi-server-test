@@ -1,5 +1,9 @@
 param(
-    [string]$BuildRoot = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) "builds")
+    [string]$BuildRoot = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot "..")) "builds"),
+    [switch]$WebOnly,
+    [switch]$SkipWebClient,
+    [Alias("WorldKeys")]
+    [string]$WorldKeyFilter = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -182,11 +186,15 @@ function Assert-WorldPack($path, $worldKey) {
 $clientPack = Join-Path $BuildRoot "client\client.pck"
 $webPack = Join-Path $BuildRoot "web\index.pck"
 $serverExe = Join-Path $BuildRoot "server\server.exe"
-Assert-NoServerEntries $clientPack
-Assert-NoServerEntries $webPack
-Assert-NoClientEntries $serverExe (Read-EmbeddedPckEntries $serverExe)
-Assert-NoServerSidecars (Join-Path $BuildRoot "client")
+if (-not $SkipWebClient) {
+    Assert-NoServerEntries $webPack
+}
 Assert-NoServerSidecars (Join-Path $BuildRoot "web")
+if (-not $WebOnly) {
+    Assert-NoServerEntries $clientPack
+    Assert-NoClientEntries $serverExe (Read-EmbeddedPckEntries $serverExe)
+    Assert-NoServerSidecars (Join-Path $BuildRoot "client")
+}
 
 $worldKeys = @(
     Get-ChildItem -Path (Join-Path $ProjectRoot "server\worlds") -Directory |
@@ -199,10 +207,28 @@ $worldKeys = @(
             $_.Name
         }
 )
+if ($WorldKeyFilter -eq "none") {
+    $worldKeys = @()
+}
+elseif ($WorldKeyFilter -ne "all") {
+    $requestedKeys = @(
+        $WorldKeyFilter.Split(",", [System.StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    foreach ($worldKey in $requestedKeys) {
+        if (-not ($worldKeys -contains $worldKey)) {
+            throw "Unknown world '$worldKey'. Valid worlds: $($worldKeys -join ', ')"
+        }
+    }
+    $worldKeys = $requestedKeys
+}
 foreach ($worldKey in $worldKeys) {
-    $sourcePath = Join-Path $BuildRoot "world_packs\$worldKey.pck"
     $mirrorPath = Join-Path $BuildRoot "web\world_packs\$worldKey.pck"
-    Assert-WorldPack $sourcePath $worldKey
+    if (-not $WebOnly) {
+        $sourcePath = Join-Path $BuildRoot "world_packs\$worldKey.pck"
+        Assert-WorldPack $sourcePath $worldKey
+    }
     Assert-WorldPack $mirrorPath $worldKey
 }
 

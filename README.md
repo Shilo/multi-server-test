@@ -367,6 +367,26 @@ The Web client keeps `CLIENT_HOST=127.0.0.1` for this test, so the GitHub Pages
 browser client connects to the local gameplay server while downloading Web
 client/PCK files from GitHub Pages.
 
+Smart/incremental deploy examples:
+
+```powershell
+# Rebuild and deploy only one Web world pack, keeping the existing Web client.
+powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -SkipClient -WorldKeys hub
+
+# Rebuild and deploy all Web world packs, keeping the existing Web client.
+powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -SkipClient -WorldKeys all
+
+# Rebuild and deploy only the Web client, keeping existing world packs.
+powershell -ExecutionPolicy Bypass -File tools\deploy_github_pages.ps1 -WorldKeys none
+```
+
+GitHub Actions runs the same script. Pushes to `main` rebuild the Web client
+when client/shared/export files change, rebuild only the affected Web world
+packs when `server/worlds/<world_key>/` changes, rebuild all Web world packs
+when shared/export files change, and remove stale deployed packs when worlds
+are deleted. Manual workflow dispatch can force the Web client and any world
+set with `all`, `none`, or a comma-separated list.
+
 For local Web smoke, the script sets the base URL to
 `http://127.0.0.1:19200/world_packs`, matching the temporary static server.
 The master reads pack size and modified time from `MULTI_SERVER_WORLD_PACK_DIR`;

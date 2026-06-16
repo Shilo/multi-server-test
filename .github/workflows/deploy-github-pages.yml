@@ -1,0 +1,185 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-github-pages.yml"
+      - "addons/pack_rat/**"
+      - "client/**"
+      - "export_presets.cfg"
+      - "project.godot"
+      - "server/worlds/**"
+      - "shared/**"
+      - "tools/deploy_github_pages.ps1"
+      - "tools/export_world_packs.ps1"
+      - "tools/verify_export_artifacts.ps1"
+  workflow_dispatch:
+    inputs:
+      deploy_client:
+        description: "Deploy Web client"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      worlds:
+        description: "World packs to deploy: all, none, or comma-separated world keys"
+        required: true
+        default: "all"
+        type: string
+      release:
+        description: "Use release export"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect deploy targets
+        id: targets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $deployClient = "${{ inputs.deploy_client }}"
+            $worlds = "${{ inputs.worlds }}".Trim()
+            if ([string]::IsNullOrWhiteSpace($worlds)) {
+              $worlds = "none"
+            }
+          } else {
+            $before = "${{ github.event.before }}"
+            $sha = "${{ github.sha }}"
+            if ([string]::IsNullOrWhiteSpace($before) -or $before -match "^0+$") {
+              $changed = @(git ls-files)
+            } else {
+              $changed = @(git diff --name-only $before $sha)
+            }
+
+            $deployClient = "false"
+            $deployAllWorlds = $false
+            $changedWorlds = New-Object System.Collections.Generic.HashSet[string]
+
+            foreach ($path in $changed) {
+              $normalized = $path -replace "\\", "/"
+              if (
+                $normalized -like "client/*" -or
+                $normalized -like "shared/*" -or
+                $normalized -like "addons/pack_rat/*" -or
+                $normalized -eq "project.godot" -or
+                $normalized -eq "export_presets.cfg" -or
+                $normalized -eq ".github/workflows/deploy-github-pages.yml" -or
+                $normalized -eq "tools/deploy_github_pages.ps1" -or
+                $normalized -eq "tools/verify_export_artifacts.ps1"
+              ) {
+                $deployClient = "true"
+              }
+
+              if (
+                $normalized -like "shared/*" -or
+                $normalized -like "addons/pack_rat/*" -or
+                $normalized -eq "project.godot" -or
+                $normalized -eq "export_presets.cfg" -or
+                $normalized -eq ".github/workflows/deploy-github-pages.yml" -or
+                $normalized -eq "tools/deploy_github_pages.ps1" -or
+                $normalized -eq "tools/export_world_packs.ps1" -or
+                $normalized -eq "tools/verify_export_artifacts.ps1"
+              ) {
+                $deployAllWorlds = $true
+              }
+
+              if ($normalized -match "^server/worlds/([^/]+)/") {
+                $worldKey = $matches[1]
+                if (Test-Path -LiteralPath "server/worlds/$worldKey/$worldKey.tscn") {
+                  [void]$changedWorlds.Add($worldKey)
+                }
+              }
+            }
+
+            if ($deployAllWorlds) {
+              $worlds = "all"
+            } elseif ($changedWorlds.Count -gt 0) {
+              $worlds = ($changedWorlds | Sort-Object) -join ","
+            } elseif ($changed | Where-Object { ($_ -replace "\\", "/") -like "server/worlds/*" }) {
+              $worlds = "none"
+            } else {
+              $worlds = "none"
+            }
+          }
+
+          $skipClient = if ($deployClient -eq "true") { "false" } else { "true" }
+          $skipExport = if ($skipClient -eq "true" -and $worlds -eq "none") { "true" } else { "false" }
+          "deploy_client=$deployClient" >> $env:GITHUB_OUTPUT
+          "skip_client=$skipClient" >> $env:GITHUB_OUTPUT
+          "worlds=$worlds" >> $env:GITHUB_OUTPUT
+          "skip_export=$skipExport" >> $env:GITHUB_OUTPUT
+          Write-Host "DEPLOY_TARGETS deploy_client=$deployClient worlds=$worlds skip_export=$skipExport"
+
+      - name: Install Godot
+        if: steps.targets.outputs.skip_export != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "4.6.3-stable"
+          $templateVersion = "4.6.3.stable"
+          $installRoot = "C:\godot"
+          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+
+          $godotZip = Join-Path $installRoot "godot.zip"
+          $templatesZip = Join-Path $installRoot "templates.zip"
+          Invoke-WebRequest "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v$($version)_win64.exe.zip" -OutFile $godotZip
+          Invoke-WebRequest "https://github.com/godotengine/godot-builds/releases/download/$version/Godot_v$($version)_export_templates.tpz" -OutFile $templatesZip
+
+          Expand-Archive -LiteralPath $godotZip -DestinationPath $installRoot -Force
+          Expand-Archive -LiteralPath $templatesZip -DestinationPath (Join-Path $installRoot "templates") -Force
+
+          $templateDir = Join-Path $env:APPDATA "Godot\export_templates\$templateVersion"
+          New-Item -ItemType Directory -Force -Path $templateDir | Out-Null
+          Get-ChildItem -LiteralPath (Join-Path $installRoot "templates\templates") -Force |
+            Copy-Item -Destination $templateDir -Recurse -Force
+
+      - name: Configure Git
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy GitHub Pages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $args = @(
+            "-ExecutionPolicy", "Bypass",
+            "-File", "tools\deploy_github_pages.ps1",
+            "-Godot", "C:\godot\Godot_v4.6.3-stable_win64.exe",
+            "-WorldKeys", "${{ steps.targets.outputs.worlds }}",
+            "-Remote", "origin",
+            "-Branch", "gh-pages"
+          )
+          if ("${{ steps.targets.outputs.skip_client }}" -eq "true") {
+            $args += "-SkipClient"
+          }
+          if ("${{ steps.targets.outputs.skip_export }}" -eq "true") {
+            $args += "-SkipExport"
+          }
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.release }}" -eq "true") {
+            $args += "-Release"
+          }
+          & powershell @args
