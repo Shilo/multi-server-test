@@ -8,6 +8,7 @@ static var _fast_cache_signatures: Dictionary = {}
 ## Loads, caches, and mounts the resource pack described by [param request].
 static func load(request: PackRatRequest) -> PackRatResult:
 	var url: String = request.url
+	var request_url: String = request._request_url
 	var options: PackRatOptions = request.options
 	var capture_timings: bool = options.capture_timings
 	var total_start_msec: int = _timing_start(capture_timings)
@@ -81,7 +82,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 		should_download = false
 	elif cached_file_exists and not should_download:
 		var freshness_start_msec: int = _timing_start(capture_timings)
-		metadata = await PackRatHttpClient.freshness_metadata(url, options, request)
+		metadata = await PackRatHttpClient.freshness_metadata(request_url, options, request)
 		if capture_timings:
 			_merge_timings(result.timings_msec, metadata.timings_msec, "freshness_")
 		_record_timing(result, capture_timings, "freshness_request_msec", freshness_start_msec)
@@ -120,7 +121,7 @@ static func load(request: PackRatRequest) -> PackRatResult:
 	var download_start_msec: int = _timing_start(capture_timings)
 	var download: PackRatHttpResponse
 	if local_pack_path.is_empty():
-		download = await PackRatHttpClient.request(url, part_path, options, request)
+		download = await PackRatHttpClient.request(request_url, part_path, options, request)
 	else:
 		download = await PackRatLocalFileClient.copy_to_cache_part(local_pack_path, part_path, options, request)
 	if capture_timings:
