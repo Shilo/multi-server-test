@@ -1,4 +1,5 @@
 name: Manual Release Deploy
+run-name: ${{ inputs.version && format('Release v{0}', inputs.version) || 'Release auto-bump' }}
 
 on:
   workflow_dispatch:
@@ -63,8 +64,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1 `
-            -Godot "C:\godot\Godot_v4.6.3-stable_win64.exe"
+          powershell -ExecutionPolicy Bypass -File tools\run_project_version_test.ps1
 
       - name: Set release project version
         id: version
@@ -73,32 +73,15 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           $ErrorActionPreference = "Stop"
-          $godot = "C:\godot\Godot_v4.6.3-stable_win64.exe"
-          function Invoke-ProjectVersion($versionArgs) {
-            $out = Join-Path $env:RUNNER_TEMP "project_version.out.log"
-            $err = Join-Path $env:RUNNER_TEMP "project_version.err.log"
-            Remove-Item -Force -Path $out, $err -ErrorAction SilentlyContinue
-            $args = @("--headless", "--path", ".", "--script", "tools\project_version.gd", "--") + $versionArgs
-            $process = Start-Process -FilePath $godot -ArgumentList $args -WorkingDirectory "." -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
-            $process.WaitForExit(30000) | Out-Null
-            $process.Refresh()
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-              throw "Project version command timed out: $($versionArgs -join ' ')"
-            }
-            if (Test-Path $out) { Get-Content -LiteralPath $out -Raw | Write-Host }
-            if (Test-Path $err) { Get-Content -LiteralPath $err -Raw | Write-Host }
-            $exitCode = if ($null -eq $process.ExitCode) { 0 } else { $process.ExitCode }
-            if ($exitCode -ne 0) {
-              throw "Project version command failed with exit code $exitCode"
-            }
-          }
-
           $requestedVersion = "$env:REQUESTED_VERSION".Trim()
           if ([string]::IsNullOrWhiteSpace($requestedVersion)) {
-            Invoke-ProjectVersion @("--bump-minor")
+            powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -BumpMinor
           } else {
-            Invoke-ProjectVersion @("--set", $requestedVersion)
+            powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -Set $requestedVersion
+          }
+          $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+          if ($exitCode -ne 0) {
+            throw "Project version update failed"
           }
 
           $project = Get-Content -LiteralPath project.godot -Raw

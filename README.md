@@ -366,9 +366,9 @@ powershell -ExecutionPolicy Bypass -File tools\export_all.ps1 -Release
 Inspect or update the project version with Godot:
 
 ```powershell
-& $godot --headless --path . --script tools\project_version.gd -- --print
-& $godot --headless --path . --script tools\project_version.gd -- --set 1.4
-& $godot --headless --path . --script tools\project_version.gd -- --bump-minor
+powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -Print
+powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -Set 1.4
+powershell -ExecutionPolicy Bypass -File tools\project_version.ps1 -BumpMinor
 ```
 
 The version format is `MAJOR.MINOR`; minor rolls from `9` to the next major
@@ -457,6 +457,12 @@ and Web world packs. If a release tag already exists, it must point at the exact
 release commit or the workflow fails before publishing. The VPS stop/upload/start
 step is intentionally not automated yet because the VPS service name, release
 directory, SSH user, and database backup flow do not exist in this repo yet.
+
+The workflow title shows `Release v<version>` when an exact `version` input is
+provided. Auto-bump runs are titled `Release auto-bump` because GitHub computes
+workflow run names before steps can read and bump `project.godot`; the computed
+version is still written to logs, the release commit, the tag, and the artifact
+name.
 
 Release deploys intentionally publish the Web client and every world pack
 together. That keeps the client, PackRat PCK metadata, and server artifact on

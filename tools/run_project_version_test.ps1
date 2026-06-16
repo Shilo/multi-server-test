@@ -1,44 +1,19 @@
-param(
-    [string]$Godot = "C:\Programming_Files\Godot\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64.exe"
-)
-
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $ProjectFile = Join-Path $ProjectRoot "project.godot"
-$VersionScript = Join-Path $PSScriptRoot "project_version.gd"
+$VersionScript = Join-Path $PSScriptRoot "project_version.ps1"
 $LogRoot = Join-Path $ProjectRoot ".logs\project_version_test"
 $originalProjectFile = Get-Content -LiteralPath $ProjectFile -Raw
-$script:ProjectVersionInvokeIndex = 0
 
 Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
 function Invoke-ProjectVersion([string[]]$VersionArgs) {
-    $script:ProjectVersionInvokeIndex += 1
-    $label = $VersionArgs -join "_"
-    $safeLabel = $label -replace '[^a-zA-Z0-9_.-]', '_'
-    $out = Join-Path $LogRoot "$($script:ProjectVersionInvokeIndex)_$safeLabel.out.log"
-    $err = Join-Path $LogRoot "$($script:ProjectVersionInvokeIndex)_$safeLabel.err.log"
-    $commandArgs = @("--headless", "--path", $ProjectRoot, "--script", $VersionScript, "--") + $VersionArgs
-    $process = Start-Process -FilePath $Godot -ArgumentList $commandArgs -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
-    $process.WaitForExit(30000) | Out-Null
-    $process.Refresh()
-    if (-not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        throw "Project version command timed out: $($VersionArgs -join ' ')"
-    }
-
-    $outputParts = @()
-    if (Test-Path $out) {
-        $outputParts += Get-Content -LiteralPath $out -Raw
-    }
-    if (Test-Path $err) {
-        $outputParts += Get-Content -LiteralPath $err -Raw
-    }
-    $exitCode = if ($null -eq $process.ExitCode) { 0 } else { $process.ExitCode }
+    $output = & powershell -ExecutionPolicy Bypass -File $VersionScript @VersionArgs 2>&1
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     return @{
         ExitCode = $exitCode
-        Output = ($outputParts -join "`n").Trim()
+        Output = ($output -join "`n").Trim()
     }
 }
 
@@ -82,14 +57,14 @@ function Write-StepResult($label, $result) {
 }
 
 try {
-    $selfTest = Invoke-ProjectVersion -VersionArgs @("--self-test")
+    $selfTest = Invoke-ProjectVersion -VersionArgs @("-SelfTest")
     Write-StepResult "self-test" $selfTest
     if ($selfTest.ExitCode -ne 0) {
         throw "Project version self-test failed: $($selfTest.Output)"
     }
 
     $expectedBump = Next-MinorVersion (Read-ProjectVersion)
-    $bump = Invoke-ProjectVersion -VersionArgs @("--bump-minor")
+    $bump = Invoke-ProjectVersion -VersionArgs @("-BumpMinor")
     Write-StepResult "bump-minor" $bump
     if ($bump.ExitCode -ne 0) {
         throw "Bumping project version failed: $($bump.Output)"
@@ -98,7 +73,7 @@ try {
 
     [System.IO.File]::WriteAllText($ProjectFile, $originalProjectFile, (New-Object System.Text.UTF8Encoding($false)))
 
-    $set = Invoke-ProjectVersion -VersionArgs @("--set", "0.8")
+    $set = Invoke-ProjectVersion -VersionArgs @("-Set", "0.8")
     Write-StepResult "set-0.8" $set
     if ($set.ExitCode -ne 0) {
         throw "Setting 0.8 failed: $($set.Output)"

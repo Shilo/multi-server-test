@@ -12,20 +12,8 @@ Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
 function Set-ProjectVersion($version) {
-    $safeVersion = $version -replace '[^a-zA-Z0-9_.-]', '_'
-    $out = Join-Path $LogRoot "project_version_$safeVersion.out.log"
-    $err = Join-Path $LogRoot "project_version_$safeVersion.err.log"
-    $args = @("--headless", "--path", $ProjectRoot, "--script", (Join-Path $PSScriptRoot "project_version.gd"), "--", "--set", $version)
-    $process = Start-Process -FilePath $Godot -ArgumentList $args -WorkingDirectory $ProjectRoot -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
-    $process.WaitForExit(30000) | Out-Null
-    $process.Refresh()
-    if (-not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        throw "Project version command timed out while setting $version"
-    }
-    if (Test-Path $out) { Write-Host (Get-Content -LiteralPath $out -Raw) }
-    if (Test-Path $err) { Write-Host (Get-Content -LiteralPath $err -Raw) }
-    $exitCode = if ($null -eq $process.ExitCode) { 0 } else { $process.ExitCode }
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "project_version.ps1") -Set $version | Out-Host
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     if ($exitCode -ne 0) {
         throw "Could not set project version to $version"
     }
