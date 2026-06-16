@@ -52,12 +52,14 @@ var progress_total_size: int = 0
 ## remote updates. Cache misses still download normally.
 var offline_first: bool = false
 
-## Stable query value appended to remote request URLs. Defaults to the project's
+## Stable query value appended to remote request URLs when
+## [member query_version_key] is missing. Defaults to the project's
 ## [code]application/config/version[/code]. When empty, PackRat does not append
 ## it. This only affects the outbound request URL, not PackRat's cache identity.
 var query_version: String = ""
 
 ## Query key used by [member query_version]. Defaults to [code]"v"[/code].
+## Existing matching URL query keys are preserved unchanged.
 var query_version_key: String = "v"
 
 ## Extra HTTP headers passed to HEAD and GET requests.
