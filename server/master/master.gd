@@ -13,6 +13,7 @@ var perf_monitor: PerfMonitor
 
 
 func _ready() -> void:
+	RuntimeLoopConfig.apply_master()
 	_setup_perf_monitor()
 	world_process_manager.configure_master_endpoint(master_endpoint)
 	master_endpoint.configure_world_process_manager(world_process_manager)

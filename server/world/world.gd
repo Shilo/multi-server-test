@@ -37,6 +37,7 @@ var perf_ping_timer: Timer
 
 
 func _ready() -> void:
+	RuntimeLoopConfig.apply_world()
 	world_key = _parse_world_key()
 	if world_key.is_empty():
 		return

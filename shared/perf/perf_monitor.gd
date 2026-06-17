@@ -85,6 +85,8 @@ func _base_sample() -> Dictionary:
 		"instance": instance_id,
 		"pid": OS.get_process_id(),
 		"uptime_sec": _round(float(Time.get_ticks_msec() - started_msec) / 1000.0, 2),
+		"engine_max_fps": Engine.max_fps,
+		"engine_physics_ticks_per_second": Engine.physics_ticks_per_second,
 		"fps": _round(Performance.get_monitor(Performance.TIME_FPS), 2),
 		"process_msec": _round(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 3),
 		"physics_msec": _round(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, 3),
