@@ -57,8 +57,8 @@ func _add_enet_metrics(metrics: Dictionary, label: String, api: MultiplayerAPI, 
 		var enet_peer: Variant = peer.get_peer(int(peer_id))
 		if enet_peer == null or not enet_peer.has_method("get_statistic"):
 			continue
-		rtt_total += float(enet_peer.get_statistic(3)) # ENetPacketPeer.PEER_ROUND_TRIP_TIME.
-		packet_loss_total += float(enet_peer.get_statistic(0)) # ENetPacketPeer.PEER_PACKET_LOSS.
+		rtt_total += float(enet_peer.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME))
+		packet_loss_total += float(enet_peer.get_statistic(ENetPacketPeer.PEER_PACKET_LOSS))
 		rtt_count += 1
 
 	if rtt_count <= 0:

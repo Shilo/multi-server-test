@@ -8,6 +8,7 @@ const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
 const VERSION_GATE_BYPASS_TEST_ARG := "version_gate_bypass_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
+const SMOKE_PACKRAT_CACHE_DIR_PREFIX := "smoke_packrat_cache_dir="
 const EDITOR_PACK_EXPORT_PRESET_PREFIX := "World Pack - "
 const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
 const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
@@ -621,6 +622,9 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	options.id = world_key
 	options.entry_path = scene_path
 	options.progress_total_size = expected_size
+	var smoke_cache_dir := _smoke_packrat_cache_dir()
+	if not smoke_cache_dir.is_empty():
+		options.cache_dir = smoke_cache_dir
 	if use_editor_export:
 		options.editor_pack_export_preset = _editor_pack_export_preset(world_key)
 		options.editor_simulated_local_load_seconds = EDITOR_SIMULATED_LOCAL_LOAD_SECONDS
@@ -697,6 +701,15 @@ func _wait_for_pack_or_lease_expiry(world_key: String, endpoint: Dictionary, req
 
 func _force_packrat_world_packs() -> bool:
 	return FORCE_PACKRAT_WORLD_PACKS_ARG in launch_args
+
+
+func _smoke_packrat_cache_dir() -> String:
+	if not smoke_test:
+		return ""
+	for arg in launch_args:
+		if arg.begins_with(SMOKE_PACKRAT_CACHE_DIR_PREFIX):
+			return arg.substr(SMOKE_PACKRAT_CACHE_DIR_PREFIX.length()).strip_edges()
+	return ""
 
 
 func _use_editor_pack_exports() -> bool:

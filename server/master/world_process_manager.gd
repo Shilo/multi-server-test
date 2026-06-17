@@ -212,6 +212,8 @@ func perf_stats() -> Dictionary:
 		"worlds_stopping": 0,
 		"world_players": 0,
 		"world_join_reservations": 0,
+		"worlds_rss_mb": 0.0,
+		"server_cluster_rss_mb": PerfProcessProbe.linux_rss_mb_for_pid(OS.get_process_id()),
 	}
 	for world_key in worlds.keys():
 		var state: Dictionary = worlds[world_key]
@@ -224,6 +226,15 @@ func perf_stats() -> Dictionary:
 				stats["worlds_stopping"] = int(stats["worlds_stopping"]) + 1
 		stats["world_players"] = int(stats["world_players"]) + int(state.get("player_count", 0))
 		stats["world_join_reservations"] = int(stats["world_join_reservations"]) + _join_reservation_count(state)
+		var pid := int(state.get("pid", -1))
+		if pid > 0 and OS.is_process_running(pid):
+			var world_rss := PerfProcessProbe.linux_rss_mb_for_pid(pid)
+			stats["worlds_rss_mb"] = _round_metric(float(stats["worlds_rss_mb"]) + world_rss, 2)
+			stats["world_%s_rss_mb" % _safe_metric_key(str(world_key))] = _round_metric(world_rss, 2)
+	stats["server_cluster_rss_mb"] = _round_metric(
+		float(stats["server_cluster_rss_mb"]) + float(stats["worlds_rss_mb"]),
+		2
+	)
 	return stats
 
 
@@ -279,6 +290,15 @@ func _new_launch_token() -> String:
 
 func _new_join_ticket() -> String:
 	return _new_launch_token()
+
+
+func _safe_metric_key(value: String) -> String:
+	return value.replace("-", "_").replace(" ", "_").to_lower()
+
+
+func _round_metric(value: float, digits: int) -> float:
+	var scale := pow(10.0, digits)
+	return round(value * scale) / scale
 
 
 func _poll_world_processes() -> void:

@@ -10,10 +10,23 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $LogRoot = Join-Path $ProjectRoot ".logs\smoke"
+$SmokeRunId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 $BuildRoot = Join-Path $ProjectRoot "builds"
 $WorldPackServeRoot = Join-Path $LogRoot "pack_server"
 $WorldPackRoot = Join-Path $WorldPackServeRoot "world_packs"
-$WorldPackPort = 19100
+
+function Get-FreeTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse("127.0.0.1"), 0)
+    $listener.Start()
+    try {
+        return $listener.LocalEndpoint.Port
+    }
+    finally {
+        $listener.Stop()
+    }
+}
+
+$WorldPackPort = Get-FreeTcpPort
 
 Remove-Item -Recurse -Force -Path $LogRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
@@ -113,14 +126,6 @@ function Refresh-ScriptClassCache {
 }
 
 function Start-WorldPackServer {
-    $existing = Get-CimInstance Win32_Process | Where-Object {
-        ($_.Name -like "python*" -or $_.Name -like "py.exe") -and $_.CommandLine -like "*http.server*$WorldPackPort*"
-    } | Select-Object -First 1
-    if ($existing) {
-        Write-Host "SMOKE_REUSE world_pack_http pid=$($existing.ProcessId)"
-        return $null
-    }
-
     $out = Join-Path $LogRoot "world_pack_http.out.log"
     $err = Join-Path $LogRoot "world_pack_http.err.log"
     $args = @("-m", "http.server", "$WorldPackPort", "--bind", "127.0.0.1", "--directory", $WorldPackServeRoot)
@@ -206,6 +211,36 @@ function Get-WorldKeys {
     return $keys
 }
 
+function Assert-LogContains($path, $marker, $description) {
+    if (-not (Test-Path $path) -or -not (Select-String -Path $path -SimpleMatch $marker -Quiet)) {
+        if (Test-Path $path) {
+            Write-Host (Get-Content $path -Raw)
+        }
+        throw "Missing $description marker: $marker"
+    }
+}
+
+function Assert-Telemetry($clientEntries) {
+    $masterLogPath = Join-Path $LogRoot "master.out.log"
+    Assert-LogContains $masterLogPath "PERF_SAMPLE" "master telemetry"
+    Assert-LogContains $masterLogPath "role=master" "master telemetry role"
+    Assert-LogContains $masterLogPath "master_ws_outbound_buffered_bytes" "master websocket telemetry"
+    Assert-LogContains $masterLogPath "world_processes=" "master world process telemetry"
+    Assert-LogContains $masterLogPath "server_cluster_rss_mb=" "master aggregate RSS telemetry"
+
+    foreach ($clientEntry in $clientEntries) {
+        $clientName = $clientEntry.Name
+        $clientLogPath = Join-Path $LogRoot "$clientName.out.log"
+        Assert-LogContains $clientLogPath "PERF_SAMPLE" "$clientName telemetry"
+        Assert-LogContains $clientLogPath "role=client" "$clientName telemetry role"
+        Assert-LogContains $clientLogPath "client_master_last_msec" "$clientName master latency telemetry"
+        Assert-LogContains $clientLogPath "world_ws_outbound_buffered_bytes" "$clientName world websocket telemetry"
+        if ($UsePackRatWorldPacks -or $UsePackRatEditorExports) {
+            Assert-LogContains $clientLogPath "world_pack_prepare_last_msec" "$clientName PackRat timing telemetry"
+        }
+    }
+}
+
 $worldKeys = Get-WorldKeys
 if (-not ($worldKeys -contains "hub")) {
     throw "Smoke test requires discovered hub world"
@@ -233,6 +268,7 @@ try {
         $clientArgs = @("smoke_test")
         if ($UsePackRatWorldPacks) {
             $clientArgs += "force_packrat_world_packs"
+            $clientArgs += "smoke_packrat_cache_dir=user://pack_rat_smoke/$SmokeRunId/$clientName"
         }
         $clients += @{
             Name = $clientName
@@ -263,6 +299,18 @@ try {
             Write-Host $clientLog
             throw "PackRat smoke did not load any world packs for $clientName"
         }
+        if ($UsePackRatWorldPacks) {
+            $expectedCachePath = "path=user://pack_rat_smoke/$SmokeRunId/$clientName/"
+            if (-not $clientLog.Contains($expectedCachePath)) {
+                Write-Host $clientLog
+                throw "PackRat smoke did not use isolated cache path for $clientName"
+            }
+            $downloadedPackCount = (Select-String -Path $clientLogPath -Pattern "WORLD_PACK_READY .*status=downloaded cache=false").Count
+            if ($downloadedPackCount -lt $worldKeys.Count) {
+                Write-Host $clientLog
+                throw "PackRat smoke expected fresh downloads for $clientName; found $downloadedPackCount downloaded packs"
+            }
+        }
         if ($UsePackRatEditorExports -and -not $clientLog.Contains("WORLD_PACK_EDITOR_EXPORT")) {
             Write-Host $clientLog
             throw "PackRat editor export smoke did not use editor export presets for $clientName"
@@ -291,6 +339,8 @@ try {
         throw "Expected at least $expectedChatMessages chat messages, found $chatMessages"
     }
 
+    Assert-Telemetry $clients
+
     foreach ($worldKey in $worldKeys) {
         Wait-LogMarker "master" "MASTER_WORLD_STOP_REQUESTED key=$worldKey reason=idle" 15
         Wait-LogMarker "master" "MASTER_WORLD_STOPPED key=$worldKey" 15
@@ -308,6 +358,7 @@ try {
     $cleanupClientArgs = @("smoke_test")
     if ($UsePackRatWorldPacks) {
         $cleanupClientArgs += "force_packrat_world_packs"
+        $cleanupClientArgs += "smoke_packrat_cache_dir=user://pack_rat_smoke/$SmokeRunId/client_cleanup"
     }
     $cleanupClient = Start-Scene "client_cleanup" "res://client/client.tscn" $cleanupClientArgs -Headless
     $clients += @{

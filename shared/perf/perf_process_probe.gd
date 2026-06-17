@@ -4,14 +4,14 @@ const LINUX_CLOCK_TICKS_PER_SECOND := 100.0
 
 var previous_process_ticks := -1.0
 var previous_total_ticks := -1.0
-var previous_net_rx_bytes := -1
-var previous_net_tx_bytes := -1
+var previous_net_totals := {}
+var previous_net_sample_msec := -1
 
 
 func sample() -> Dictionary:
 	var metrics: Dictionary = {
-		"rss_mb": _round(_linux_rss_mb(), 2),
-		"vm_mb": _round(_linux_vm_mb(), 2),
+		"rss_mb": _round(linux_rss_mb_for_pid(OS.get_process_id()), 2),
+		"vm_mb": _round(linux_vm_mb_for_pid(OS.get_process_id()), 2),
 		"static_mb": _round(_godot_static_memory_mb(), 2),
 		"static_max_mb": _round(_godot_static_memory_max_mb(), 2),
 		"cpu_pct": 0.0,
@@ -19,6 +19,14 @@ func sample() -> Dictionary:
 		"host_net_tx_mb": 0.0,
 		"host_net_rx_kbps": 0.0,
 		"host_net_tx_kbps": 0.0,
+		"host_external_net_rx_mb": 0.0,
+		"host_external_net_tx_mb": 0.0,
+		"host_external_net_rx_kbps": 0.0,
+		"host_external_net_tx_kbps": 0.0,
+		"host_loopback_net_rx_mb": 0.0,
+		"host_loopback_net_tx_mb": 0.0,
+		"host_loopback_net_rx_kbps": 0.0,
+		"host_loopback_net_tx_kbps": 0.0,
 	}
 	_add_cpu_metrics(metrics)
 	_add_network_metrics(metrics)
@@ -41,24 +49,33 @@ func _add_cpu_metrics(metrics: Dictionary) -> void:
 
 
 func _add_network_metrics(metrics: Dictionary) -> void:
-	var totals: Dictionary = _linux_network_bytes()
+	var totals: Dictionary = _linux_network_bytes_by_scope()
 	if totals.is_empty():
 		return
-	var rx_bytes := int(totals.get("rx", 0))
-	var tx_bytes := int(totals.get("tx", 0))
-	metrics["host_net_rx_mb"] = _round(float(rx_bytes) / 1048576.0, 2)
-	metrics["host_net_tx_mb"] = _round(float(tx_bytes) / 1048576.0, 2)
-	if previous_net_rx_bytes >= 0:
-		var rx_delta: int = maxi(rx_bytes - previous_net_rx_bytes, 0)
-		var tx_delta: int = maxi(tx_bytes - previous_net_tx_bytes, 0)
-		metrics["host_net_rx_kbps"] = _round(float(rx_delta) / 1024.0, 2)
-		metrics["host_net_tx_kbps"] = _round(float(tx_delta) / 1024.0, 2)
-	previous_net_rx_bytes = rx_bytes
-	previous_net_tx_bytes = tx_bytes
+	var now_msec := Time.get_ticks_msec()
+	var elapsed_seconds := 0.0
+	if previous_net_sample_msec >= 0:
+		elapsed_seconds = maxf(float(now_msec - previous_net_sample_msec) / 1000.0, 0.001)
+
+	for scope in ["host", "host_external", "host_loopback"]:
+		var rx_bytes := int(totals.get("%s_rx" % scope, 0))
+		var tx_bytes := int(totals.get("%s_tx" % scope, 0))
+		metrics["%s_net_rx_mb" % scope] = _round(float(rx_bytes) / 1048576.0, 2)
+		metrics["%s_net_tx_mb" % scope] = _round(float(tx_bytes) / 1048576.0, 2)
+		if elapsed_seconds > 0.0 and previous_net_totals.has("%s_rx" % scope):
+			var previous_rx_bytes := int(previous_net_totals.get("%s_rx" % scope, 0))
+			var previous_tx_bytes := int(previous_net_totals.get("%s_tx" % scope, 0))
+			var rx_delta: int = maxi(rx_bytes - previous_rx_bytes, 0)
+			var tx_delta: int = maxi(tx_bytes - previous_tx_bytes, 0)
+			metrics["%s_net_rx_kbps" % scope] = _round((float(rx_delta) * 8.0 / 1000.0) / elapsed_seconds, 2)
+			metrics["%s_net_tx_kbps" % scope] = _round((float(tx_delta) * 8.0 / 1000.0) / elapsed_seconds, 2)
+
+	previous_net_totals = totals
+	previous_net_sample_msec = now_msec
 
 
-func _linux_rss_mb() -> float:
-	var status := _read_text_file("/proc/self/status")
+static func linux_rss_mb_for_pid(pid: int) -> float:
+	var status := _read_text_file("/proc/%d/status" % pid)
 	if status.is_empty():
 		return 0.0
 	for line in status.split("\n"):
@@ -67,8 +84,8 @@ func _linux_rss_mb() -> float:
 	return 0.0
 
 
-func _linux_vm_mb() -> float:
-	var status := _read_text_file("/proc/self/status")
+static func linux_vm_mb_for_pid(pid: int) -> float:
+	var status := _read_text_file("/proc/%d/status" % pid)
 	if status.is_empty():
 		return 0.0
 	for line in status.split("\n"):
@@ -104,25 +121,42 @@ func _linux_total_cpu_ticks() -> float:
 	return total
 
 
-func _linux_network_bytes() -> Dictionary:
+func _linux_network_bytes_by_scope() -> Dictionary:
 	var text := _read_text_file("/proc/net/dev")
 	if text.is_empty():
 		return {}
-	var rx := 0
-	var tx := 0
+	var host_rx := 0
+	var host_tx := 0
+	var external_rx := 0
+	var external_tx := 0
+	var loopback_rx := 0
+	var loopback_tx := 0
 	for line in text.split("\n", false):
 		if not line.contains(":"):
 			continue
 		var parts := line.split(":", false, 1)
 		var iface := parts[0].strip_edges()
-		if iface == "lo":
-			continue
 		var fields := parts[1].split(" ", false)
 		if fields.size() < 16:
 			continue
-		rx += int(fields[0])
-		tx += int(fields[8])
-	return {"rx": rx, "tx": tx}
+		var rx := int(fields[0])
+		var tx := int(fields[8])
+		host_rx += rx
+		host_tx += tx
+		if iface == "lo":
+			loopback_rx += rx
+			loopback_tx += tx
+		else:
+			external_rx += rx
+			external_tx += tx
+	return {
+		"host_rx": host_rx,
+		"host_tx": host_tx,
+		"host_external_rx": external_rx,
+		"host_external_tx": external_tx,
+		"host_loopback_rx": loopback_rx,
+		"host_loopback_tx": loopback_tx,
+	}
 
 
 func _godot_static_memory_mb() -> float:
@@ -133,7 +167,7 @@ func _godot_static_memory_max_mb() -> float:
 	return float(Performance.get_monitor(Performance.MEMORY_STATIC_MAX)) / 1048576.0
 
 
-func _read_text_file(path: String) -> String:
+static func _read_text_file(path: String) -> String:
 	if not FileAccess.file_exists(path):
 		return ""
 	var file := FileAccess.open(path, FileAccess.READ)
@@ -142,7 +176,7 @@ func _read_text_file(path: String) -> String:
 	return file.get_as_text()
 
 
-func _first_int(text: String) -> int:
+static func _first_int(text: String) -> int:
 	var digits := ""
 	for i in range(text.length()):
 		var character := text[i]
@@ -153,6 +187,6 @@ func _first_int(text: String) -> int:
 	return int(digits) if not digits.is_empty() else 0
 
 
-func _round(value: float, digits: int) -> float:
+static func _round(value: float, digits: int) -> float:
 	var scale := pow(10.0, digits)
 	return round(value * scale) / scale
