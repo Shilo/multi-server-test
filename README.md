@@ -60,6 +60,7 @@ Main documentation:
 - [Godot Multi-Server Architecture Guide](docs/godot-multi-server-architecture-guide.md): canonical current architecture.
 - [VirtuCade Database MVP](docs/virtucade-database-mvp.md): the implemented SQLite persistence, guest/login system, and player save/resume.
 - [VirtuCade Experience Architecture Research](docs/virtucade-experience-architecture-research.md): Roblox-like world/experience architecture research for the custom Godot path.
+- [VirtuCade Replication, Lifecycle, And Session Roadmap](docs/virtucade-replication-lifecycle-and-session-roadmap.md): future roadmap for replication scaling, explicit world lifecycle states, and authenticated reconnect/session design.
 - [VirtuCade Database Handling Spike](docs/virtucade-database-handling-spike.md): master-owned persistence, SQLite, auth transport, and world save/load research.
 - [VirtuCade Custom Godot, SQLite, And PocketBase Decision Challenge](docs/virtucade-custom-godot-sqlite-pocketbase-decision.md): custom infrastructure decision spike.
 - [Godot Tiny MMO Comparison Research](docs/godot-tiny-mmo-comparison.md): Tiny MMO comparison and lessons.
