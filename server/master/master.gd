@@ -3,6 +3,7 @@ extends Node
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 
 var master_api: MultiplayerAPI
+var perf_monitor: PerfMonitor
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -12,6 +13,7 @@ var master_api: MultiplayerAPI
 
 
 func _ready() -> void:
+	_setup_perf_monitor()
 	world_process_manager.configure_master_endpoint(master_endpoint)
 	master_endpoint.configure_world_process_manager(world_process_manager)
 	master_endpoint.configure_account_endpoint(account_endpoint)
@@ -29,10 +31,18 @@ func _exit_tree() -> void:
 func _start_master_server() -> void:
 	master_api = MultiplayerAPI.create_default_interface()
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
+	if perf_monitor:
+		perf_monitor.register_multiplayer_api("master", master_api)
 	master_api.peer_connected.connect(func(peer_id: int) -> void:
+		if perf_monitor:
+			perf_monitor.increment("master_peer_connected")
+			perf_monitor.set_gauge("master_peers", _master_peer_count())
 		NetLog.print_line("[MASTER] peer connected: %s" % peer_id)
 	)
 	master_api.peer_disconnected.connect(func(peer_id: int) -> void:
+		if perf_monitor:
+			perf_monitor.increment("master_peer_disconnected")
+			perf_monitor.set_gauge("master_peers", _master_peer_count())
 		NetLog.print_line("[MASTER] peer disconnected: %s" % peer_id)
 		master_endpoint.unregister_peer(peer_id)
 		chat_endpoint.unregister_peer(peer_id)
@@ -57,6 +67,33 @@ func _start_master_server() -> void:
 			NET_CONFIG.world_pack_dir(),
 		]
 	)
+
+
+func _setup_perf_monitor() -> void:
+	perf_monitor = PerfMonitor.new()
+	perf_monitor.name = "PerfMonitor"
+	perf_monitor.configure("master", "master", _master_perf_stats)
+	add_child(perf_monitor)
+
+
+func _master_perf_stats() -> Dictionary:
+	var stats := {
+		"master_peers": _master_peer_count(),
+		"registered_worlds": master_endpoint.registered_world_count() if master_endpoint else 0,
+		"validated_clients": master_endpoint.validated_client_peers.size() if master_endpoint else 0,
+		"travel_leases": master_endpoint.travel_leases.size() if master_endpoint else 0,
+		"pending_world_admissions": master_endpoint.pending_world_admissions.size() if master_endpoint else 0,
+		"active_world_join_requests": master_endpoint.active_world_join_requests.size() if master_endpoint else 0,
+	}
+	if world_process_manager and world_process_manager.has_method("perf_stats"):
+		stats.merge(world_process_manager.perf_stats(), true)
+	return stats
+
+
+func _master_peer_count() -> int:
+	if not master_api or not master_api.multiplayer_peer:
+		return 0
+	return master_api.get_peers().size()
 
 
 func _project_version() -> String:

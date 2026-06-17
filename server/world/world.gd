@@ -32,6 +32,8 @@ var expected_join_tickets := {}
 var authorized_join_metadata := {}
 var peer_master_ids := {}
 var pending_transfers := {}
+var perf_monitor: PerfMonitor
+var perf_ping_timer: Timer
 
 
 func _ready() -> void:
@@ -45,6 +47,10 @@ func _ready() -> void:
 
 	world_api = MultiplayerAPI.create_default_interface()
 	master_api = MultiplayerAPI.create_default_interface()
+	_setup_perf_monitor()
+	if perf_monitor:
+		perf_monitor.register_multiplayer_api("world", world_api)
+		perf_monitor.register_multiplayer_api("master", master_api)
 	get_tree().set_multiplayer(world_api, get_node("WorldNet").get_path())
 	get_tree().set_multiplayer(master_api, get_node("MasterNet").get_path())
 	$MasterNet/MasterEndpoint.world_registered.connect(_on_world_registered)
@@ -52,6 +58,7 @@ func _ready() -> void:
 	$MasterNet/MasterEndpoint.world_join_expected.connect(_on_world_join_expected)
 	$MasterNet/MasterEndpoint.world_transfer_lease_created_received.connect(_on_world_transfer_lease_created_received)
 	$MasterNet/MasterEndpoint.world_transfer_result_received.connect(_on_world_transfer_result_received)
+	$MasterNet/MasterEndpoint.perf_pong_received.connect(_on_master_perf_pong_received)
 	$WorldNet/WorldEndpoint.world_join_authorized.connect(_on_world_join_authorized)
 	$WorldNet/WorldEndpoint.portal_use_requested.connect(_on_portal_use_requested)
 
@@ -59,6 +66,9 @@ func _ready() -> void:
 	_load_world_scene()
 	world_api.peer_connected.connect(func(peer_id: int) -> void:
 		pending_players[peer_id] = true
+		if perf_monitor:
+			perf_monitor.increment("world_peer_connected")
+			perf_monitor.set_gauge("world_peers", _world_peer_count())
 		NetLog.print_line("[WORLD %s] peer connected: %s" % [world_key, peer_id])
 	)
 	world_api.peer_disconnected.connect(func(peer_id: int) -> void:
@@ -70,6 +80,9 @@ func _ready() -> void:
 		authorized_join_metadata.erase(peer_id)
 		peer_master_ids.erase(peer_id)
 		pending_transfers.erase(peer_id)
+		if perf_monitor:
+			perf_monitor.increment("world_peer_disconnected")
+			perf_monitor.set_gauge("world_peers", _world_peer_count())
 		NetLog.print_line("[WORLD %s] peer disconnected: %s" % [world_key, peer_id])
 		_remove_player(peer_id)
 		if was_connected:
@@ -144,6 +157,7 @@ func _connect_to_master() -> void:
 		NetLog.print_line("[WORLD %s] master registry disconnected" % world_key)
 		if _has_no_player_activity():
 			NetLog.print_line("WORLD_STOPPING key=%s reason=idle" % world_key)
+			_stop_perf_ping_timer()
 			get_tree().quit(0)
 			return
 
@@ -226,6 +240,7 @@ func _start_heartbeat() -> void:
 	position_save_timer.autostart = true
 	position_save_timer.timeout.connect(_save_all_player_states)
 	add_child(position_save_timer)
+	_start_perf_ping_timer()
 
 
 func _schedule_master_reconnect() -> void:
@@ -257,6 +272,64 @@ func _on_world_registered(registered_world_key: String) -> void:
 	_start_heartbeat()
 	_send_heartbeat()
 	NetLog.print_line("WORLD_REGISTERED key=%s" % world_key)
+
+
+func _setup_perf_monitor() -> void:
+	perf_monitor = PerfMonitor.new()
+	perf_monitor.name = "PerfMonitor"
+	perf_monitor.configure("world", world_key, _world_perf_stats)
+	add_child(perf_monitor)
+
+
+func _world_perf_stats() -> Dictionary:
+	return {
+		"world": world_key,
+		"world_peers": _world_peer_count(),
+		"connected_players": connected_players.size(),
+		"pending_players": pending_players.size(),
+		"expected_join_tickets": expected_join_tickets.size(),
+		"authorized_join_metadata": authorized_join_metadata.size(),
+		"pending_transfers": pending_transfers.size(),
+		"registered_with_master": int(registered_with_master),
+	}
+
+
+func _world_peer_count() -> int:
+	if not world_api or not world_api.multiplayer_peer:
+		return 0
+	return world_api.get_peers().size()
+
+
+func _start_perf_ping_timer() -> void:
+	if perf_ping_timer:
+		return
+	perf_ping_timer = Timer.new()
+	perf_ping_timer.name = "PerfPingTimer"
+	perf_ping_timer.wait_time = 2.0
+	perf_ping_timer.autostart = true
+	perf_ping_timer.timeout.connect(_send_master_perf_ping)
+	add_child(perf_ping_timer)
+
+
+func _stop_perf_ping_timer() -> void:
+	if not perf_ping_timer:
+		return
+	perf_ping_timer.stop()
+	perf_ping_timer.queue_free()
+	perf_ping_timer = null
+
+
+func _send_master_perf_ping() -> void:
+	if not master_api or not master_api.multiplayer_peer:
+		return
+	if master_api.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return
+	$MasterNet/MasterEndpoint.perf_ping.rpc_id(1, "world_master", Time.get_ticks_msec())
+
+
+func _on_master_perf_pong_received(label: String, sent_msec: int, _server_msec: int) -> void:
+	if perf_monitor:
+		perf_monitor.observe_latency(label, Time.get_ticks_msec() - sent_msec)
 
 
 func _on_world_join_expected(expected_world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary, transfer_request_id: String, travel_lease_id: String) -> void:
@@ -570,4 +643,5 @@ func _stop_registration_timer() -> void:
 
 func _on_world_shutdown_requested(reason: String) -> void:
 	NetLog.print_line("WORLD_STOPPING key=%s reason=%s" % [world_key, reason])
+	_stop_perf_ping_timer()
 	get_tree().quit(0)

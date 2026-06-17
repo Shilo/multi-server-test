@@ -5,6 +5,7 @@ signal world_join_authorized(peer_id: int, join_ticket: String)
 signal world_join_rejected(world_key: String, reason: String)
 signal portal_use_requested(peer_id: int, portal_name: String)
 signal portal_use_denied(portal_name: String, reason: String)
+signal perf_pong_received(label: String, sent_msec: int, server_msec: int)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
@@ -62,6 +63,17 @@ func request_portal_use(portal_name: String) -> void:
 	portal_use_requested.emit(sender_id, portal_name)
 
 
+@rpc("any_peer", "call_remote", "unreliable")
+func perf_ping(label: String, sent_msec: int) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not _is_peer_open(sender_id):
+		return
+	perf_pong.rpc_id(sender_id, label, sent_msec, Time.get_ticks_msec())
+
+
 @rpc("authority", "call_remote", "reliable")
 func deny_portal_use(portal_name: String, reason: String) -> void:
 	if multiplayer.is_server():
@@ -69,6 +81,18 @@ func deny_portal_use(portal_name: String, reason: String) -> void:
 
 	NetLog.print_line("[CLIENT] portal use denied portal=%s reason=%s" % [portal_name, reason])
 	portal_use_denied.emit(portal_name, reason)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func perf_pong(label: String, sent_msec: int, server_msec: int) -> void:
+	if multiplayer.is_server():
+		return
+
+	perf_pong_received.emit(label, sent_msec, server_msec)
+
+
+func _is_peer_open(peer_id: int) -> bool:
+	return NET_UTIL.is_peer_open(multiplayer, peer_id)
 
 
 func _is_join_admitted(sender_id: int, join_ticket: String) -> bool:

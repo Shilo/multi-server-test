@@ -11,6 +11,7 @@ signal world_shutdown_requested(reason: String)
 signal world_join_expected(world_key: String, join_ticket: String, expires_at: float, master_peer_id: int, source_world: String, target_portal: String, identity: Dictionary, transfer_request_id: String, travel_lease_id: String)
 signal world_transfer_lease_created_received(master_peer_id: int, target_world: String, transfer_request_id: String, travel_lease_id: String, hard_expires_at: float)
 signal world_transfer_result_received(master_peer_id: int, target_world: String, approved: bool, transfer_request_id: String, travel_lease_id: String)
+signal perf_pong_received(label: String, sent_msec: int, server_msec: int)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const NET_UTIL := preload("res://shared/net/net_util.gd")
@@ -408,6 +409,17 @@ func save_player_state(master_peer_id: int, world_key: String, pos_x: float, pos
 		return
 	if account_endpoint and account_endpoint.has_method("save_position"):
 		account_endpoint.save_position(master_peer_id, world_key, pos_x, pos_y)
+
+
+@rpc("any_peer", "call_remote", "unreliable")
+func perf_ping(label: String, sent_msec: int) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not _is_peer_open(sender_id):
+		return
+	perf_pong.rpc_id(sender_id, label, sent_msec, Time.get_ticks_msec())
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -984,6 +996,14 @@ func world_transfer_completed(master_peer_id: int, target_world: String, approve
 		return
 
 	world_transfer_result_received.emit(master_peer_id, target_world, approved, transfer_request_id, travel_lease_id)
+
+
+@rpc("authority", "call_remote", "unreliable")
+func perf_pong(label: String, sent_msec: int, server_msec: int) -> void:
+	if multiplayer.is_server():
+		return
+
+	perf_pong_received.emit(label, sent_msec, server_msec)
 
 
 func _is_peer_open(peer_id: int) -> bool:

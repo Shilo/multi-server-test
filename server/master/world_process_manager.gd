@@ -204,6 +204,29 @@ func world_stop_kill_seconds() -> float:
 	return WORLD_STOP_KILL_SECONDS
 
 
+func perf_stats() -> Dictionary:
+	var stats := {
+		"world_processes": worlds.size(),
+		"worlds_running": 0,
+		"worlds_starting": 0,
+		"worlds_stopping": 0,
+		"world_players": 0,
+		"world_join_reservations": 0,
+	}
+	for world_key in worlds.keys():
+		var state: Dictionary = worlds[world_key]
+		match str(state.get("state", "")):
+			"running":
+				stats["worlds_running"] = int(stats["worlds_running"]) + 1
+			"starting":
+				stats["worlds_starting"] = int(stats["worlds_starting"]) + 1
+			"stopping":
+				stats["worlds_stopping"] = int(stats["worlds_stopping"]) + 1
+		stats["world_players"] = int(stats["world_players"]) + int(state.get("player_count", 0))
+		stats["world_join_reservations"] = int(stats["world_join_reservations"]) + _join_reservation_count(state)
+	return stats
+
+
 func _launch_world(world_key: String) -> bool:
 	var launch_token := _new_launch_token()
 	var arguments := _world_server_arguments(world_key, launch_token)

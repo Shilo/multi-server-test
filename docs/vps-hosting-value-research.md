@@ -140,6 +140,231 @@ For under $20, the best first tests are OVHcloud VPS-3 for raw paper value,
 netcup RS 1000 G12 for dedicated-core stability, and Vultr High Frequency
 2c/2gb as a mainstream shared-CPU comparison.
 
+## Developer Testing When The Server Is Not 24/7
+
+For private developer testing, hourly-with-monthly-cap billing can be the best
+value. The bill is mostly based on how long the server exists, not how many
+players connect. With one developer and static PCK hosting elsewhere, bandwidth
+should be effectively irrelevant unless a test goes very wrong.
+
+Important rule: on many cloud providers, "stopped" servers can still bill
+because disk/IP resources remain reserved. For the lowest bill, destroy/delete
+the test server after use and recreate it from scripts, images, or release
+artifacts next time.
+
+This table assumes:
+
+- light dev month: 40 server hours;
+- heavy dev month: 120 server hours;
+- no paid backups/snapshots;
+- no transfer overage;
+- PCK/Web downloads stay on the static host.
+
+| Rank | Provider / plan | Billing style | CPU | RAM | Monthly cap | 40h estimate | 120h estimate | Dev value | Fit |
+|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| 1 | Vultr Regular 2c/4gb | hourly, capped | 2 shared vCPU | 4 GB | $20 | ~$1.19 | ~$3.57 | ~14.6 | Best default dev box. |
+| 2 | Vultr High Frequency 2c/4gb | hourly, capped | 2 shared vCPU | 4 GB | $24 | ~$1.43 | ~$4.29 | ~12.9 | Better CPU class, still cheap. |
+| 3 | DigitalOcean Basic 2c/4gb | per-second/hourly, capped | 2 shared vCPU | 4 GB | $24 | ~$1.43 | ~$4.29 | ~12.4 | Polished mainstream comparison. |
+| 4 | Akamai/Linode 4GB | hourly, capped | 2 shared vCPU | 4 GB | $24 | ~$1.44 | ~$4.32 | ~12.3 | Good mainstream comparison. |
+| 5 | Hetzner CPX11 USA | hourly, capped | 2 shared vCPU | 2 GB | ~$21.09 | ~$1.16 | ~$3.47 | ~12.7 | Cheap to sample, RAM is tight. |
+| 6 | Vultr Regular 1c/2gb | hourly, capped | 1 shared vCPU | 2 GB | $10 | ~$0.60 | ~$1.79 | ~14.2 | Cheapest smoke-test box. |
+| 7 | Akamai/Linode 2GB | hourly, capped | 1 shared vCPU | 2 GB | $12 | ~$0.72 | ~$2.16 | ~12.5 | Simple tiny test box. |
+| 8 | DigitalOcean Basic 2GB | per-second/hourly, capped | 1 shared vCPU | 2 GB | $12 | ~$0.71 | ~$2.14 | ~11.9 | Simple tiny test box. |
+| 9 | Hetzner CPX12 | hourly, capped | 1 shared vCPU | 2 GB | ~$18.59 | ~$1.02 | ~$3.06 | low | Weak value, but cheap for short tests. |
+| 10 | OVHcloud VPS-3 | flat monthly VPS | 6 shared vCore | 12 GB | $12.32 | $12.32 | $12.32 | 3.49 | Great if kept all month, not hourly. |
+| 11 | netcup RS 1000 G12 | flat monthly/contract | 4 dedicated cores | 8 GB | EUR 12.79 | EUR 12.79 | EUR 12.79 | ~2.5 | Great stable month-long test host. |
+| 12 | OVHcloud VPS-2 | flat monthly VPS | 4 shared vCore | 8 GB | $8.50 | $8.50 | $8.50 | 3.31 | Great if kept all month, not hourly. |
+
+For occasional dev testing, use **Vultr Regular 2c/4gb** first. It has enough
+RAM to run the master plus a few Godot world processes, costs only a few dollars
+for normal private testing, and has predictable monthly caps. Use **Vultr High
+Frequency 2c/4gb** if world tick consistency looks CPU-sensitive.
+
+Use **OVH VPS-3** or **netcup RS 1000 G12** when the goal is a week-long or
+month-long burn-in test. They are excellent monthly values, but they lose the
+main advantage of destroy-after-use dev testing.
+
+Billing sources:
+
+- [Vultr server billing](https://docs.vultr.com/support/platform/billing/how-am-i-billed-for-my-servers)
+- [DigitalOcean Droplet pricing](https://docs.digitalocean.com/products/droplets/details/pricing/)
+- [Akamai/Linode billing](https://techdocs.akamai.com/cloud-computing/docs/understanding-how-billing-works)
+- [Hetzner Cloud billing FAQ](https://docs.hetzner.com/cloud/billing/faq/)
+
+## Developer Testing Setup Ease
+
+Current project workflow:
+
+- GitHub Actions already builds the Linux server artifact.
+- GitHub Actions already deploys the Web client and PCK files to GitHub Pages.
+- The workflow intentionally stops at `VPS_DEPLOY_NOT_CONFIGURED`.
+- A dev VPS workflow would need to:
+  1. create or reuse a temporary Ubuntu VPS;
+  2. inject an SSH key and basic cloud-init/startup script;
+  3. upload `builds/server/**` and `builds/web/world_packs/**`;
+  4. start the server process;
+  5. print the public host/IP for browser testing;
+  6. destroy the VPS when the test is over.
+
+For this project, a comfortable "cPanel" is less important than a comfortable
+cloud console, API token, CLI, SSH keys, cloud-init/startup scripts, and a clean
+way to destroy servers after a dev session. Traditional cPanel/Plesk would be
+extra software and is not useful for the Godot gameplay server itself.
+
+Ranking by **ease of GitHub Actions dev testing**, filtered toward under-$20 or
+near-under-$20 plans with 2+ CPU:
+
+| Rank | Provider / plan | Dev cost style | Specs | Setup comfort | Meaningful difference |
+|---:|---|---|---:|---|---|
+| 1 | DigitalOcean Basic 2c/2gb | per-second/hourly capped, $18/mo max | 2 shared vCPU, 2 GB | Best | Cleanest panel, official `doctl`, official GitHub Action, easy SSH keys and cloud-init. RAM is tight for many worlds. |
+| 2 | Vultr Regular 2c/2gb | hourly capped, $15/mo max | 2 shared vCPU, 2 GB | Very good | Easy panel and API. Less first-party GitHub Actions polish than DigitalOcean. |
+| 3 | Vultr High Frequency 2c/2gb | hourly capped, $18/mo max | 2 shared vCPU, 2 GB | Very good | Same workflow as Vultr regular, better CPU class for testing tick stability. |
+| 4 | Vultr Regular 2c/4gb | hourly capped, $20/mo max | 2 shared vCPU, 4 GB | Very good | Slightly above the target, but probably the best practical dev spec. |
+| 5 | Hetzner CX23 Europe | hourly capped, cheap monthly max | 2 shared vCPU, 4 GB | Good | Best price/spec if Europe latency is acceptable. API/CLI/cloud-init are good, onboarding/account friction can be higher. |
+| 6 | OVHcloud VPS-2 | flat monthly, $8.50/mo | 4 shared vCore, 8 GB | Good | Official GitHub Actions SSH deploy guide and easy panel. Not ideal for destroy-after-use because it is monthly VPS billing. |
+| 7 | OVHcloud VPS-3 | flat monthly, $12.32/mo | 6 shared vCore, 12 GB | Good | Great specs for a month-long dev server, but not as cost-efficient for short sessions. |
+| 8 | netcup RS 1000 G12 | flat monthly/contract, EUR 12.79/mo | 4 dedicated cores, 8 GB | Medium | Best CPU stability for the money, but more contract/account-panel friction and less cloud-native temporary-server flow. |
+| 9 | Akamai/Linode 4GB | hourly capped, $24/mo max | 2 shared vCPU, 4 GB | Good | Nice panel/API/CLI, but misses the under-$20 target for 2+ CPU with enough RAM. |
+| 10 | AWS Lightsail 2GB | monthly bundle/prorated, $12/mo | 2 shared vCPU, 2 GB | Medium | Friendly console, but IAM/AWS setup is more annoying than DO/Vultr for this project. |
+| 11 | Contabo Cloud VPS 10/20 | flat monthly, very cheap | 4-6 shared vCPU, 8-12 GB | Medium | Great specs, API exists, but more performance variability and less polished dev loop. |
+| 12 | HostHatch NVMe class | usually monthly, cheap when available | varies | Medium | Good value when in stock, but less documented/standardized than DO/Vultr. |
+| 13 | RackNerd / GreenCloud promos | usually annual promo | varies | Low-medium | Cheap, but not ideal for automated create/destroy GitHub testing. |
+| 14 | BuyVM under-$20 | monthly | RAM-limited | Low-medium | Good provider culture, but under-$20 plans are not a great fit for 2+ CPU and enough RAM. |
+
+Best workflow pick:
+
+```text
+DigitalOcean Basic 2c/2gb
+```
+
+Use it when the goal is the easiest GitHub Actions path and the test is mostly:
+
+- master server boots;
+- one or a few world processes start;
+- Web client connects over public IP;
+- PackRat downloads PCKs from GitHub Pages;
+- version gate and travel flow work.
+
+Best practical dev spec:
+
+```text
+Vultr Regular 2c/4gb
+```
+
+It is exactly at the $20 line rather than under it, but 4 GB RAM is much more
+comfortable for this project's master plus multiple Godot world processes.
+
+Best short-session value if setup friction is acceptable:
+
+```text
+Hetzner CX23 Europe
+```
+
+It is cheap, hourly capped, API-friendly, and has 4 GB RAM, but it is not the
+same as testing a US player-facing path.
+
+Best month-long burn-in:
+
+```text
+netcup RS 1000 G12
+```
+
+Dedicated cores matter for stable tick timing. It is less ideal for disposable
+hourly dev sessions, but excellent when we want to leave the server up for a
+week or month and measure real CPU stability.
+
+Recommended path:
+
+1. Use **DigitalOcean Basic 2c/2gb** first to implement the GitHub Actions VPS
+   deploy workflow with minimum friction.
+2. If RAM is annoying, switch the same workflow shape to **Vultr Regular
+   2c/4gb**.
+3. Once the deploy workflow is stable, compare runtime quality on **Hetzner
+   CX23 Europe**, **OVH VPS-3**, and **netcup RS 1000 G12**.
+
+For intentionally breaking the smallest possible DigitalOcean box, see
+[DigitalOcean 512 MiB Stress Test Plan](digitalocean-512mb-stress-test-plan.md).
+
+Setup sources:
+
+- [DigitalOcean doctl](https://docs.digitalocean.com/reference/doctl/)
+- [DigitalOcean GitHub Action for doctl](https://github.com/digitalocean/action-doctl)
+- [DigitalOcean Droplet user data](https://docs.digitalocean.com/products/droplets/how-to/provide-user-data/)
+- [Vultr API](https://www.vultr.com/api/)
+- [Vultr cloud-init user data](https://docs.vultr.com/how-to-deploy-a-vultr-server-with-cloudinit-userdata)
+- [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud)
+- [Hetzner Cloud billing](https://docs.hetzner.com/cloud/billing/faq/)
+- [OVHcloud GitHub Actions VPS deployment guide](https://docs.ovhcloud.com/en/guides/bare-metal-cloud/virtual-private-servers/deploy-website-github-actions)
+- [netcup Root Server API](https://www.netcup.com/en/helpcenter/documentation/server/rest-api)
+
+## Dev-To-Production Vertical Scaling Shortlist
+
+This ranking answers a narrower question:
+
+```text
+Which host should we start on for private dev testing if we also want to stay
+on that same provider for a future 100-200 CCU VirtuCade test?
+```
+
+Assumptions:
+
+- "100-200 CPU" means 100-200 CCU.
+- Web client and PackRat PCK files stay on GitHub Pages/CDN/static hosting.
+- The VPS runs only gameplay: master, SQLite, and temporary world processes.
+- We prefer vertical scaling before multi-node orchestration.
+- We are ranking provider path, not only the cheapest single plan.
+- Providers should have a real reputation as established infrastructure hosts.
+  Cheap unknown, promo-driven, or poor-reputation hosts are excluded from the
+  main recommendation even when their specs look attractive.
+
+| Rank | Start plan | Dev cost behavior | Future scale path | Why it ranks here |
+|---:|---|---|---|---|
+| 1 | OVHcloud VPS-3, 6 shared vCore / 12 GB, $12.32/mo | Flat cheap monthly | Same VPS line up to larger vCore/RAM plans | Best blend of low cost now and low cost later. Main risk is shared CPU jitter. |
+| 2 | Vultr Regular 2c/4gb, $20/mo cap | Hourly capped; about $1.19 for 40h | Resize to 4c/8gb, 6c/16gb, or higher-performance Vultr lines | Best if dev servers are often destroyed after testing. More expensive than OVH when always-on. |
+| 3 | Akamai/Linode 4GB, 2 shared vCPU / 4 GB, $24/mo cap | Hourly capped; about $1.44 for 40h | Resize to larger shared, premium, or dedicated plans | Very established provider and comfortable cloud workflow. Costs more than OVH/Vultr. |
+| 4 | DigitalOcean Basic 2c/4gb, $24/mo cap | Per-second/hourly capped; about $1.43 for 40h | Resize Basic or move to dedicated CPU Droplets | Best developer experience and GitHub Actions ergonomics. Scaling gets expensive. |
+| 5 | netcup RS 1000 G12, 4 dedicated cores / 8 GB, EUR 12.79/mo | Flat monthly/contract | Larger netcup Root Server plans with dedicated CPU | Best CPU stability per dollar. Reputable, but more European/contract-style and less cloud-native. |
+
+Decision rule:
+
+- Pick **OVHcloud VPS-3** if the goal is cheapest realistic dev-to-production
+  path on one provider.
+- Pick **Vultr Regular 2c/4gb** if the goal is temporary dev servers that are
+  destroyed after each test session, while still having a sane production scale
+  path later.
+- Pick **netcup RS 1000 G12** if stable tick timing matters more than cloud
+  workflow comfort.
+
+Why not top five:
+
+- **Hetzner US Regular Performance**: the 2026 price increase makes the US path
+  poor value for this project.
+- **Hetzner Europe CX/CAX**: good hourly price/spec if Europe latency is
+  acceptable, but not the right default for a USA-focused game test.
+- **Contabo**: excellent paper specs, but budget shared/fair-use performance and
+  mixed reputation make it too risky as the primary future production path for
+  an authoritative game server.
+- **RackNerd/GreenCloud/HostHatch promos**: useful for experiments, but stock,
+  promo terms, smaller-provider reputation risk, and automation consistency make
+  them weaker as the main dev-to-production provider.
+- **BuyVM**: good niche reputation, but under-$20 plans are RAM/CPU constrained
+  for this specific project and the scale path is less comfortable than the top
+  providers.
+- **AWS Lightsail**: friendly console, but AWS account/IAM friction and pricing
+  are not better than the options above.
+
+Scaling sources:
+
+- [OVHcloud VPS](https://us.ovhcloud.com/vps/)
+- [OVHcloud VPS configurator](https://us.ovhcloud.com/vps/configurator/)
+- [OVHcloud resize docs](https://support.us.ovhcloud.com/hc/en-us/articles/23533757015827-Modify-or-resize-an-instance-via-the-OVHcloud-Control-Panel)
+- [Vultr Cloud Compute](https://www.vultr.com/products/cloud-compute/)
+- [Vultr resize docs](https://docs.vultr.com/products/compute/optimized-cloud-compute/management/resize-instance)
+- [netcup Root Server](https://www.netcup.com/en/server/root-server)
+- [netcup product upgrade docs](https://www.netcup.com/en/helpcenter/documentation/general/instance-upgrade)
+- [DigitalOcean resize docs](https://docs.digitalocean.com/products/droplets/how-to/resize/)
+- [Akamai/Linode resize docs](https://techdocs.akamai.com/cloud-computing/docs/resize-a-compute-instance)
+
 ## Shared vs Dedicated CPU
 
 Shared vCPU/vCore means the virtual CPU can share the same physical CPU time

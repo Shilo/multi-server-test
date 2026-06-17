@@ -14,6 +14,7 @@ signal resume_world_requested(world_key: String, endpoint: Dictionary)
 signal login_failed(reason: String)
 
 const NET_CONFIG := preload("res://shared/net/net_config.gd")
+const NET_UTIL := preload("res://shared/net/net_util.gd")
 
 # Server-only state.
 var database_service: Node
@@ -110,12 +111,14 @@ func login(raw_username: String) -> void:
 	var account_repository = database_service.accounts
 	var username: String = account_repository.sanitize_username(raw_username)
 	if username.is_empty():
-		push_login_error.rpc_id(sender_id, "Enter 1-20 characters (the 'Guest-' prefix is reserved).")
+		if _is_peer_open(sender_id):
+			push_login_error.rpc_id(sender_id, "Enter 1-20 characters (the 'Guest-' prefix is reserved).")
 		return
 
 	var account: Dictionary = account_repository.get_or_create(username)
 	if account.is_empty():
-		push_login_error.rpc_id(sender_id, "Could not load that account, try again.")
+		if _is_peer_open(sender_id):
+			push_login_error.rpc_id(sender_id, "Could not load that account, try again.")
 		return
 
 	var world_key := str(account.get("world_key", NET_CONFIG.initial_world()))
@@ -133,7 +136,8 @@ func login(raw_username: String) -> void:
 
 	NetLog.print_line("MASTER_LOGIN peer=%d account=%d world=%s" % [sender_id, int(account["id"]), world_key])
 	_push_session(sender_id)
-	push_resume_world.rpc_id(sender_id, world_key, endpoint)
+	if _is_peer_open(sender_id):
+		push_resume_world.rpc_id(sender_id, world_key, endpoint)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -159,7 +163,8 @@ func logout() -> void:
 	var endpoint := _create_resume_lease(sender_id, hub, false, 0.0, 0.0)
 	NetLog.print_line("MASTER_LOGOUT peer=%d" % sender_id)
 	_push_session(sender_id)
-	push_resume_world.rpc_id(sender_id, hub, endpoint)
+	if _is_peer_open(sender_id):
+		push_resume_world.rpc_id(sender_id, hub, endpoint)
 
 
 func _create_resume_lease(peer_id: int, world_key: String, has_spawn: bool, spawn_x: float, spawn_y: float) -> Dictionary:
@@ -171,6 +176,8 @@ func _create_resume_lease(peer_id: int, world_key: String, has_spawn: bool, spaw
 func _push_session(peer_id: int) -> void:
 	var session: Dictionary = sessions.get(peer_id, {})
 	if session.is_empty():
+		return
+	if not _is_peer_open(peer_id):
 		return
 	push_session.rpc_id(
 		peer_id,
@@ -189,6 +196,10 @@ func _is_validated_client_peer(peer_id: int) -> bool:
 func _reject_unvalidated_client_peer(peer_id: int, rpc_name: String) -> void:
 	if master_endpoint and master_endpoint.has_method("reject_unvalidated_client_peer"):
 		master_endpoint.reject_unvalidated_client_peer(peer_id, rpc_name)
+
+
+func _is_peer_open(peer_id: int) -> bool:
+	return NET_UTIL.is_peer_open(multiplayer, peer_id)
 
 
 # ---------------------------------------------------------------------------
