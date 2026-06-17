@@ -84,6 +84,49 @@ percentages (`cpu_pct` and `rss_mb` report `0` in this environment), so CPU is
 inferred from loop frequency and Godot timing rather than treated as a precise
 host measurement. A Linux VPS run should be used for final CPU/RAM confirmation.
 
+## CPU And RAM Interpretation
+
+The most reliable CPU signal from this local sweep is the configured loop count
+itself. Godot cannot process more automatic multiplayer polls, synchronizer
+frames, `_process()` callbacks, or world physics ticks than the configured
+server rates allow.
+
+Using `20` as the chosen baseline:
+
+| Rate | Process frames vs `20` | World physics ticks vs `20` | CPU interpretation |
+|---:|---:|---:|---|
+| 10 | 50% as many | 50% as many | Cheapest loop cost, but the latency table shows too much slowdown. |
+| 20 | Baseline | Baseline | Chosen balance. |
+| 30 | 150% as many | 150% as many | Costs about 50% more scheduled loop/physics work than `20`. Not worth it globally for the current latency gain. |
+| 60 | 300% as many | 300% as many | Costs about 3x the scheduled loop/physics work of `20`. Reserve for special worlds only. |
+
+The master does not run world physics, so its `physics_ticks_per_second` stays
+at `1`. For the master, the relevant CPU difference is process frames:
+
+| Master FPS | Process frames vs `20` | Interpretation |
+|---:|---:|---|
+| 10 | 50% as many | Lower CPU, but noticeably worse routing/chat/transfer timing. |
+| 20 | Baseline | Chosen master default. |
+| 30 | 150% as many | 50% more process loop work for better latency, but not enough benefit to spend by default. |
+| 60 | 300% as many | 3x process loop work. Useful as a responsiveness reference, not a default. |
+
+The smoke also recorded a rough master `process_msec * fps` proxy, but it should
+not be treated as precise CPU because local Windows process CPU/RAM metrics were
+unreliable and each smoke run had slightly different timing. The proxy still
+supports the main conclusion that `60` is much more expensive, while `10` is
+cheap but too laggy:
+
+| Rate | Master process-time/sec proxy | Note |
+|---:|---:|---|
+| 10 | 160.7 ms/sec | Lowest observed proxy, but worst latency. |
+| 20 | 363.8 ms/sec | Accepted baseline. |
+| 30 | 238.3 ms/sec | Noisy local result; do not overfit this below `20`. The hard loop count is still 50% higher than `20`. |
+| 60 | 1439.6 ms/sec | Clearly much more expensive. |
+
+RAM should not materially change with FPS/TPS. Tick rate changes how often
+existing objects update, not how many objects, resources, or packs are loaded.
+The local static memory readings stayed in the same range across profiles.
+
 The ratio decision is:
 
 - `10` is too low: it saves the most loop work but clearly worsens route,
