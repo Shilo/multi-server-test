@@ -6,6 +6,11 @@ for VirtuCade-style server tests.
 
 ## Verdict
 
+Important pricing update: after Hetzner's 2026-06-15 price adjustment, Hetzner
+US Regular Performance should no longer be treated as the automatic best-value
+host for this project. See [VPS Hosting Value Research](vps-hosting-value-research.md)
+before renting a test server.
+
 The project is now ready for a first real Hetzner test with this shape:
 
 - Hetzner Cloud VPS runs the exported Godot gameplay server.
