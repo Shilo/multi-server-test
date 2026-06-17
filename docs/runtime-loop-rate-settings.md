@@ -79,17 +79,51 @@ master has no gameplay simulation.
 | 30 | 27.0 ms | 31.3 ms | 134.0 ms | 562.8 ms | 1145.2 ms | 54.8 ms | Better responsiveness, but not enough to justify the default loop cost. Use only for worlds that prove they need it. |
 | 60 | 22.5 ms | 22.1 ms | 137.9 ms | 536.1 ms | 1094.9 ms | 55.5 ms | Best latency, highest loop churn. Reserve for twitch/action worlds. |
 
-The local Windows smoke cannot currently report reliable OS-level CPU/RAM
-percentages (`cpu_pct` and `rss_mb` report `0` in this environment), so CPU is
-inferred from loop frequency and Godot timing rather than treated as a precise
-host measurement. A Linux VPS run should be used for final CPU/RAM confirmation.
+The in-engine telemetry fields `cpu_pct` and `rss_mb` report `0` in the local
+Windows editor/headless environment, so those fields are not usable for local
+capacity planning. The separate CPU sweep below uses Windows process CPU
+sampling instead.
 
-## CPU And RAM Interpretation
+## Local CPU And RAM Measurements
 
-The most reliable CPU signal from this local sweep is the configured loop count
-itself. Godot cannot process more automatic multiplayer polls, synchronizer
-frames, `_process()` callbacks, or world physics ticks than the configured
-server rates allow.
+After the latency sweep, a second local Windows CPU sweep sampled actual Godot
+process CPU usage during the same 10-client PackRat smoke. These numbers are
+measured as `core_pct`, where `100%` means roughly one fully-used CPU core.
+That maps better to a 1 vCPU VPS than whole-machine CPU percentage on a many-core
+desktop.
+
+The `server_total` value includes the master plus spawned world-server Godot
+processes. It does not include the 10 local client processes.
+
+| Rate | Runs | Server avg core usage | Server avg range | Server max spike | Master avg | Worlds avg | Server max working set |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 1 | 5.7% of one core | 5.7-5.7% | 26.7% | 2.0% | 4.4% | 468.5 MB |
+| 20 | 2 | 10.9% of one core | 8.2-13.7% | 53.3% | 5.4% | 6.0% | 469.2 MB |
+| 30 | 2 | 13.1% of one core | 7.9-18.3% | 71.9% | 5.9% | 8.8% | 468.5 MB |
+| 60 | 1 | 15.9% of one core | 15.9-15.9% | 62.2% | 5.6% | 12.6% | 469.3 MB |
+
+Interpretation for the DigitalOcean 1 vCPU stress test:
+
+- CPU looks acceptable for this toy 10-client, multi-world smoke. Even `60`
+  averaged far below one full local CPU core.
+- `20` is still the best default because it keeps server CPU below `30`/`60`
+  while avoiding the latency problems seen at `10`.
+- RAM is more concerning than CPU for the 512 MiB Droplet. The local server
+  cluster working set reached roughly `469 MB` before counting Linux itself,
+  SQLite/cache overhead, shell/system services, or measurement differences
+  between Windows and Linux. The 512 MiB plan is still useful as an intentional
+  break/stress target, but it should be expected to fail from memory pressure
+  before CPU.
+
+The previous in-engine telemetry fields `cpu_pct` and `rss_mb` reported `0` on
+this Windows setup, so the table above comes from a separate Windows process CPU
+sampler: `tools/run_cpu_profile_smoke.ps1`.
+
+## Loop Count Interpretation
+
+The hard CPU floor is still the configured loop count. Godot cannot process more
+automatic multiplayer polls, synchronizer frames, `_process()` callbacks, or
+world physics ticks than the configured server rates allow.
 
 Using `20` as the chosen baseline:
 
@@ -110,22 +144,11 @@ at `1`. For the master, the relevant CPU difference is process frames:
 | 30 | 150% as many | 50% more process loop work for better latency, but not enough benefit to spend by default. |
 | 60 | 300% as many | 3x process loop work. Useful as a responsiveness reference, not a default. |
 
-The smoke also recorded a rough master `process_msec * fps` proxy, but it should
-not be treated as precise CPU because local Windows process CPU/RAM metrics were
-unreliable and each smoke run had slightly different timing. The proxy still
-supports the main conclusion that `60` is much more expensive, while `10` is
-cheap but too laggy:
-
-| Rate | Master process-time/sec proxy | Note |
-|---:|---:|---|
-| 10 | 160.7 ms/sec | Lowest observed proxy, but worst latency. |
-| 20 | 363.8 ms/sec | Accepted baseline. |
-| 30 | 238.3 ms/sec | Noisy local result; do not overfit this below `20`. The hard loop count is still 50% higher than `20`. |
-| 60 | 1439.6 ms/sec | Clearly much more expensive. |
-
 RAM should not materially change with FPS/TPS. Tick rate changes how often
 existing objects update, not how many objects, resources, or packs are loaded.
-The local static memory readings stayed in the same range across profiles.
+The local server working set stayed around `468-469 MB` across profiles. That
+means the rate setting is a CPU/latency decision; the 512 MiB Droplet question is
+mostly a separate memory-capacity risk.
 
 The ratio decision is:
 
