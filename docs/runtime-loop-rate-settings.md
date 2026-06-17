@@ -61,18 +61,40 @@ The world server still has fixed-step work:
 For that reason, `20 TPS / 20 FPS` is a reasonable stress-test baseline for the
 current project, but it is not a permanent rule for every VirtuCade minigame.
 
-The master was tested at `30 FPS`, `20 FPS`, and `15 FPS` process-loop caps. A
-10-client local smoke passed at both `20 FPS` and `15 FPS`, but `15 FPS` showed
-worse latency trends:
+The master and world rates were tested at `60`, `30`, `20`, and `10` with a
+10-client smoke. The swept value means:
 
-| Profile | Client -> master avg | Client -> world avg | Join ticket avg | Transfer avg |
-|---|---:|---:|---:|---:|
-| Master 20 / World 20 | 38.5 ms | 33.3 ms | 107.5 ms | 1231.2 ms |
-| Master 15 / World 15 | 43.7 ms | 42.4 ms | 117.3 ms | 1287.0 ms |
+- master `max_fps`;
+- world `max_fps`;
+- world `physics_ticks_per_second`.
+
+Master `physics_ticks_per_second` stayed at `1` for every profile because the
+master has no gameplay simulation.
+
+| Rate | Client -> master avg | Client -> world avg | Join ticket avg | World ready avg | Transfer avg | Chat echo avg | Result |
+|---:|---:|---:|---:|---:|---:|---:|---|
+| 10 | 50.8 ms | 62.4 ms | 169.4 ms | 864.2 ms | 1521.7 ms | 90.1 ms | Passes, but visibly worse timing. Too low for default. |
+| 20 | 40.0 ms | 35.6 ms | 128.9 ms | 651.0 ms | 1246.8 ms | 61.9 ms | Best low-CPU/default tradeoff for the current prototype. |
+| 30 | 27.0 ms | 31.3 ms | 134.0 ms | 562.8 ms | 1145.2 ms | 54.8 ms | Better responsiveness; likely default for server-authoritative minigames. |
+| 60 | 22.5 ms | 22.1 ms | 137.9 ms | 536.1 ms | 1094.9 ms | 55.5 ms | Best latency, highest loop churn. Reserve for twitch/action worlds. |
+
+The local Windows smoke cannot currently report reliable OS-level CPU/RAM
+percentages (`cpu_pct` and `rss_mb` report `0` in this environment), so CPU is
+inferred from loop frequency and Godot timing rather than treated as a precise
+host measurement. A Linux VPS run should be used for final CPU/RAM confirmation.
+
+The ratio decision is:
+
+- `10` is too low: it saves the most loop work but clearly worsens route,
+  transfer, world-ready, and chat timing.
+- `20` is the lowest tested value that keeps timings reasonable.
+- `30` feels like the safer production baseline for authoritative platformer or
+  collision-sensitive worlds.
+- `60` should be per-world opt-in, not the global default.
 
 So `20 FPS` is the current practical floor for both master network polling and
-world synchronizer updates. It keeps loop churn low while avoiding the first
-visible local latency regression from `15 FPS`.
+lightweight world synchronizer updates. It keeps loop churn low while avoiding
+the obvious local latency regression from `10 FPS`.
 
 ## Recommended Policy
 
