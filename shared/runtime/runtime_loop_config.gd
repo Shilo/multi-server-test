@@ -1,10 +1,10 @@
 class_name RuntimeLoopConfig
 extends RefCounted
 
-const MASTER_PHYSICS_TICKS_PER_SECOND := 10
+const MASTER_PHYSICS_TICKS_PER_SECOND := 1
 const MASTER_MAX_FPS := 30
-const WORLD_PHYSICS_TICKS_PER_SECOND := 30
-const WORLD_MAX_FPS := 30
+const WORLD_PHYSICS_TICKS_PER_SECOND := 20
+const WORLD_MAX_FPS := 20
 
 
 static func apply_master() -> void:
