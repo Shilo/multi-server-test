@@ -29,17 +29,18 @@ The repo previously had one real deployment blocker:
 
 It now supports:
 
-- `MULTI_SERVER_CLIENT_HOST`
-- `MULTI_SERVER_CLIENT_SCHEME`
+- `MULTI_SERVER_BIND_HOST`
+- `MULTI_SERVER_PUBLIC_MASTER_URL`
+- `MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE`
 - Web query overrides:
-  - `server_host`
-  - `server_scheme`
-- direct Godot WebSocket TLS with:
+  - `master_url`
+  - `world_url_template`
+- direct Godot WebSocket TLS fallback with:
   - `MULTI_SERVER_TLS_CERT`
   - `MULTI_SERVER_TLS_KEY`
 
-That means a GitHub Pages build can be tested against a live VPS without
-rebuilding the client just to change the gameplay host.
+That means a GitHub Pages build can be tested against a live VPS through Caddy
+without rebuilding the client just to change the gameplay host.
 
 ## Recommended First Hetzner Shape
 
@@ -59,18 +60,17 @@ rebuilding the client just to change the gameplay host.
 3. Runtime configuration on the VPS:
 
 ```text
-MULTI_SERVER_CLIENT_HOST=game.example.com
-MULTI_SERVER_CLIENT_SCHEME=wss
+MULTI_SERVER_BIND_HOST=127.0.0.1
+MULTI_SERVER_PUBLIC_MASTER_URL=wss://game.example.com/
+MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://game.example.com/{world_key}
 MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
-MULTI_SERVER_WORLD_PACK_DIR=/srv/multi-server-test/world_packs
-MULTI_SERVER_TLS_CERT=/etc/letsencrypt/live/game.example.com/fullchain.pem
-MULTI_SERVER_TLS_KEY=/etc/letsencrypt/live/game.example.com/privkey.pem
+MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
 ```
 
 4. Public Web test URL:
 
 ```text
-https://shilo.github.io/multi-server-test/?server_host=game.example.com&server_scheme=wss
+https://shilo.github.io/multi-server-test/?master_url=wss://game.example.com/&world_url_template=wss://game.example.com/{world_key}
 ```
 
 If the hosted packs move to another static host later, also append
@@ -78,8 +78,8 @@ If the hosted packs move to another static host later, also append
 
 Important: that query only changes the Web client's own initial connect target.
 The master still advertises world URLs from the VPS environment, so
-`MULTI_SERVER_CLIENT_HOST` / `MULTI_SERVER_CLIENT_SCHEME` must still be set on
-the server itself.
+`MULTI_SERVER_PUBLIC_MASTER_URL` / `MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE`
+must still be set on the server itself.
 
 ## Firewall / Traffic Notes
 
@@ -132,11 +132,8 @@ real:
 - Login is still name-only, not production auth.
 - Launch tokens are still passed on command line. Fine for owned-host testing,
   not ideal for a shared-host hardening story.
-- The master currently serves one pack-metadata set at a time. In practice that
-  means one deployment is either Web-pack metadata or native-pack metadata, not
-  both simultaneously.
 - We still expect the server's local `world_packs/` mirror to match the hosted
-  Web pack bytes exactly.
+  universal pack bytes exactly.
 
 ## Practical Recommendation
 
@@ -145,7 +142,7 @@ For the first Hetzner run:
 - test the Web client path first
 - treat the VPS as gameplay only
 - keep GitHub Pages as static host
-- use real TLS certs
+- let Caddy handle TLS certificates and WSS on `443`
 - keep the server-side local pack mirror under `world_packs/` beside the export
 
 That is the simplest path that still respects the real production shape:

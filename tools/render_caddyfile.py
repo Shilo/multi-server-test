@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_PATH = PROJECT_ROOT / "deploy" / "caddy" / "Caddyfile.template"
 HOST_RE = re.compile(r"^[A-Za-z0-9.-]+$")
 WORLD_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def world_keys() -> list[str]:
@@ -38,8 +39,11 @@ def render(host: str, acme_email: str = "") -> str:
         raise SystemExit(f"Host must be a bare DNS name, got: {host}")
 
     global_options_block = ""
-    if acme_email.strip():
-        global_options_block = "{\n\temail %s\n}\n\n" % acme_email.strip()
+    clean_email = acme_email.strip()
+    if clean_email:
+        if not EMAIL_RE.fullmatch(clean_email):
+            raise SystemExit(f"ACME email is not valid: {acme_email}")
+        global_options_block = "{\n\temail %s\n}\n\n" % clean_email
 
     route_blocks: list[str] = []
     for index, key in enumerate(world_keys()):
@@ -72,6 +76,12 @@ def self_test() -> None:
     for needle in expected:
         if needle not in output:
             raise SystemExit(f"Rendered Caddyfile missing: {needle}")
+    expected_proxy_count = 1 + len(world_keys())
+    actual_proxy_count = output.count("reverse_proxy 127.0.0.1:")
+    if actual_proxy_count != expected_proxy_count:
+        raise SystemExit(
+            f"Expected {expected_proxy_count} reverse_proxy entries, got {actual_proxy_count}"
+        )
     print("CADDYFILE_RENDER_SELF_TEST_PASS")
 
 

@@ -239,7 +239,10 @@ The VPS stop/upload/start step is now wired for the current single-VPS service:
 GitHub Actions stages the Linux server export and world-pack mirror, stops
 `virtucade.service`, swaps the staged folders into `/opt/virtucade/`, starts the
 service, and checks that it is active. Caddy reverse-proxy config is optional
-and only installed when `VIRTUCADE_GAME_HOST` is configured.
+and only installed/reloaded after the Godot backend is healthy when
+`VIRTUCADE_GAME_HOST` is configured. The VPS runtime env file is still refreshed
+on every deploy so old public URL overrides do not survive after configuration
+changes.
 
 ## Web Reload And Cache Busting
 

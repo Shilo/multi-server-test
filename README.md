@@ -485,7 +485,8 @@ For this test, the Web client still points at `127.0.0.1` / `ws` by default, so
 the GitHub Pages browser client connects to the local gameplay server while
 downloading Web client/PCK files from GitHub Pages. Public server testing can
 override that without rebuilding by appending
-`?server_host=<host>&server_scheme=wss` to the page URL.
+`?master_url=wss://<host>/&world_url_template=wss://<host>/{world_key}` to the
+page URL.
 
 For setting up a fresh DigitalOcean/Ubuntu VPS for GitHub Actions deploys, see
 [DigitalOcean VPS Setup](docs/digitalocean-vps-setup.md).
@@ -520,12 +521,13 @@ folders first, preserving PCK modified times. Only after staging succeeds does
 it stop the service, swap the staged files into `/opt/virtucade/server/` and
 `/opt/virtucade/world_packs/`, start the service, and check that it is active.
 The `github-deploy` user should only have write access to `/opt/virtucade` and
-limited passwordless sudo for `systemctl` commands against `virtucade.service`.
-When `VIRTUCADE_GAME_HOST` is set, the workflow also renders a static Caddyfile,
-validates it on the VPS, installs it to `/etc/caddy/Caddyfile`, reloads
-`caddy.service`, and writes `/opt/virtucade/virtucade.env` so the Godot server
-advertises `wss://<host>/` and `wss://<host>/<world_key>` while listening only
-on localhost.
+limited passwordless sudo for `virtucade.service`, `caddy.service`, Caddy
+validation, and installing `/etc/caddy/Caddyfile`. When `VIRTUCADE_GAME_HOST` is
+set, the workflow also renders a static Caddyfile, validates it on the VPS,
+installs it to `/etc/caddy/Caddyfile` when changed, and reloads `caddy.service`
+after the Godot backend is healthy. The workflow writes
+`/opt/virtucade/virtucade.env` on every deploy so stale public URL settings
+cannot survive between releases.
 
 The workflow title shows `Release v<version>` when an exact `version` input is
 provided. Auto-bump runs are titled `Release auto-bump` because GitHub computes
@@ -646,20 +648,21 @@ editor default MULTI_SERVER_WORLD_PACK_DIR=builds/world_packs
 exported server default=<server executable directory>/../world_packs
 ```
 
-Production/server testing should set `MULTI_SERVER_CLIENT_HOST` and
-`MULTI_SERVER_CLIENT_SCHEME` for the public address the client should dial, and
-set the world-pack base URL/path to the CDN/static-host location and matching
-local metadata mirror where the current PCK files live. Web builds can override
-the same values without rebuilding by using URL query parameters:
+Production/server testing with Caddy should set full public URLs and bind Godot
+to localhost, then set the world-pack base URL/path to the CDN/static-host
+location and matching local metadata mirror where the current PCK files live.
+Web builds can override the same public URLs without rebuilding by using URL
+query parameters:
 
 ```text
-?server_host=<public gameplay host>&server_scheme=wss&world_pack_base_url=<public pack base url>
+?master_url=wss://<public gameplay host>/&world_url_template=wss://<public gameplay host>/{world_key}&world_pack_base_url=<public pack base url>
 ```
 
 The query override only changes the client's initial connection targets. The
 master still advertises world URLs from its own environment, so the VPS must
-also set `MULTI_SERVER_CLIENT_HOST` / `MULTI_SERVER_CLIENT_SCHEME` correctly or
-world joins will still point at the wrong address.
+also set `MULTI_SERVER_PUBLIC_MASTER_URL` /
+`MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE` correctly or world joins will still
+point at the wrong address.
 
 For Caddy reverse-proxy mode, use full public URLs instead of host/port
 composition:

@@ -27,12 +27,16 @@ This project already has native TLS/WSS hooks:
   `WebSocketMultiplayerPeer.create_server(..., NET_CONFIG.tls_server_options())`.
 - `server/world/world.gd` does the same for world servers.
 - `shared/net/net_config.gd` reads:
+  - `MULTI_SERVER_BIND_HOST`
+  - `MULTI_SERVER_PUBLIC_MASTER_URL`
+  - `MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE`
   - `MULTI_SERVER_TLS_CERT`
   - `MULTI_SERVER_TLS_KEY`
   - `MULTI_SERVER_CLIENT_SCHEME`
   - `MULTI_SERVER_CLIENT_HOST`
-- The Web client can be pointed at `wss://` by using `server_scheme=wss` or the
-  server-side `MULTI_SERVER_CLIENT_SCHEME=wss` environment variable.
+- The Web client can be pointed at `wss://` by using `master_url` and
+  `world_url_template` query parameters. The older `server_host` /
+  `server_scheme` fallback still exists for simple port-based testing.
 
 That means native WSS is not theoretical for this codebase. The remaining work
 is domain, certificate, permission, firewall, and renewal handling.

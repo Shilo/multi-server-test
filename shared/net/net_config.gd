@@ -44,7 +44,7 @@ static func public_master_url() -> String:
 		value = _web_query_value("master_url")
 	if value.is_empty():
 		return ""
-	return value
+	return _validated_socket_url(value, PUBLIC_MASTER_URL_ENV)
 
 
 static func public_world_url_template() -> String:
@@ -53,7 +53,10 @@ static func public_world_url_template() -> String:
 		value = _web_query_value("world_url_template")
 	if value.is_empty():
 		return ""
-	return value
+	if value.find("{world_key}") == -1:
+		push_error("[NET_CONFIG] %s must include {world_key}" % PUBLIC_WORLD_URL_TEMPLATE_ENV)
+		return ""
+	return _validated_socket_url(value.replace("{world_key}", "hub"), PUBLIC_WORLD_URL_TEMPLATE_ENV, value)
 
 
 static func client_host() -> String:
@@ -222,6 +225,31 @@ static func _web_same_origin_socket_scheme() -> String:
 	if typeof(value) != TYPE_STRING:
 		return ""
 	return String(value).strip_edges().to_lower()
+
+
+static func _validated_socket_url(url: String, source: String, returned_url := "") -> String:
+	var clean_url := url.strip_edges()
+	var separator := clean_url.find("://")
+	if separator == -1:
+		push_error("[NET_CONFIG] %s must be a ws:// or wss:// URL" % source)
+		return ""
+
+	var scheme := clean_url.substr(0, separator).to_lower()
+	if scheme != "ws" and scheme != "wss":
+		push_error("[NET_CONFIG] %s must use ws:// or wss://, got %s://" % [source, scheme])
+		return ""
+
+	var remainder := clean_url.substr(separator + 3)
+	var authority := remainder
+	for delimiter in ["/", "?", "#"]:
+		var delimiter_index := authority.find(delimiter)
+		if delimiter_index != -1:
+			authority = authority.substr(0, delimiter_index)
+	if authority.is_empty() or authority.begins_with(":"):
+		push_error("[NET_CONFIG] %s must include a host" % source)
+		return ""
+
+	return returned_url.strip_edges() if not returned_url.is_empty() else clean_url
 
 
 static func world_endpoint(world_key: String) -> Dictionary:

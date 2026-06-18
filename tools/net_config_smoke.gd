@@ -20,12 +20,20 @@ func _init() -> void:
 	_expect("override_hub_url", NET_CONFIG.world_url("hub"), "wss://game.example.test/hub")
 	_expect("override_left_world_url", NET_CONFIG.world_url("left_world"), "wss://game.example.test/left_world")
 
+	OS.set_environment(NET_CONFIG.PUBLIC_MASTER_URL_ENV, "https://game.example.test/")
+	OS.set_environment(NET_CONFIG.PUBLIC_WORLD_URL_TEMPLATE_ENV, "wss://game.example.test/world")
+	_expect("invalid_master_url_fallback", NET_CONFIG.master_url(), "ws://127.0.0.1:19080")
+	_expect("invalid_world_template_fallback", NET_CONFIG.world_url("hub"), "ws://127.0.0.1:19081")
+
+	OS.set_environment(NET_CONFIG.PUBLIC_MASTER_URL_ENV, "ws://:19080")
+	_expect("hostless_master_url_fallback", NET_CONFIG.master_url(), "ws://127.0.0.1:19080")
+
 	_clear_test_environment()
 	if failures == 0:
 		print("NET_CONFIG_SMOKE_PASS")
 	else:
 		push_error("NET_CONFIG_SMOKE_FAIL failures=%d" % failures)
-	quit(failures)
+	quit(1 if failures > 0 else 0)
 
 
 func _clear_test_environment() -> void:
