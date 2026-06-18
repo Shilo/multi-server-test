@@ -509,6 +509,11 @@ VPS deploy uses these GitHub Actions repository secrets:
 - `VIRTUCADE_SSH_KEY`: private SSH key for that deploy user.
 - `VIRTUCADE_KNOWN_HOSTS`: pinned SSH host key line for the VPS.
 
+Optional reverse-proxy deploy uses these GitHub Actions variables or secrets:
+
+- `VIRTUCADE_GAME_HOST`: public gameplay DNS name, for example `game.example.com`.
+- `VIRTUCADE_ACME_EMAIL`: optional ACME contact email for Caddy.
+
 The VPS service is `virtucade.service`. The workflow uploads the full
 `builds/server/` Linux export folder and `builds/world_packs/*.pck` to staging
 folders first, preserving PCK modified times. Only after staging succeeds does
@@ -516,6 +521,11 @@ it stop the service, swap the staged files into `/opt/virtucade/server/` and
 `/opt/virtucade/world_packs/`, start the service, and check that it is active.
 The `github-deploy` user should only have write access to `/opt/virtucade` and
 limited passwordless sudo for `systemctl` commands against `virtucade.service`.
+When `VIRTUCADE_GAME_HOST` is set, the workflow also renders a static Caddyfile,
+validates it on the VPS, installs it to `/etc/caddy/Caddyfile`, reloads
+`caddy.service`, and writes `/opt/virtucade/virtucade.env` so the Godot server
+advertises `wss://<host>/` and `wss://<host>/<world_key>` while listening only
+on localhost.
 
 The workflow title shows `Release v<version>` when an exact `version` input is
 provided. Auto-bump runs are titled `Release auto-bump` because GitHub computes
@@ -650,6 +660,23 @@ The query override only changes the client's initial connection targets. The
 master still advertises world URLs from its own environment, so the VPS must
 also set `MULTI_SERVER_CLIENT_HOST` / `MULTI_SERVER_CLIENT_SCHEME` correctly or
 world joins will still point at the wrong address.
+
+For Caddy reverse-proxy mode, use full public URLs instead of host/port
+composition:
+
+```text
+MULTI_SERVER_BIND_HOST=127.0.0.1
+MULTI_SERVER_PUBLIC_MASTER_URL=wss://game.example.com/
+MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://game.example.com/{world_key}
+```
+
+This keeps Caddy as the only public `443` listener while master and temporary
+world servers remain on deterministic localhost ports. The same override can be
+tested from the hosted Web client with:
+
+```text
+?master_url=wss://game.example.com/&world_url_template=wss://game.example.com/{world_key}
+```
 
 If the gameplay server should speak `wss://` directly, also set:
 

@@ -54,8 +54,8 @@ Relevant findings:
   `TLSOptions` from certificate/key paths.
 - Several config files include certificate/key paths, but the searched runtime
   call sites appear to call the endpoint helper without passing `TLSOptions`.
-- No actual Caddy/nginx config was found in the local repo; proxy support is a
-  URL/config convention, not a bundled deployment system.
+- The `reverse-proxy` branch adds a project Caddyfile renderer for this repo,
+  while `godot-tiny-mmo` keeps proxy support as a URL/config convention.
 - Its addons are unrelated to WSS/TLS. The networking code lives under
   `source/common/network`, not `addons/`.
 
@@ -993,6 +993,20 @@ https://shilo.github.io/multi-server-test/?server_host=game.example.com&server_s
 If Caddy causes measured problems: compare native WSS again.
 If native WSS is smoother and operationally acceptable: reconsider.
 ```
+
+## Implementation Status
+
+The `reverse-proxy` branch implements this recommendation with:
+
+- `MULTI_SERVER_BIND_HOST=127.0.0.1` for private Godot listeners.
+- `MULTI_SERVER_PUBLIC_MASTER_URL=wss://<host>/`.
+- `MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://<host>/{world_key}`.
+- A generated Caddyfile with exact static routes for every discovered
+  `server/worlds/<world_key>/` folder.
+- Optional GitHub Actions deployment when `VIRTUCADE_GAME_HOST` is configured.
+
+The proxy config remains static; the master still owns temporary world process
+startup, TravelLeases, join tickets, and admission correctness.
 
 ## Summary
 

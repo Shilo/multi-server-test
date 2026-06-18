@@ -31,15 +31,16 @@ Add a DigitalOcean Cloud Firewall:
 Inbound:
   TCP 22          from <YOUR_IP>/32 for manual-only SSH
   TCP 22          from all IPv4/IPv6 if GitHub Actions deploys over SSH
-  TCP 19080-19084 from all IPv4/IPv6
+  TCP 80          from all IPv4/IPv6 for Caddy HTTP->HTTPS and ACME
+  TCP 443         from all IPv4/IPv6 for public WSS gameplay
 
 Outbound:
   allow all
 ```
 
-`19080` is the master server port. `19081+` is the world-server range.
-The current project has four worlds, so `19080-19084` is enough. For larger
-stress tests, widen the range, for example `19080-19180`.
+`19080` is the master server port. `19081+` is the world-server range. In the
+production reverse-proxy setup, those ports should be bound to `127.0.0.1` and
+should not be open publicly. Caddy is the public WSS edge on `443`.
 
 GitHub-hosted Actions runners do not have one stable source IP. For the simple
 SSH deploy workflow in this repo, port `22` must be reachable from GitHub
@@ -148,6 +149,17 @@ As `deploy`:
 sudo apt install -y unzip curl git
 ```
 
+Install Caddy from the official package repository:
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install -y caddy
+sudo systemctl enable caddy
+```
+
 ## 6. Create App Folders
 
 ```bash
@@ -187,6 +199,7 @@ Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
 Environment=MULTI_SERVER_CLIENT_SCHEME=ws
 Environment=MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
 Environment=MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
+EnvironmentFile=-/opt/virtucade/virtucade.env
 ExecStart=/opt/virtucade/server/multi-server-test.x86_64 --headless
 Restart=on-failure
 RestartSec=3
@@ -211,6 +224,22 @@ Do not start it until GitHub Actions uploads
 Use a domain later if one exists. `MULTI_SERVER_CLIENT_SCHEME=ws` is enough for
 native-client testing. A GitHub Pages Web client usually needs `wss`, which
 requires TLS/certificate setup or a reverse proxy.
+
+When Caddy reverse-proxy mode is enabled by GitHub Actions, it writes
+`/opt/virtucade/virtucade.env` with:
+
+```text
+MULTI_SERVER_BIND_HOST=127.0.0.1
+MULTI_SERVER_PUBLIC_MASTER_URL=wss://<GAME_HOST>/
+MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://<GAME_HOST>/{world_key}
+MULTI_SERVER_CLIENT_HOST=<GAME_HOST>
+MULTI_SERVER_CLIENT_SCHEME=wss
+MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
+MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
+```
+
+That makes the exported Godot server listen privately while advertising public
+`wss://` URLs through Caddy.
 
 The master reads local PCK metadata from `MULTI_SERVER_WORLD_PACK_DIR`, while
 clients download the actual PCK bytes from `MULTI_SERVER_WORLD_PACK_BASE_URL`.
@@ -240,7 +269,7 @@ sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
 Paste:
 
 ```text
-github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl status virtucade, /usr/bin/systemctl is-active virtucade
+github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl status virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl status caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /tmp/virtucade-Caddyfile, /usr/bin/install -m 644 /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile
 ```
 
 ## 9. Create The GitHub Actions SSH Key
@@ -320,7 +349,12 @@ VIRTUCADE_HOST=<VPS_IP or DNS host>
 VIRTUCADE_USER=github-deploy
 VIRTUCADE_SSH_KEY=<contents of CI private key>
 VIRTUCADE_KNOWN_HOSTS=<pinned VPS SSH host key line>
+VIRTUCADE_GAME_HOST=<public gameplay DNS name>
+VIRTUCADE_ACME_EMAIL=<optional ACME contact email>
 ```
+
+Use repository variables for `VIRTUCADE_GAME_HOST` and `VIRTUCADE_ACME_EMAIL`
+if they are not private. Use secrets if you want to hide them.
 
 Copy the CI private key on Windows:
 
@@ -369,16 +403,19 @@ The workflow:
 1. Builds and smokes locally in CI.
 2. Publishes Web client and PCK files to GitHub Pages.
 3. Verifies the hosted files and reads the hosted PCK `Last-Modified` headers.
-4. Uploads and extracts the full `builds/server/` Linux export folder into a
+4. If `VIRTUCADE_GAME_HOST` is set, renders a Caddyfile, validates it on the
+   VPS, installs it to `/etc/caddy/Caddyfile`, reloads `caddy.service`, and
+   writes `/opt/virtucade/virtucade.env`.
+5. Uploads and extracts the full `builds/server/` Linux export folder into a
    staging folder, including native sidecars such as SQLite.
-5. Uploads and extracts `builds/world_packs/*.pck` into a staging folder after
+6. Uploads and extracts `builds/world_packs/*.pck` into a staging folder after
    syncing their modified times to the hosted GitHub Pages headers. This keeps
    the master server's PackRat metadata aligned with the static host.
-6. Stops `virtucade.service`.
-7. Swaps the staged files into `/opt/virtucade/server/` and
+7. Stops `virtucade.service`.
+8. Swaps the staged files into `/opt/virtucade/server/` and
    `/opt/virtucade/world_packs/`.
-8. Starts `virtucade.service`.
-9. Tags the verified release.
+9. Starts `virtucade.service`.
+10. Tags the verified release.
 
 ## 13. Check The Running Server
 
@@ -410,6 +447,13 @@ sudo systemctl restart virtucade
 - `github-deploy` is CI-only and intentionally restricted.
 - The service runs only the master server. The master starts/stops world server
   processes itself.
+- Caddy is a separate system service. The master does not start or reload it.
 - Do not disable root SSH until `deploy` login and recovery are proven.
 - DigitalOcean bills powered-off Droplets. Destroy the Droplet to stop Droplet
   billing.
+
+Sources:
+
+- Caddy install docs: https://caddyserver.com/docs/install
+- Caddy systemd service docs: https://caddyserver.com/docs/running
+- Caddy automatic HTTPS docs: https://caddyserver.com/docs/automatic-https

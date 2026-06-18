@@ -1,10 +1,14 @@
 const SERVER_HOST := "127.0.0.1"
 const DEFAULT_CLIENT_HOST := "127.0.0.1"
 const DEFAULT_CLIENT_SCHEME := "ws"
+const DEFAULT_BIND_HOST := "*"
 const MASTER_PORT := 19080
 const GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
+const BIND_HOST_ENV := "MULTI_SERVER_BIND_HOST"
 const CLIENT_HOST_ENV := "MULTI_SERVER_CLIENT_HOST"
 const CLIENT_SCHEME_ENV := "MULTI_SERVER_CLIENT_SCHEME"
+const PUBLIC_MASTER_URL_ENV := "MULTI_SERVER_PUBLIC_MASTER_URL"
+const PUBLIC_WORLD_URL_TEMPLATE_ENV := "MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE"
 const TLS_CERT_PATH_ENV := "MULTI_SERVER_TLS_CERT"
 const TLS_KEY_PATH_ENV := "MULTI_SERVER_TLS_KEY"
 const WORLD_PACK_BASE_URL_ENV := "MULTI_SERVER_WORLD_PACK_BASE_URL"
@@ -17,11 +21,39 @@ static var _world_keys_loaded := false
 
 
 static func master_url() -> String:
+	var public_url := public_master_url()
+	if not public_url.is_empty():
+		return public_url
 	return "%s://%s:%d" % [client_scheme(), client_host(), MASTER_PORT]
 
 
 static func local_master_url() -> String:
 	return "ws://%s:%d" % [SERVER_HOST, MASTER_PORT]
+
+
+static func bind_host() -> String:
+	var value := OS.get_environment(BIND_HOST_ENV).strip_edges()
+	if value.is_empty():
+		return DEFAULT_BIND_HOST
+	return value
+
+
+static func public_master_url() -> String:
+	var value := OS.get_environment(PUBLIC_MASTER_URL_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("master_url")
+	if value.is_empty():
+		return ""
+	return value
+
+
+static func public_world_url_template() -> String:
+	var value := OS.get_environment(PUBLIC_WORLD_URL_TEMPLATE_ENV).strip_edges()
+	if value.is_empty():
+		value = _web_query_value("world_url_template")
+	if value.is_empty():
+		return ""
+	return value
 
 
 static func client_host() -> String:
@@ -73,6 +105,9 @@ static func is_valid_world_key(world_key: String) -> bool:
 
 
 static func world_url(world_key: String) -> String:
+	var template := public_world_url_template()
+	if not template.is_empty():
+		return template.replace("{world_key}", world_key.uri_encode())
 	return "%s://%s:%d" % [client_scheme(), client_host(), world_port(world_key)]
 
 

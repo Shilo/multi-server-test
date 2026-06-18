@@ -95,14 +95,18 @@ Relevant current Hetzner docs:
   are free:
   [Hetzner Cloud billing FAQ](https://docs.hetzner.com/cloud/billing/faq/)
 
-For the first test, open only:
+For the current reverse-proxy production path, open only:
 
 - `22/tcp` for SSH
-- `19080-19084/tcp` for master + four world WebSocket ports
+- `80/tcp` for Caddy HTTP->HTTPS and ACME
+- `443/tcp` for public WSS gameplay
 
 No UDP is needed for this project.
 
-## Why Direct TLS Is Acceptable Here
+Godot still listens on `19080-19084`, but those ports should bind to
+`127.0.0.1` and stay closed publicly when Caddy is enabled.
+
+## Why Direct TLS Remains A Fallback
 
 Godot's official docs state that `WebSocketMultiplayerPeer.create_server()`
 accepts `tls_server_options`, so the gameplay server can speak `wss://`
@@ -111,11 +115,14 @@ directly:
 - [WebSocketMultiplayerPeer](https://docs.godotengine.org/en/stable/classes/class_websocketmultiplayerpeer.html)
 - [TLSOptions.server()](https://docs.godotengine.org/en/stable/classes/class_tlsoptions.html)
 
-That keeps the first VPS test simpler:
+That fallback can still be useful for diagnostics or if Caddy becomes a
+measured bottleneck, but it is no longer the preferred public Web path because
+Caddy gives standard `443`, automatic certificate renewal, and private Godot
+backend ports.
 
-- no mandatory reverse-proxy rewrite
-- no path-based socket routing redesign
-- no extra port translation layer
+Public direct Godot WSS would require opening `19080+`, managing cert/key
+permissions for the Godot process, and restarting Godot after certificate
+renewal.
 
 ## Important Limits Still Present
 

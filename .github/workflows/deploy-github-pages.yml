@@ -249,6 +249,35 @@ jobs:
           printf '%s\n' "${VIRTUCADE_KNOWN_HOSTS}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Render Caddy proxy config
+        shell: bash
+        env:
+          VIRTUCADE_GAME_HOST: ${{ vars.VIRTUCADE_GAME_HOST || secrets.VIRTUCADE_GAME_HOST }}
+          VIRTUCADE_ACME_EMAIL: ${{ vars.VIRTUCADE_ACME_EMAIL || secrets.VIRTUCADE_ACME_EMAIL }}
+        run: |
+          set -euo pipefail
+          python3 tools/render_caddyfile.py --self-test
+          if [ -z "${VIRTUCADE_GAME_HOST}" ]; then
+            echo "CADDY_CONFIG_SKIPPED reason=missing_VIRTUCADE_GAME_HOST"
+            exit 0
+          fi
+
+          python3 tools/render_caddyfile.py \
+            --host "${VIRTUCADE_GAME_HOST}" \
+            --acme-email "${VIRTUCADE_ACME_EMAIL}" \
+            --output "$RUNNER_TEMP/virtucade-Caddyfile"
+          cat > "$RUNNER_TEMP/virtucade.env" <<EOF
+          MULTI_SERVER_BIND_HOST=127.0.0.1
+          MULTI_SERVER_PUBLIC_MASTER_URL=wss://${VIRTUCADE_GAME_HOST}/
+          MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://${VIRTUCADE_GAME_HOST}/{world_key}
+          MULTI_SERVER_CLIENT_HOST=${VIRTUCADE_GAME_HOST}
+          MULTI_SERVER_CLIENT_SCHEME=wss
+          MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
+          MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
+          EOF
+          sed -i 's/^          //' "$RUNNER_TEMP/virtucade.env"
+          echo "CADDY_CONFIG_RENDERED host=${VIRTUCADE_GAME_HOST}"
+
       - name: Publish release commit
         shell: bash
         run: |
@@ -329,12 +358,22 @@ jobs:
           test -n "${VIRTUCADE_USER}"
           tar -C builds/server -czf "$RUNNER_TEMP/virtucade-server.tar.gz" .
           tar -C builds/world_packs -czf "$RUNNER_TEMP/virtucade-world-packs.tar.gz" .
+          ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
+            "rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz /tmp/virtucade-Caddyfile /tmp/virtucade.env"
           scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-server.tar.gz" \
             "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-server.tar.gz"
           scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-world-packs.tar.gz" \
             "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-world-packs.tar.gz"
+          if [ -f "$RUNNER_TEMP/virtucade-Caddyfile" ]; then
+            scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-Caddyfile" \
+              "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-Caddyfile"
+          fi
+          if [ -f "$RUNNER_TEMP/virtucade.env" ]; then
+            scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade.env" \
+              "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade.env"
+          fi
           ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
-            "rm -rf /opt/virtucade/server.next /opt/virtucade/world_packs.next && mkdir -p /opt/virtucade/server.next /opt/virtucade/world_packs.next && tar -xzf /tmp/virtucade-server.tar.gz -C /opt/virtucade/server.next && tar -xzf /tmp/virtucade-world-packs.tar.gz -C /opt/virtucade/world_packs.next && mv /opt/virtucade/server.next/server.x86_64 /opt/virtucade/server.next/multi-server-test.x86_64 && chmod +x /opt/virtucade/server.next/multi-server-test.x86_64 && sudo -n systemctl stop virtucade && rm -rf /opt/virtucade/server /opt/virtucade/world_packs && mv /opt/virtucade/server.next /opt/virtucade/server && mv /opt/virtucade/world_packs.next /opt/virtucade/world_packs && rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz && sudo -n systemctl start virtucade && test \"\$(sudo -n systemctl is-active virtucade)\" = active"
+            "set -euo pipefail; if [ -f /tmp/virtucade-Caddyfile ]; then sudo -n /usr/bin/caddy validate --config /tmp/virtucade-Caddyfile && sudo -n /usr/bin/install -m 644 /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile && sudo -n /usr/bin/systemctl reload caddy && test \"\$(sudo -n /usr/bin/systemctl is-active caddy)\" = active; fi; if [ -f /tmp/virtucade.env ]; then mv /tmp/virtucade.env /opt/virtucade/virtucade.env && chmod 664 /opt/virtucade/virtucade.env; fi; rm -rf /opt/virtucade/server.next /opt/virtucade/world_packs.next && mkdir -p /opt/virtucade/server.next /opt/virtucade/world_packs.next && tar -xzf /tmp/virtucade-server.tar.gz -C /opt/virtucade/server.next && tar -xzf /tmp/virtucade-world-packs.tar.gz -C /opt/virtucade/world_packs.next && mv /opt/virtucade/server.next/server.x86_64 /opt/virtucade/server.next/multi-server-test.x86_64 && chmod +x /opt/virtucade/server.next/multi-server-test.x86_64 && sudo -n /usr/bin/systemctl stop virtucade && rm -rf /opt/virtucade/server /opt/virtucade/world_packs && mv /opt/virtucade/server.next /opt/virtucade/server && mv /opt/virtucade/world_packs.next /opt/virtucade/world_packs && rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz /tmp/virtucade-Caddyfile && sudo -n /usr/bin/systemctl start virtucade && test \"\$(sudo -n /usr/bin/systemctl is-active virtucade)\" = active"
           echo "VPS_DEPLOY_DONE host=${VIRTUCADE_HOST} service=virtucade"
 
       - name: Tag verified release

@@ -225,18 +225,21 @@ manual trigger
   -> upload Linux server artifact and world packs
   -> deploy Web client + Web world packs through GitHub Actions Pages
   -> verify hosted Pages manifest, index.html, and world pack bytes
+  -> optionally validate/install static Caddy WSS reverse-proxy config
+  -> deploy server artifact and world-pack metadata mirror to VPS
+  -> restart virtucade.service
   -> tag the release commit
-  -> print VPS deploy reminder
 ```
 
 The release workflow intentionally publishes every world pack with the Web
 client. Partial pack deploys are deferred because this project's production
 strategy is a cold, all-artifacts-in-sync release rather than live hot updates.
 
-The VPS stop/upload/start step is intentionally not wired yet. It needs real
-host details, a service/supervisor name, a release directory layout, and SQLite
-backup/migration commands. Until those exist, uploading the server artifact is
-safer than pretending the workflow can restart production.
+The VPS stop/upload/start step is now wired for the current single-VPS service:
+GitHub Actions stages the Linux server export and world-pack mirror, stops
+`virtucade.service`, swaps the staged folders into `/opt/virtucade/`, starts the
+service, and checks that it is active. Caddy reverse-proxy config is optional
+and only installed when `VIRTUCADE_GAME_HOST` is configured.
 
 ## Web Reload And Cache Busting
 
