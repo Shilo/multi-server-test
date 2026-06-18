@@ -160,6 +160,24 @@ sudo apt install -y caddy
 sudo systemctl enable --now caddy
 ```
 
+`enable --now` does two things:
+
+- `enable` makes Caddy start automatically after a VPS reboot.
+- `--now` starts Caddy immediately.
+
+Confirm Caddy is installed, enabled, and running:
+
+```bash
+command -v caddy
+systemctl is-enabled caddy
+systemctl is-active caddy
+```
+
+Caddy is the WSS/TLS edge for the game. It listens publicly on `80/443`, obtains
+and renews HTTPS certificates automatically after DNS points at the VPS, then
+proxies browser `wss://` traffic to Godot's private `ws://127.0.0.1:19080+`
+ports. The Godot master does not start, stop, or reload Caddy.
+
 ## 6. Create App Folders
 
 ```bash
@@ -216,6 +234,10 @@ Enable it:
 sudo systemctl daemon-reload
 sudo systemctl enable virtucade
 ```
+
+`systemctl enable virtucade` makes the Godot master start automatically after a
+VPS reboot. World servers are not enabled as separate services; the master starts
+and stops them on demand.
 
 Do not start it until GitHub Actions uploads
 `/opt/virtucade/server/multi-server-test.x86_64`.
@@ -429,10 +451,15 @@ SSH as `deploy`:
 ssh -i "$HOME\.ssh\digitalocean-virtucade" deploy@<VPS_IP>
 ```
 
-Check service:
+Check services:
 
 ```bash
 systemctl status virtucade
+systemctl status caddy
+systemctl is-enabled virtucade
+systemctl is-enabled caddy
+systemctl is-active virtucade
+systemctl is-active caddy
 tail -n 100 /opt/virtucade/logs/server.log
 ```
 
