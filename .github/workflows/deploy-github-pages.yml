@@ -230,6 +230,34 @@ jobs:
           cp tools/web_smoke.mjs "$RUNNER_TEMP/multi-server-test-playwright/web_smoke.mjs"
           node "$RUNNER_TEMP/multi-server-test-playwright/web_smoke.mjs" --url="http://127.0.0.1:19200/index.html?args=smoke_test,force_packrat_world_packs&run=${GITHUB_RUN_ID}" --timeout_ms=180000
 
+      - name: Configure VPS SSH
+        shell: bash
+        env:
+          VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
+          VIRTUCADE_SSH_KEY: ${{ secrets.VIRTUCADE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${VIRTUCADE_HOST}"
+          test -n "${VIRTUCADE_SSH_KEY}"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${VIRTUCADE_SSH_KEY}" > ~/.ssh/virtucade_deploy_key
+          chmod 600 ~/.ssh/virtucade_deploy_key
+          ssh-keyscan -H "${VIRTUCADE_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Stop VPS server
+        shell: bash
+        env:
+          VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
+          VIRTUCADE_USER: ${{ secrets.VIRTUCADE_USER }}
+        run: |
+          set -euo pipefail
+          test -n "${VIRTUCADE_HOST}"
+          test -n "${VIRTUCADE_USER}"
+          ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
+            "sudo -n systemctl stop virtucade || true"
+
       - name: Publish release commit
         shell: bash
         run: |
@@ -299,6 +327,21 @@ jobs:
             --delay 5 \
             --fail-on-last-modified-mismatch
 
+      - name: Deploy VPS server
+        shell: bash
+        env:
+          VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
+          VIRTUCADE_USER: ${{ secrets.VIRTUCADE_USER }}
+        run: |
+          set -euo pipefail
+          test -n "${VIRTUCADE_HOST}"
+          test -n "${VIRTUCADE_USER}"
+          scp -i ~/.ssh/virtucade_deploy_key builds/server/server.x86_64 \
+            "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/opt/virtucade/server/multi-server-test.x86_64.tmp"
+          ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
+            "mv /opt/virtucade/server/multi-server-test.x86_64.tmp /opt/virtucade/server/multi-server-test.x86_64 && chmod +x /opt/virtucade/server/multi-server-test.x86_64 && sudo -n systemctl start virtucade && test \"\$(sudo -n systemctl is-active virtucade)\" = active"
+          echo "VPS_DEPLOY_DONE host=${VIRTUCADE_HOST} service=virtucade"
+
       - name: Tag verified release
         shell: bash
         run: |
@@ -323,9 +366,3 @@ jobs:
             git push origin "refs/tags/${tag}"
             echo "RELEASE_TAG_PUBLISHED tag=${tag} commit=${RELEASE_COMMIT_SHORT}"
           fi
-
-      - name: VPS deploy reminder
-        shell: bash
-        run: |
-          echo "VPS_DEPLOY_NOT_CONFIGURED"
-          echo "When the VPS is ready, add the stop -> upload staged Linux server -> start step here."

@@ -491,15 +491,26 @@ GitHub Actions uses manual workflow dispatch only. One run sets an exact
 `MAJOR.MINOR` version or bumps the minor version once, creates a local release
 commit for the visible `project.godot` change, exports Linux server and Web
 artifacts from that release commit, verifies them, runs the exported Web smoke,
-pushes the release commit, uploads the Linux server artifact plus world packs,
-deploys the Web client and all Web world packs to GitHub Pages, verifies the
-live hosted bytes against the deployment manifest, then tags the release commit.
-If a release tag already exists, it must point at the current commit or the
-workflow fails before publishing. Releases are intentionally restricted to the
-`main` branch. The VPS
-stop/upload/start step is intentionally not automated yet because the VPS
-service name, release directory, SSH user, and database backup flow do not exist
-in this repo yet.
+stops the VPS server for the maintenance window, pushes the release commit,
+uploads the Linux server artifact plus world packs, deploys the Web client and
+all Web world packs to GitHub Pages, verifies the live hosted bytes against the
+deployment manifest, deploys and starts the Linux server on the configured VPS,
+then tags the release commit. If a release tag already exists, it must point at
+the current commit or the workflow fails before publishing. Releases are
+intentionally restricted to the `main` branch.
+
+VPS deploy uses these GitHub Actions repository secrets:
+
+- `VIRTUCADE_HOST`: VPS public host or IP.
+- `VIRTUCADE_USER`: restricted deploy user, currently `github-deploy`.
+- `VIRTUCADE_SSH_KEY`: private SSH key for that deploy user.
+
+The VPS service is `virtucade.service`. The workflow stops it, uploads
+`builds/server/server.x86_64` to
+`/opt/virtucade/server/multi-server-test.x86_64`, starts the service, and checks
+that it is active. The `github-deploy` user should only have write access to
+`/opt/virtucade` and limited passwordless sudo for `systemctl` commands against
+`virtucade.service`.
 
 The workflow title shows `Release v<version>` when an exact `version` input is
 provided. Auto-bump runs are titled `Release auto-bump` because GitHub computes
