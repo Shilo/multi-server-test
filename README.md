@@ -548,14 +548,11 @@ the static host must serve matching bytes. The release workflow also downloads
 every live GitHub Pages file listed in `deployment_manifest.json` after deploy
 and verifies its size/SHA-256 value.
 
-That means the simplest production path is to serve the same `world_packs/`
-directory that the master stats, or deploy in a way that preserves the pack
-files' modified times. A CDN/static host that rewrites `Last-Modified` can make
-the browser download fail metadata validation even when the bytes are correct;
-the hosted verifier fails the release with `HOSTED_LAST_MODIFIED_MISMATCH` when
-it detects that risk. If GitHub Pages cannot preserve those headers, move the
-master to a metadata source that matches the static host before treating hosted
-Web as production-ready.
+GitHub Pages may rewrite `Last-Modified` headers to the deployment time. The
+release workflow treats those mismatches as warnings, then syncs the VPS
+`/opt/virtucade/world_packs/` mirror mtimes to the actual hosted
+`Last-Modified` headers before restarting the server. That way the master sends
+PackRat metadata that matches what clients will see from GitHub Pages.
 
 The `server/` and `client/` folders are export-bundle ownership labels. The concern ends at what gets bundled into each executable/artifact; runtime clients can still mount a downloaded pack at a `res://server/worlds/...` path because that path is not user-facing.
 

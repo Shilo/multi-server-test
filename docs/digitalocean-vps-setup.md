@@ -348,11 +348,12 @@ The workflow:
 
 1. Builds and smokes locally in CI.
 2. Publishes Web client and PCK files to GitHub Pages.
-3. Verifies the hosted files.
+3. Verifies the hosted files and reads the hosted PCK `Last-Modified` headers.
 4. Uploads and extracts the full `builds/server/` Linux export folder into a
    staging folder, including native sidecars such as SQLite.
-5. Uploads and extracts `builds/world_packs/*.pck` into a staging folder with
-   modified times preserved for PackRat metadata.
+5. Uploads and extracts `builds/world_packs/*.pck` into a staging folder after
+   syncing their modified times to the hosted GitHub Pages headers. This keeps
+   the master server's PackRat metadata aligned with the static host.
 6. Stops `virtucade.service`.
 7. Swaps the staged files into `/opt/virtucade/server/` and
    `/opt/virtucade/world_packs/`.

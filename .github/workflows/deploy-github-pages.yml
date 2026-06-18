@@ -316,7 +316,7 @@ jobs:
             --commit "${RELEASE_COMMIT}" \
             --attempts 20 \
             --delay 5 \
-            --fail-on-last-modified-mismatch
+            --sync-world-pack-mtime-root builds/world_packs
 
       - name: Deploy VPS server
         shell: bash

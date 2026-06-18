@@ -3,6 +3,7 @@ import argparse
 import email.utils
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -132,9 +133,11 @@ def main() -> None:
     parser.add_argument("--attempts", type=int, default=10)
     parser.add_argument("--delay", type=float, default=3.0)
     parser.add_argument("--fail-on-last-modified-mismatch", action="store_true")
+    parser.add_argument("--sync-world-pack-mtime-root", default="")
     args = parser.parse_args()
 
     web_root = Path(args.web_root).resolve()
+    sync_world_pack_root = Path(args.sync_world_pack_mtime_root).resolve() if args.sync_world_pack_mtime_root else None
     local_manifest_path = web_root / "deployment_manifest.json"
     if not local_manifest_path.is_file():
         raise SystemExit(f"Missing local deployment manifest: {local_manifest_path}")
@@ -175,6 +178,12 @@ def main() -> None:
         if path.startswith("world_packs/"):
             hosted_modified_time = parse_http_modified_time(headers)
             local_modified_time = int(local_path.stat().st_mtime)
+            if sync_world_pack_root and hosted_modified_time > 0:
+                sync_path = sync_world_pack_root / Path(path).name
+                if not sync_path.is_file():
+                    raise SystemExit(f"Missing world pack mtime sync target: {sync_path}")
+                os.utime(sync_path, (hosted_modified_time, hosted_modified_time))
+                print("HOSTED_LAST_MODIFIED_SYNC path=%s target=%s hosted=%d" % (path, sync_path, hosted_modified_time))
             if hosted_modified_time > 0 and hosted_modified_time != local_modified_time:
                 modified_time_mismatches.append(path)
                 status_label = (
