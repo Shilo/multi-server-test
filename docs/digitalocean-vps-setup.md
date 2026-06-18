@@ -29,7 +29,8 @@ Add a DigitalOcean Cloud Firewall:
 
 ```text
 Inbound:
-  TCP 22          from <YOUR_IP>/32
+  TCP 22          from <YOUR_IP>/32 for manual-only SSH
+  TCP 22          from all IPv4/IPv6 if GitHub Actions deploys over SSH
   TCP 19080-19084 from all IPv4/IPv6
 
 Outbound:
@@ -39,6 +40,11 @@ Outbound:
 `19080` is the master server port. `19081+` is the world-server range.
 The current project has four worlds, so `19080-19084` is enough. For larger
 stress tests, widen the range, for example `19080-19180`.
+
+GitHub-hosted Actions runners do not have one stable source IP. For the simple
+SSH deploy workflow in this repo, port `22` must be reachable from GitHub
+Actions. If you do not want SSH open broadly, use a self-hosted runner, VPN,
+or a provider-specific deployment channel later.
 
 ## 2. Create A Personal SSH Key
 
