@@ -299,6 +299,7 @@ Add:
 VIRTUCADE_HOST=<VPS_IP or DNS host>
 VIRTUCADE_USER=github-deploy
 VIRTUCADE_SSH_KEY=<contents of CI private key>
+VIRTUCADE_KNOWN_HOSTS=<pinned VPS SSH host key line>
 ```
 
 Copy the CI private key on Windows:
@@ -309,6 +310,15 @@ Get-Content "$HOME\.ssh\virtucade-deploy-github-actions" -Raw | Set-Clipboard
 
 Only the private key without `.pub` goes into `VIRTUCADE_SSH_KEY`. Never paste
 your personal DigitalOcean private key into GitHub.
+
+Create `VIRTUCADE_KNOWN_HOSTS` from your PC:
+
+```powershell
+ssh-keyscan -H <VPS_IP> | Set-Clipboard
+```
+
+Paste the copied host-key lines into the secret. This avoids trusting a fresh
+`ssh-keyscan` result during every deploy.
 
 ## 12. Deploy From GitHub Actions
 
@@ -324,15 +334,17 @@ as `0.8`.
 The workflow:
 
 1. Builds and smokes locally in CI.
-2. Stops `virtucade.service`.
-3. Publishes Web client and PCK files to GitHub Pages.
-4. Uploads the full `builds/server/` Linux export folder to
-   `/opt/virtucade/server/`, including native sidecars such as SQLite.
-5. Renames `server.x86_64` to `multi-server-test.x86_64`.
-6. Mirrors `builds/world_packs/*.pck` to `/opt/virtucade/world_packs/` with
+2. Publishes Web client and PCK files to GitHub Pages.
+3. Verifies the hosted files.
+4. Uploads and extracts the full `builds/server/` Linux export folder into a
+   staging folder, including native sidecars such as SQLite.
+5. Uploads and extracts `builds/world_packs/*.pck` into a staging folder with
    modified times preserved for PackRat metadata.
-7. Starts `virtucade.service`.
-8. Tags the verified release.
+6. Stops `virtucade.service`.
+7. Swaps the staged files into `/opt/virtucade/server/` and
+   `/opt/virtucade/world_packs/`.
+8. Starts `virtucade.service`.
+9. Tags the verified release.
 
 ## 13. Check The Running Server
 

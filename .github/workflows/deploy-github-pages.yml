@@ -235,28 +235,19 @@ jobs:
         env:
           VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
           VIRTUCADE_SSH_KEY: ${{ secrets.VIRTUCADE_SSH_KEY }}
+          VIRTUCADE_KNOWN_HOSTS: ${{ secrets.VIRTUCADE_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           test -n "${VIRTUCADE_HOST}"
           test -n "${VIRTUCADE_SSH_KEY}"
+          test -n "${VIRTUCADE_KNOWN_HOSTS}"
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "${VIRTUCADE_SSH_KEY}" > ~/.ssh/virtucade_deploy_key
           chmod 600 ~/.ssh/virtucade_deploy_key
-          ssh-keyscan -H "${VIRTUCADE_HOST}" >> ~/.ssh/known_hosts
-
-      - name: Stop VPS server
-        shell: bash
-        env:
-          VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
-          VIRTUCADE_USER: ${{ secrets.VIRTUCADE_USER }}
-        run: |
-          set -euo pipefail
-          test -n "${VIRTUCADE_HOST}"
-          test -n "${VIRTUCADE_USER}"
-          ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
-            "sudo -n systemctl stop virtucade || true"
+          printf '%s\n' "${VIRTUCADE_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Publish release commit
         shell: bash
@@ -343,7 +334,7 @@ jobs:
           scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-world-packs.tar.gz" \
             "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-world-packs.tar.gz"
           ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
-            "rm -rf /opt/virtucade/server/* /opt/virtucade/world_packs/* && mkdir -p /opt/virtucade/server /opt/virtucade/world_packs && tar -xzf /tmp/virtucade-server.tar.gz -C /opt/virtucade/server && tar -xzf /tmp/virtucade-world-packs.tar.gz -C /opt/virtucade/world_packs && mv /opt/virtucade/server/server.x86_64 /opt/virtucade/server/multi-server-test.x86_64 && chmod +x /opt/virtucade/server/multi-server-test.x86_64 && rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz && sudo -n systemctl start virtucade && test \"\$(sudo -n systemctl is-active virtucade)\" = active"
+            "rm -rf /opt/virtucade/server.next /opt/virtucade/world_packs.next && mkdir -p /opt/virtucade/server.next /opt/virtucade/world_packs.next && tar -xzf /tmp/virtucade-server.tar.gz -C /opt/virtucade/server.next && tar -xzf /tmp/virtucade-world-packs.tar.gz -C /opt/virtucade/world_packs.next && mv /opt/virtucade/server.next/server.x86_64 /opt/virtucade/server.next/multi-server-test.x86_64 && chmod +x /opt/virtucade/server.next/multi-server-test.x86_64 && sudo -n systemctl stop virtucade && rm -rf /opt/virtucade/server /opt/virtucade/world_packs && mv /opt/virtucade/server.next /opt/virtucade/server && mv /opt/virtucade/world_packs.next /opt/virtucade/world_packs && rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz && sudo -n systemctl start virtucade && test \"\$(sudo -n systemctl is-active virtucade)\" = active"
           echo "VPS_DEPLOY_DONE host=${VIRTUCADE_HOST} service=virtucade"
 
       - name: Tag verified release
