@@ -46,6 +46,20 @@ SSH deploy workflow in this repo, port `22` must be reachable from GitHub
 Actions. If you do not want SSH open broadly, use a self-hosted runner, VPN,
 or a provider-specific deployment channel later.
 
+Production VirtuCade should not leave SSH open to all as the long-term default.
+For production, prefer one of these:
+
+- A self-hosted GitHub runner on the VPS or a private admin VPS. The runner
+  connects outbound to GitHub, so SSH can stay restricted to your admin IP or a
+  VPN.
+- A deploy workflow that temporarily adds the current GitHub runner IP to the
+  DigitalOcean firewall, deploys, then removes it.
+- A private network/VPN path such as WireGuard or Tailscale.
+
+Opening SSH to all is acceptable for the first VPS dogfood test because SSH
+still requires keys and the CI user is restricted, but it is not the desired
+production security posture.
+
 ## 2. Create A Personal SSH Key
 
 On Windows PowerShell:
