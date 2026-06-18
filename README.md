@@ -487,6 +487,9 @@ downloading Web client/PCK files from GitHub Pages. Public server testing can
 override that without rebuilding by appending
 `?server_host=<host>&server_scheme=wss` to the page URL.
 
+For setting up a fresh DigitalOcean/Ubuntu VPS for GitHub Actions deploys, see
+[DigitalOcean VPS Setup](docs/digitalocean-vps-setup.md).
+
 GitHub Actions uses manual workflow dispatch only. One run sets an exact
 `MAJOR.MINOR` version or bumps the minor version once, creates a local release
 commit for the visible `project.godot` change, exports Linux server and Web
@@ -506,11 +509,12 @@ VPS deploy uses these GitHub Actions repository secrets:
 - `VIRTUCADE_SSH_KEY`: private SSH key for that deploy user.
 
 The VPS service is `virtucade.service`. The workflow stops it, uploads
-`builds/server/server.x86_64` to
-`/opt/virtucade/server/multi-server-test.x86_64`, starts the service, and checks
-that it is active. The `github-deploy` user should only have write access to
-`/opt/virtucade` and limited passwordless sudo for `systemctl` commands against
-`virtucade.service`.
+the full `builds/server/` Linux export folder to `/opt/virtucade/server/`,
+renames `server.x86_64` to `multi-server-test.x86_64`, mirrors
+`builds/world_packs/*.pck` into `/opt/virtucade/world_packs/` with modified
+times preserved, starts the service, and checks that it is active. The
+`github-deploy` user should only have write access to `/opt/virtucade` and
+limited passwordless sudo for `systemctl` commands against `virtucade.service`.
 
 The workflow title shows `Release v<version>` when an exact `version` input is
 provided. Auto-bump runs are titled `Release auto-bump` because GitHub computes

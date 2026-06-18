@@ -1,0 +1,369 @@
+# DigitalOcean VPS Setup
+
+This is the repeatable setup for a fresh Ubuntu VPS that can run the exported
+`multi-server-test` Linux server through GitHub Actions.
+
+Use placeholders for private values:
+
+```text
+<VPS_IP>          public IPv4 or DNS name
+<YOUR_IP>/32     your current public IPv4 CIDR for SSH
+<LOCAL_KEY>      personal SSH key path on your PC
+<CI_KEY>         GitHub Actions deploy SSH key path on your PC
+```
+
+Do not commit private keys, real secrets, passphrases, or temporary passwords.
+
+## 1. Create The Droplet
+
+Recommended first dev-test shape:
+
+- Region: nearest low-latency region.
+- Image: Ubuntu 24.04 LTS x64.
+- Plan: smallest Basic plan you want to stress test.
+- Authentication: SSH key.
+- Monitoring: enabled.
+- Backups: optional; off is fine for a disposable dev-test Droplet.
+
+Add a DigitalOcean Cloud Firewall:
+
+```text
+Inbound:
+  TCP 22          from <YOUR_IP>/32
+  TCP 19080-19084 from all IPv4/IPv6
+
+Outbound:
+  allow all
+```
+
+`19080` is the master server port. `19081+` is the world-server range.
+The current project has four worlds, so `19080-19084` is enough. For larger
+stress tests, widen the range, for example `19080-19180`.
+
+## 2. Create A Personal SSH Key
+
+On Windows PowerShell:
+
+```powershell
+ssh-keygen -t ed25519 -C "digitalocean-virtucade" -f "$HOME\.ssh\digitalocean-virtucade"
+```
+
+Use a passphrase and save it in a password manager.
+
+Copy the public key:
+
+```powershell
+Get-Content "$HOME\.ssh\digitalocean-virtucade.pub" | Set-Clipboard
+```
+
+Paste that public key into DigitalOcean when creating the Droplet.
+
+## 3. First SSH Login
+
+```powershell
+ssh -i "$HOME\.ssh\digitalocean-virtucade" root@<VPS_IP>
+```
+
+If prompted to trust the host fingerprint, type `yes`.
+
+Update the server:
+
+```bash
+apt update
+apt upgrade -y
+apt autoremove -y
+reboot
+```
+
+Reconnect after reboot and confirm the kernel updated:
+
+```powershell
+ssh -i "$HOME\.ssh\digitalocean-virtucade" root@<VPS_IP>
+```
+
+```bash
+uname -r
+```
+
+## 4. Create The Human Deploy User
+
+While logged in as `root`:
+
+```bash
+adduser deploy
+usermod -aG sudo deploy
+mkdir -p /home/deploy/.ssh
+cp /root/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+Set a unique `deploy` password and save it. This password is for `sudo`; SSH
+still uses your key.
+
+Test from a new PowerShell window:
+
+```powershell
+ssh -i "$HOME\.ssh\digitalocean-virtucade" deploy@<VPS_IP>
+```
+
+Then test sudo:
+
+```bash
+sudo whoami
+```
+
+Expected:
+
+```text
+root
+```
+
+## 5. Install Required Packages
+
+As `deploy`:
+
+```bash
+sudo apt install -y unzip curl git
+```
+
+## 6. Create App Folders
+
+```bash
+sudo mkdir -p /opt/virtucade/server /opt/virtucade/data /opt/virtucade/logs /opt/virtucade/world_packs
+sudo chown -R deploy:deploy /opt/virtucade
+```
+
+Layout:
+
+```text
+/opt/virtucade/server/   exported Linux server binary
+/opt/virtucade/data/     SQLite DB and persistent app data
+/opt/virtucade/logs/     service logs
+/opt/virtucade/world_packs/ optional local mirror for server-side pack metadata
+```
+
+## 7. Create The Master Server Service
+
+Create the systemd service:
+
+```bash
+sudo nano /etc/systemd/system/virtucade.service
+```
+
+Paste:
+
+```ini
+[Unit]
+Description=VirtuCade Godot Server
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/virtucade/server
+Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
+Environment=MULTI_SERVER_CLIENT_SCHEME=ws
+Environment=MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
+Environment=MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
+ExecStart=/opt/virtucade/server/multi-server-test.x86_64 --headless
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/opt/virtucade/logs/server.log
+StandardError=append:/opt/virtucade/logs/server.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable virtucade
+```
+
+Do not start it until GitHub Actions uploads
+`/opt/virtucade/server/multi-server-test.x86_64`.
+
+`MULTI_SERVER_CLIENT_HOST` must be the public host clients should connect to.
+Use a domain later if one exists. `MULTI_SERVER_CLIENT_SCHEME=ws` is enough for
+native-client testing. A GitHub Pages Web client usually needs `wss`, which
+requires TLS/certificate setup or a reverse proxy.
+
+The master reads local PCK metadata from `MULTI_SERVER_WORLD_PACK_DIR`, while
+clients download the actual PCK bytes from `MULTI_SERVER_WORLD_PACK_BASE_URL`.
+Keep `/opt/virtucade/world_packs` mirrored with the PCK files published to
+GitHub Pages if you want server-provided PackRat metadata to stay precise.
+
+## 8. Create The Restricted GitHub Deploy User
+
+As `deploy`:
+
+```bash
+sudo adduser --disabled-password --gecos "" github-deploy
+sudo groupadd virtucade
+sudo usermod -aG virtucade deploy
+sudo usermod -aG virtucade github-deploy
+sudo chown -R deploy:virtucade /opt/virtucade
+sudo find /opt/virtucade -type d -exec chmod 2775 {} \;
+sudo find /opt/virtucade -type f -exec chmod 664 {} \;
+```
+
+Allow only service control for the CI user:
+
+```bash
+sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
+```
+
+Paste:
+
+```text
+github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl status virtucade, /usr/bin/systemctl is-active virtucade
+```
+
+## 9. Create The GitHub Actions SSH Key
+
+On Windows PowerShell:
+
+```powershell
+ssh-keygen -t ed25519 -C "virtucade-deploy-github-actions" -f "$HOME\.ssh\virtucade-deploy-github-actions"
+```
+
+Use no passphrase for this CI key. The private key will be protected by GitHub
+Actions secrets.
+
+Copy the public key:
+
+```powershell
+Get-Content "$HOME\.ssh\virtucade-deploy-github-actions.pub" | Set-Clipboard
+```
+
+On the VPS as `deploy`:
+
+```bash
+sudo mkdir -p /home/github-deploy/.ssh
+sudo nano /home/github-deploy/.ssh/authorized_keys
+```
+
+Paste the public key, save, then run:
+
+```bash
+sudo chown -R github-deploy:github-deploy /home/github-deploy/.ssh
+sudo chmod 700 /home/github-deploy/.ssh
+sudo chmod 600 /home/github-deploy/.ssh/authorized_keys
+```
+
+## 10. Test The Restricted CI User
+
+From Windows PowerShell:
+
+```powershell
+ssh -i "$HOME\.ssh\virtucade-deploy-github-actions" github-deploy@<VPS_IP>
+```
+
+On the VPS:
+
+```bash
+whoami
+sudo -n systemctl status virtucade
+touch /opt/virtucade/server/permission-test.txt
+touch /root/should-fail.txt
+sudo -n apt update
+rm /opt/virtucade/server/permission-test.txt
+exit
+```
+
+Expected:
+
+```text
+whoami                                  -> github-deploy
+sudo -n systemctl status virtucade      -> allowed
+touch /opt/virtucade/server/...         -> allowed
+touch /root/...                         -> denied
+sudo -n apt update                      -> denied
+```
+
+## 11. Add GitHub Actions Secrets
+
+In the GitHub repository:
+
+```text
+Settings -> Secrets and variables -> Actions -> New repository secret
+```
+
+Add:
+
+```text
+VIRTUCADE_HOST=<VPS_IP or DNS host>
+VIRTUCADE_USER=github-deploy
+VIRTUCADE_SSH_KEY=<contents of CI private key>
+```
+
+Copy the CI private key on Windows:
+
+```powershell
+Get-Content "$HOME\.ssh\virtucade-deploy-github-actions" -Raw | Set-Clipboard
+```
+
+Only the private key without `.pub` goes into `VIRTUCADE_SSH_KEY`. Never paste
+your personal DigitalOcean private key into GitHub.
+
+## 12. Deploy From GitHub Actions
+
+Run:
+
+```text
+GitHub -> Actions -> Manual Release Deploy -> Run workflow
+```
+
+Use `main`. Leave `version` blank to bump minor, or enter an exact version such
+as `0.8`.
+
+The workflow:
+
+1. Builds and smokes locally in CI.
+2. Stops `virtucade.service`.
+3. Publishes Web client and PCK files to GitHub Pages.
+4. Uploads the full `builds/server/` Linux export folder to
+   `/opt/virtucade/server/`, including native sidecars such as SQLite.
+5. Renames `server.x86_64` to `multi-server-test.x86_64`.
+6. Mirrors `builds/world_packs/*.pck` to `/opt/virtucade/world_packs/` with
+   modified times preserved for PackRat metadata.
+7. Starts `virtucade.service`.
+8. Tags the verified release.
+
+## 13. Check The Running Server
+
+SSH as `deploy`:
+
+```powershell
+ssh -i "$HOME\.ssh\digitalocean-virtucade" deploy@<VPS_IP>
+```
+
+Check service:
+
+```bash
+systemctl status virtucade
+tail -n 100 /opt/virtucade/logs/server.log
+```
+
+Stop/start manually if needed:
+
+```bash
+sudo systemctl stop virtucade
+sudo systemctl start virtucade
+sudo systemctl restart virtucade
+```
+
+## Notes
+
+- `root` is for emergency/admin recovery.
+- `deploy` is the human admin account with sudo.
+- `github-deploy` is CI-only and intentionally restricted.
+- The service runs only the master server. The master starts/stops world server
+  processes itself.
+- Do not disable root SSH until `deploy` login and recovery are proven.
+- DigitalOcean bills powered-off Droplets. Destroy the Droplet to stop Droplet
+  billing.
