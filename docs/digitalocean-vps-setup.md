@@ -311,14 +311,27 @@ Get-Content "$HOME\.ssh\virtucade-deploy-github-actions" -Raw | Set-Clipboard
 Only the private key without `.pub` goes into `VIRTUCADE_SSH_KEY`. Never paste
 your personal DigitalOcean private key into GitHub.
 
-Create `VIRTUCADE_KNOWN_HOSTS` from your PC:
+Create `VIRTUCADE_KNOWN_HOSTS` from your PC after you have successfully SSH'd
+into the VPS at least once:
 
 ```powershell
-ssh-keyscan -H <VPS_IP> | Set-Clipboard
+ssh-keygen -F <VPS_IP>
+ssh-keygen -F <VPS_IP> | Select-String -NotMatch "^#" | ForEach-Object { $_.Line } | Set-Clipboard
 ```
 
-Paste the copied host-key lines into the secret. This avoids trusting a fresh
-`ssh-keyscan` result during every deploy.
+Paste the copied non-comment host-key lines into the secret. They usually look
+like:
+
+```text
+<VPS_IP> ssh-ed25519 <public-host-key>
+<VPS_IP> ssh-rsa <public-host-key>
+<VPS_IP> ecdsa-sha2-nistp256 <public-host-key>
+```
+
+These are public server identity keys, not private keys. This avoids trusting a
+fresh `ssh-keyscan` result during every deploy. If `ssh-keyscan` works on your
+machine, it is also acceptable to use it once manually, but do not run
+`ssh-keyscan` inside the deploy workflow.
 
 ## 12. Deploy From GitHub Actions
 
