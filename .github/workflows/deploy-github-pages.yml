@@ -258,6 +258,7 @@ jobs:
       - name: Render Caddy proxy config
         shell: bash
         env:
+          VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
           VIRTUCADE_GAME_HOST: ${{ vars.VIRTUCADE_GAME_HOST || secrets.VIRTUCADE_GAME_HOST }}
           VIRTUCADE_ACME_EMAIL: ${{ vars.VIRTUCADE_ACME_EMAIL || secrets.VIRTUCADE_ACME_EMAIL }}
         run: |
@@ -270,6 +271,11 @@ jobs:
             > "$RUNNER_TEMP/virtucade.env"
 
           if [ -z "${VIRTUCADE_GAME_HOST}" ]; then
+            test -n "${VIRTUCADE_HOST}"
+            printf '%s\n' \
+              "MULTI_SERVER_CLIENT_HOST=${VIRTUCADE_HOST}" \
+              'MULTI_SERVER_CLIENT_SCHEME=ws' \
+              >> "$RUNNER_TEMP/virtucade.env"
             echo "CADDY_CONFIG_SKIPPED reason=missing_VIRTUCADE_GAME_HOST"
             exit 0
           fi

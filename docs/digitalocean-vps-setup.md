@@ -263,8 +263,15 @@ MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world
 
 That makes the exported Godot server listen privately while advertising public
 `wss://` URLs through Caddy. If `VIRTUCADE_GAME_HOST` is not set, the env file
-only contains the pack directory/base URL values and the server falls back to
-the normal local/default URL behavior.
+also includes:
+
+```text
+MULTI_SERVER_CLIENT_HOST=<VIRTUCADE_HOST>
+MULTI_SERVER_CLIENT_SCHEME=ws
+```
+
+That keeps direct-IP `ws://` native-client testing usable before a real domain
+is pointed at the VPS.
 
 The master reads local PCK metadata from `MULTI_SERVER_WORLD_PACK_DIR`, while
 clients download the actual PCK bytes from `MULTI_SERVER_WORLD_PACK_BASE_URL`.
