@@ -65,6 +65,28 @@ Accepted review fixes:
 - Worlds replay ACKs for stored tickets when registration acknowledgement arrives, covering ticket-before-registration ordering.
 - Master `PERF_SAMPLE` logs now include join-ticket ACK success/timeout counters and last ACK wait time.
 
+### Recovery And Cleanup Hardening
+
+The latest validation pass accepted these reviewer findings and fixed them:
+
+- route-less initial `request_world_join(hub)` now creates an active join request before waiting for world availability;
+- stale pending admissions, ready-ticket flags, active join requests, and target leases are cleared immediately when a world deregisters or crashes;
+- clients attempt one master-mediated reconnect to the same committed active world after an unexpected world-socket disconnect;
+- rejoin requests are validated by the master against session active-world state, so reconnect is not a free teleport path;
+- target-world deregistration now notifies source worlds for bare travel leases, preventing long portal locks when a target dies during asset preparation;
+- client transfer state is cleared if a world socket disconnects during an in-progress transfer;
+- world scene load failure now logs the exact scene path and exits with a distinct code instead of null-instantiating;
+- world expected-ticket capacity is aligned with the master admission cap;
+- VPS deploys now place SQLite under `/opt/virtucade/data/virtucade.db` through `MULTI_SERVER_DB_PATH`;
+- world-pack export waits longer for `.uploading.pck` stability, preventing false failures on slow or loaded disks.
+
+Rejected or deferred review findings:
+
+- SHA-256 PCK validation is useful later, but intentionally deferred because this project currently validates against master-owned file metadata and the PackRat MVP intentionally avoids mandatory hash workflow.
+- Full maintenance/drain deploys are deferred; the current release model is manual cold restart with client reconnect prompts.
+- Authentication/password hardening is a VirtuCade product feature, not this infrastructure proof. This project remains a private dogfood baseline.
+- Caddy trailing-slash support is not added because the generated client URLs are exact-path and endpoints are not user-facing.
+
 ## Local Test Results
 
 These tests passed on June 19, 2026:
@@ -75,9 +97,13 @@ These tests passed on June 19, 2026:
 | `tools/client_ui_smoke.gd` | Passed |
 | `tools/net_config_smoke.gd` | Passed |
 | `tools/run_smoke.ps1 -UsePackRatWorldPacks -ClientCount 2` | Passed, `SMOKE_PASS clients=2 chat_messages=20` |
+| `tools/run_smoke.ps1 -UsePackRatWorldPacks -ClientCount 12` | Passed, `SMOKE_PASS clients=12 chat_messages=120` |
 | `tools/run_web_smoke.ps1` | Passed, `WEB_SMOKE_PASS` |
+| `tools/run_world_crash_recovery_smoke.ps1` | Passed, transferred to active `left_world`, killed `left_world`, master restarted it, client rejoined and chat passed |
+| `tools/run_packrat_version_cache_smoke.ps1` | Passed, unchanged packs cache-hit across app-version bump |
+| `tools/run_db_test.ps1` | Passed, SQLite account/world/position persisted across master restart |
 | `tools/verify_export_artifacts.py --server-binary server/server.exe` | Passed |
-| `tools/run_cpu_profile_smoke.ps1 -ClientCount 10` | Passed, `SMOKE_PASS clients=10 chat_messages=100` |
+| `tools/run_cpu_profile_smoke.ps1 -ClientCount 12` | Passed, `SMOKE_PASS clients=12 chat_messages=120` |
 
 The web smoke confirms the exported browser client can:
 
@@ -89,16 +115,16 @@ The web smoke confirms the exported browser client can:
 - emit client-side network stats telemetry
 - complete world joins with master ACK telemetry enabled
 
-## Local 10-Client Stress Notes
+## Local 12-Client Stress Notes
 
-Latest local 10-client run after hosted-burst hardening:
+Latest local 12-client run after world-crash recovery hardening:
 
 | Role | Avg Core % | Max Core % | Max Working Set |
 | --- | ---: | ---: | ---: |
-| master | 5.72 | 12.09 | 94.01 MB |
-| all worlds | 10.50 | 45.02 | 381.74 MB |
-| server total | 15.58 | 49.76 | 471.38 MB |
-| all Godot processes | 134.18 | 503.74 | 741.22 MB |
+| master | 2.77 | 13.30 | 93.58 MB |
+| all worlds | 5.70 | 31.61 | 286.56 MB |
+| server total | 8.15 | 38.90 | 376.62 MB |
+| all Godot processes | 128.76 | 575.29 | 606.97 MB |
 
 Final 10-client ticket ACK telemetry:
 
@@ -113,7 +139,7 @@ Interpretation:
 - CPU is not the first bottleneck for the current tiny worlds.
 - Memory is the real constraint.
 - A 512 MB DigitalOcean droplet is useful as a harsh dogfood/stress boundary, but it is not a safe production target for many concurrent world processes.
-- The local transfer state machine no longer shows the observed ticket/approval race under 10 concurrent clients.
+- The local transfer state machine no longer shows the observed ticket/approval race under 12 concurrent clients.
 - The smoke client load is heavier than real idle players because each client rapidly transfers through every world and sends chat probes.
 
 ## DigitalOcean 512 MB Observations
@@ -175,16 +201,17 @@ Caddy WSS routing, and the smallest DigitalOcean droplet.
 | 5 simultaneous hosted browser clients | Passed | All clients completed `WEB_SMOKE_PASS`. |
 | 6 simultaneous hosted browser clients on `v2.1` | Passed | All clients completed `WEB_SMOKE_PASS`. |
 | 8 simultaneous hosted browser clients on `v2.1` | Passed | All clients completed `WEB_SMOKE_PASS`. |
-| 10 simultaneous hosted browser clients on `v2.1` | Failed 1/10 | Nine clients completed `WEB_SMOKE_PASS`; one Playwright client timed out waiting for the GitHub Pages document `load` event before any Godot/VPS logs appeared. |
+| 10 simultaneous hosted browser clients on `v2.1`, first run | Failed 1/10 | Nine clients completed `WEB_SMOKE_PASS`; one Playwright client timed out waiting for the GitHub Pages document `load` event before any Godot/VPS logs appeared. |
+| 10 simultaneous hosted browser clients on `v2.1`, rerun with longer navigation timeout | Passed | All clients completed `WEB_SMOKE_PASS`; several retries occurred and recovered. |
 
 Interpretation:
 
 - The live architecture works end to end for the tested 1/5/6/8-client hosted browser smoke runs.
 - The smallest 512 MB / 1 vCPU droplet is a harsh boundary test, not a production target.
-- The latest 10-client failure did not reach the VPS game path; it timed out during static web page navigation from GitHub Pages.
+- The first 10-client failure did not reach the VPS game path; it timed out during static web page navigation from GitHub Pages. Rerunning with a longer navigation timeout passed all 10 clients.
 - Earlier `v1.9` 8/10-client failures included initial master websocket failures and first-transfer failures, but those did not reproduce at 8 clients after the `v2.1` retry/settle hardening.
 - Successful clients continued transferring through worlds during the burst tests.
-- The observed hosted smoke threshold on this droplet is currently 8 simultaneous full browser smoke clients, with 9/10 clients succeeding in the 10-client run. This is one test result, not a guaranteed capacity claim.
+- The observed hosted smoke threshold on this droplet is currently 10 simultaneous full browser smoke clients when navigation timeout is generous enough for GitHub Pages/browser startup. This is one test result, not a guaranteed capacity claim.
 - For VirtuCade, the next serious capacity test should use a larger droplet before drawing conclusions about 100-200 CCU.
 - Before claiming production capacity, add hosted Caddy/access logs, systemd/OOM checks, a native/headless load harness, and a concurrent hosted smoke runner that classifies each failed client by phase.
 
@@ -192,7 +219,7 @@ Interpretation:
 
 The architecture is behaving correctly locally and live at the tested successful levels: PackRat loading, world transfers, chat continuity, export isolation, Caddy URL generation, ACK-before-approval, hosted WSS routing, and telemetry all pass for single-client and 5/6/8-client hosted smoke.
 
-The tiny DigitalOcean droplet still exposes stress limits around 10 simultaneous hosted smoke clients. The latest remaining failure is narrower than the original race: one browser client timed out loading the GitHub Pages web app before reaching Godot, while nine clients completed all world transfers. Production capacity is not established by this run.
+The tiny DigitalOcean droplet still has little memory headroom, but the latest 10-client hosted smoke rerun passed. The previous remaining 10-client failure was narrower than the original race: one browser client timed out loading the GitHub Pages web app before reaching Godot, while nine clients completed all world transfers. Production capacity is not established by this run.
 
 The current release hardening includes:
 
@@ -201,6 +228,8 @@ The current release hardening includes:
 - stale join-confirmation rejection on the master;
 - a public hosted smoke gate before release tagging;
 - a slightly longer smoke-only portal replication settle time.
+- an explicit hosted stress runner at `tools/run_hosted_stress.ps1`;
+- a world-crash recovery smoke at `tools/run_world_crash_recovery_smoke.ps1`.
 
 Recommended next validation before claiming 100-200 CCU:
 

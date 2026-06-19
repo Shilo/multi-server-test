@@ -83,7 +83,7 @@ function Export-WorldPack($worldKey) {
         throw "World pack export failed for '$worldKey' with exit code $exitCode"
     }
 
-    Wait-FileStable $tempPath
+    Wait-FileStable $tempPath 120
     Move-Item -Force -LiteralPath $tempPath -Destination $outputPath
 
     $item = Get-Item -LiteralPath $outputPath

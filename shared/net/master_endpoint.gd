@@ -100,6 +100,7 @@ func unregister_world_by_key(world_key: String, reason: String) -> void:
 
 	registered_worlds.erase(world_key)
 	world_last_seen.erase(world_key)
+	_cancel_world_join_state_for_world(world_key, reason)
 	NetLog.print_line("MASTER_WORLD_DEREGISTERED key=%s reason=%s" % [world_key, reason])
 
 
@@ -226,10 +227,45 @@ func request_world_join(world_key: String) -> void:
 
 	if world_key == NET_CONFIG.initial_world():
 		var lease := _create_travel_lease(sender_id, world_key, "", "")
-		travel_leases.erase(str(lease.get("id", "")))
+		var travel_lease_id := str(lease.get("id", ""))
+		travel_leases.erase(travel_lease_id)
+		active_world_join_requests[travel_lease_id] = {
+			"peer_id": sender_id,
+			"world_key": world_key,
+			"source_world": "",
+			"transfer_request_id": "",
+		}
 		call_deferred("_approve_world_join_when_available", sender_id, lease)
 	else:
 		deny_world_join.rpc_id(sender_id, world_key, "missing_travel_lease")
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func request_world_rejoin(world_key: String) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	if not _require_validated_client_peer(sender_id, "request_world_rejoin"):
+		return
+	NetLog.print_line("[MASTER] WORLD_REJOIN_REQUEST_RECEIVED key=%s peer=%s" % [world_key, sender_id])
+	if not NET_CONFIG.is_valid_world_key(world_key):
+		deny_world_join.rpc_id(sender_id, world_key, "invalid_world")
+		return
+	if not _peer_active_world_matches(sender_id, world_key):
+		deny_world_join.rpc_id(sender_id, world_key, "not_active_world")
+		return
+
+	var lease := _create_travel_lease(sender_id, world_key, "", "")
+	var travel_lease_id := str(lease.get("id", ""))
+	travel_leases.erase(travel_lease_id)
+	active_world_join_requests[travel_lease_id] = {
+		"peer_id": sender_id,
+		"world_key": world_key,
+		"source_world": "",
+		"transfer_request_id": "",
+	}
+	call_deferred("_approve_world_join_when_available", sender_id, lease)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -951,6 +987,64 @@ func _cancel_all_pending_world_admissions_for_peer(peer_id: int) -> void:
 			)
 
 
+func _cancel_world_join_state_for_world(world_key: String, reason: String) -> void:
+	var cancelled := 0
+	for active_id in active_world_join_requests.keys():
+		var request: Dictionary = active_world_join_requests[active_id]
+		if str(request.get("world_key", "")) != world_key:
+			continue
+		active_world_join_requests.erase(active_id)
+		travel_leases.erase(str(active_id))
+		cancelled += 1
+		_notify_source_world_transfer_completed(
+			str(request.get("source_world", "")),
+			int(request.get("peer_id", 0)),
+			world_key,
+			false,
+			str(request.get("transfer_request_id", "")),
+			str(active_id)
+		)
+
+	for join_ticket in pending_world_admissions.keys():
+		var admission: Dictionary = pending_world_admissions[join_ticket]
+		if str(admission.get("world_key", "")) != world_key:
+			continue
+		pending_world_admissions.erase(join_ticket)
+		ready_world_join_tickets.erase(join_ticket)
+		var peer_id := int(admission.get("peer_id", 0))
+		var travel_lease_id := str(admission.get("travel_lease_id", ""))
+		travel_leases.erase(travel_lease_id)
+		cancelled += 1
+		if world_process_manager and world_process_manager.has_method("release_world_join"):
+			world_process_manager.release_world_join(world_key, peer_id)
+		_notify_source_world_transfer_completed(
+			str(admission.get("source_world", "")),
+			peer_id,
+			world_key,
+			false,
+			str(admission.get("transfer_request_id", "")),
+			travel_lease_id
+		)
+
+	for travel_lease_id in travel_leases.keys():
+		var lease: Dictionary = travel_leases[travel_lease_id]
+		if str(lease.get("target_world", "")) != world_key:
+			continue
+		travel_leases.erase(travel_lease_id)
+		cancelled += 1
+		_notify_source_world_transfer_completed(
+			str(lease.get("source_world", "")),
+			int(lease.get("peer_id", 0)),
+			world_key,
+			false,
+			str(lease.get("transfer_request_id", "")),
+			str(travel_lease_id)
+		)
+
+	if cancelled > 0:
+		NetLog.print_line("[MASTER] WORLD_JOIN_STATE_CLEARED key=%s count=%d reason=%s" % [world_key, cancelled, reason])
+
+
 func _expire_pending_world_admissions() -> void:
 	var now := Time.get_unix_time_from_system()
 	for join_ticket in pending_world_admissions.keys():
@@ -1087,6 +1181,12 @@ func _require_validated_client_peer(peer_id: int, rpc_name: String) -> bool:
 	NetLog.print_line("[MASTER] rejected unvalidated client RPC peer=%s rpc=%s" % [peer_id, rpc_name])
 	call_deferred("_disconnect_peer_after_rejection", peer_id)
 	return false
+
+
+func _peer_active_world_matches(peer_id: int, world_key: String) -> bool:
+	if not account_endpoint or not account_endpoint.has_method("active_world"):
+		return false
+	return str(account_endpoint.active_world(peer_id)) == world_key
 
 
 func _expire_stale_worlds() -> void:

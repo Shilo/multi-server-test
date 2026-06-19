@@ -4,7 +4,7 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const MASTER_LOSS_SHUTDOWN_SECONDS := 3.0
 const MASTER_REGISTRATION_TIMEOUT_SECONDS := 3.0
 const JOIN_TICKET_WAIT_SECONDS := 1.0
-const MAX_EXPECTED_JOIN_TICKETS := 256
+const MAX_EXPECTED_JOIN_TICKETS := 2048
 ## Fallback only. Normal portal transfers clear when the master reports the
 ## exact TravelLease was admitted or failed; this prevents permanent local locks
 ## if the master disappears before returning a lease.
@@ -121,6 +121,10 @@ func _parse_world_key() -> String:
 
 func _load_world_scene() -> void:
 	var scene := load(NET_CONFIG.world_scene_path(world_key)) as PackedScene
+	if scene == null:
+		push_error("[WORLD %s] failed to load world scene: %s" % [world_key, NET_CONFIG.world_scene_path(world_key)])
+		get_tree().quit(15)
+		return
 	world_scene = scene.instantiate()
 	$WorldNet/WorldSceneRoot.add_child(world_scene)
 

@@ -73,6 +73,11 @@ func commit_active_world(peer_id: int, world_key: String) -> void:
 	sessions[peer_id] = session
 
 
+func active_world(peer_id: int) -> String:
+	var session: Dictionary = sessions.get(peer_id, {})
+	return str(session.get("active_world_key", ""))
+
+
 func session_display_name(peer_id: int) -> String:
 	var session: Dictionary = sessions.get(peer_id, {})
 	return str(session.get("display_name", "Guest"))

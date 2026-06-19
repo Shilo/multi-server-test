@@ -381,7 +381,7 @@ Layout:
 
 ```text
 /opt/virtucade/server/   exported Linux server binary
-/opt/virtucade/data/     reserved app data folder for future explicit persistence wiring
+/opt/virtucade/data/     SQLite database storage for the master process
 /opt/virtucade/logs/     service logs
 /opt/virtucade/world_packs/ optional local mirror for server-side pack metadata
 /opt/virtucade/caddy/    GitHub-uploaded Caddyfile before root validates/installs it
@@ -411,6 +411,7 @@ Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
 Environment=MULTI_SERVER_CLIENT_SCHEME=ws
 Environment=MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
 Environment=MULTI_SERVER_WORLD_PACK_BASE_URL=https://virtucade.xyz/world_packs
+Environment=MULTI_SERVER_DB_PATH=/opt/virtucade/data/virtucade
 EnvironmentFile=-/opt/virtucade/virtucade.env
 ExecStart=/opt/virtucade/server/multi-server-test.x86_64 --headless
 Restart=on-failure

@@ -275,6 +275,7 @@ jobs:
           printf '%s\n' \
             'MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs' \
             "MULTI_SERVER_WORLD_PACK_BASE_URL=${VIRTUCADE_WORLD_PACK_BASE_URL%/}" \
+            'MULTI_SERVER_DB_PATH=/opt/virtucade/data/virtucade' \
             > "$RUNNER_TEMP/virtucade.env"
 
           if [ -z "${VIRTUCADE_GAME_HOST}" ]; then

@@ -254,6 +254,7 @@ WorkingDirectory=${APP_ROOT}/server
 ${client_lines}
 Environment=MULTI_SERVER_WORLD_PACK_DIR=${APP_ROOT}/world_packs
 Environment=MULTI_SERVER_WORLD_PACK_BASE_URL=${WORLD_PACK_BASE_URL}
+Environment=MULTI_SERVER_DB_PATH=${APP_ROOT}/data/${APP_NAME}
 EnvironmentFile=-${APP_ROOT}/${APP_NAME}.env
 ExecStart=${APP_ROOT}/server/${SERVER_BINARY} --headless
 Restart=on-failure

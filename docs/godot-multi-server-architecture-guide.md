@@ -115,15 +115,6 @@ shared/
     portal.tscn
     portal.gd
     spawn.gd
-  worlds/
-    hub/
-      hub.tscn
-    left_world/
-      left_world.tscn
-    right_world/
-      right_world.tscn
-    top_world/
-      top_world.tscn
 
 client/
   client.tscn
@@ -140,6 +131,15 @@ server/
   world/
     world.tscn
     world.gd
+  worlds/
+    hub/
+      hub.tscn
+    left_world/
+      left_world.tscn
+    right_world/
+      right_world.tscn
+    top_world/
+      top_world.tscn
 ```
 
 `shared/` is intentionally named `shared`, not `common`, because it describes shared project code across client, master, and world roles. Role-only code stays in the role folders.

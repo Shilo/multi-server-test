@@ -8,8 +8,10 @@ extends Node
 const ACCOUNT_REPOSITORY := preload("res://server/master/db/account_repository.gd")
 
 ## Database file path (godot-sqlite appends `default_extension`, default "db").
-## Lives on the master's local disk under the Godot user data directory.
+## Local/editor runs use Godot's user data directory. VPS deploys override this
+## with MULTI_SERVER_DB_PATH so the DB lives under the managed app data folder.
 const DB_PATH := "user://virtucade"
+const DB_PATH_ENV := "MULTI_SERVER_DB_PATH"
 
 ## Migrations are embedded as plain statements instead of shipping `.sql` files,
 ## because Godot exports strip non-resource files by default and the master
@@ -58,7 +60,7 @@ func _exit_tree() -> void:
 
 func _open() -> bool:
 	_db = SQLite.new()
-	_db.path = DB_PATH
+	_db.path = _db_path()
 	_db.foreign_keys = true
 	# 0 = quiet, 1 = normal. Keep it quiet so per-query logs do not flood master.
 	_db.verbosity_level = 0
@@ -74,6 +76,11 @@ func _open() -> bool:
 		and _query_startup("PRAGMA busy_timeout = 5000;")
 		and _query_startup("PRAGMA synchronous = NORMAL;")
 	)
+
+
+func _db_path() -> String:
+	var env_path := OS.get_environment(DB_PATH_ENV).strip_edges()
+	return env_path if not env_path.is_empty() else DB_PATH
 
 
 func _migrate() -> bool:

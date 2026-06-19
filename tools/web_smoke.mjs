@@ -12,6 +12,8 @@ const args = Object.fromEntries(
 
 const url = args.url;
 const timeoutMs = Number(args.timeout_ms ?? "180000");
+const navigationTimeoutMs = Number(args.navigation_timeout_ms ?? "60000");
+const waitUntil = args.wait_until ?? "load";
 if (!url) {
   throw new Error("Missing --url");
 }
@@ -33,7 +35,7 @@ page.on("pageerror", (error) => {
 });
 
 try {
-  await page.goto(url, { waitUntil: "load", timeout: 60000 });
+  await page.goto(url, { waitUntil, timeout: navigationTimeoutMs });
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {

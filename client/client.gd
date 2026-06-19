@@ -4,10 +4,12 @@ const NET_CONFIG := preload("res://shared/net/net_config.gd")
 const CHAT_SCENE := preload("res://client/chat/chat.tscn")
 const LOGIN_PANEL_SCENE := preload("res://client/login/login_panel.tscn")
 const SMOKE_TEST_ARG := "smoke_test"
+const WORLD_CRASH_RECOVERY_TEST_ARG := "world_crash_recovery_test"
 const MANUAL_PORTAL_TEST_ARG := "manual_portal_test"
 const DB_PERSIST_TEST_ARG := "db_persist_test"
 const VERSION_GATE_BYPASS_TEST_ARG := "version_gate_bypass_test"
 const FORCE_PACKRAT_WORLD_PACKS_ARG := "force_packrat_world_packs"
+const USE_BUNDLED_WORLD_SCENES_ARG := "use_bundled_world_scenes"
 const SMOKE_PACKRAT_CACHE_DIR_PREFIX := "smoke_packrat_cache_dir="
 const EDITOR_PACK_EXPORT_PRESET_PREFIX := "World Pack - "
 const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
@@ -20,6 +22,7 @@ const WORLD_CONNECT_ATTEMPTS := 3
 const WORLD_CONNECT_RETRY_DELAY_SECONDS := 0.35
 const WORLD_STATE_TIMEOUT_SECONDS := 5.0
 const PORTAL_TEST_REPLICATION_SETTLE_SECONDS := 2.5
+const WORLD_DISCONNECT_RECOVERY_DELAY_SECONDS := 0.75
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -68,6 +71,9 @@ var last_world_pack_status := "none"
 var last_world_pack_bytes := 0
 var last_world_pack_msec := -1
 var last_transfer_msec := -1
+var world_disconnect_recovery_in_progress := false
+var world_disconnect_recovery_succeeded_count := 0
+var world_rejoin_requests := {}
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -82,7 +88,11 @@ var last_transfer_msec := -1
 
 func _ready() -> void:
 	launch_args = _runtime_user_args()
-	smoke_test = SMOKE_TEST_ARG in launch_args or VERSION_GATE_BYPASS_TEST_ARG in launch_args
+	smoke_test = (
+		SMOKE_TEST_ARG in launch_args
+		or VERSION_GATE_BYPASS_TEST_ARG in launch_args
+		or WORLD_CRASH_RECOVERY_TEST_ARG in launch_args
+	)
 	NetLog.print_line("[CLIENT] build version: %s" % _project_version())
 	_setup_perf_monitor()
 	_setup_chat()
@@ -127,6 +137,8 @@ func _ready() -> void:
 	var user_args := launch_args
 	if VERSION_GATE_BYPASS_TEST_ARG in user_args:
 		run_version_gate_bypass_test()
+	elif WORLD_CRASH_RECOVERY_TEST_ARG in user_args:
+		run_world_crash_recovery_test()
 	elif DB_PERSIST_TEST_ARG in user_args and user_args.size() >= 3:
 		run_db_persist_test(str(user_args[1]), str(user_args[2]))
 	elif smoke_test:
@@ -163,7 +175,20 @@ func _setup_multiplayer_branches() -> void:
 			perf_monitor.increment("world_disconnected")
 			perf_monitor.set_gauge("world_connected", 0)
 		world_ping_msec = -1
-		NetLog.print_line("[CLIENT] world server disconnected")
+		var disconnected_world := active_world_key
+		if disconnected_world.is_empty():
+			disconnected_world = connecting_world_key
+		NetLog.print_line("[CLIENT] world server disconnected key=%s" % disconnected_world)
+		active_world_key = ""
+		if not disconnected_world.is_empty() and not transfer_in_progress and _is_master_connected():
+			call_deferred("_recover_world_disconnect", disconnected_world)
+		else:
+			if transfer_in_progress:
+				pending_transfer = {}
+				requested_transfer_portal = ""
+				requested_transfer_target = ""
+			if not smoke_test:
+				_show_server_unavailable_prompt("World Disconnected", "The world server disconnected. Return to the game shortly.")
 	)
 
 
@@ -255,6 +280,33 @@ func _on_world_perf_pong_received(label: String, sent_msec: int, _server_msec: i
 	if perf_monitor:
 		perf_monitor.observe_latency(label, latency_msec)
 	_update_network_stats_label()
+
+
+func _recover_world_disconnect(world_key: String) -> void:
+	if world_disconnect_recovery_in_progress:
+		return
+	world_disconnect_recovery_in_progress = true
+	if perf_monitor:
+		perf_monitor.increment("world_disconnect_recovery_started")
+	_set_status("Reconnecting to %s" % world_key)
+	await get_tree().create_timer(WORLD_DISCONNECT_RECOVERY_DELAY_SECONDS).timeout
+	var ok := false
+	if _is_master_connected() and not transfer_in_progress:
+		world_rejoin_requests[world_key] = true
+		ok = await _connect_transfer_world(world_key)
+		world_rejoin_requests.erase(world_key)
+	world_disconnect_recovery_in_progress = false
+	if ok:
+		if perf_monitor:
+			perf_monitor.increment("world_disconnect_recovery_succeeded")
+		world_disconnect_recovery_succeeded_count += 1
+		NetLog.print_line("[CLIENT] world reconnect succeeded key=%s" % world_key)
+		return
+	if perf_monitor:
+		perf_monitor.increment("world_disconnect_recovery_failed")
+	NetLog.print_line("[CLIENT] world reconnect failed key=%s" % world_key)
+	if not smoke_test:
+		_show_server_unavailable_prompt("World Disconnected", "The world server disconnected and reconnect failed. Try again shortly.")
 
 
 func _update_network_stats_label() -> void:
@@ -465,6 +517,50 @@ func run_version_gate_bypass_test() -> void:
 	else:
 		NetLog.print_line("VERSION_GATE_BYPASS_FAIL master kept unvalidated peer connected")
 		get_tree().quit(1)
+
+
+func run_world_crash_recovery_test() -> void:
+	NetLog.print_line("WORLD_CRASH_RECOVERY_STEP start")
+	var ok := await _bootstrap_connections(true)
+	if not ok:
+		NetLog.print_line("WORLD_CRASH_RECOVERY_FAIL bootstrap")
+		get_tree().quit(1)
+		return
+
+	if active_world_key != "left_world":
+		NetLog.print_line("WORLD_CRASH_RECOVERY_STEP transfer_to_left_world")
+		ok = await _transfer_via_portal("left_world")
+		if not ok:
+			NetLog.print_line("WORLD_CRASH_RECOVERY_FAIL transfer_to_left_world active=%s" % active_world_key)
+			get_tree().quit(1)
+			return
+
+	var initial_world := active_world_key
+	NetLog.print_line("WORLD_CRASH_RECOVERY_READY world=%s" % initial_world)
+	ok = await _wait_until(
+		func() -> bool:
+			return world_disconnect_recovery_succeeded_count > 0 and active_world_key == initial_world,
+		20.0,
+		"world crash recovery",
+		true
+	)
+	if not ok:
+		NetLog.print_line("WORLD_CRASH_RECOVERY_FAIL reconnect world=%s active=%s recoveries=%d" % [
+			initial_world,
+			active_world_key,
+			world_disconnect_recovery_succeeded_count,
+		])
+		get_tree().quit(1)
+		return
+
+	ok = await _send_chat_ping("after-world-crash-recovery")
+	if not ok:
+		NetLog.print_line("WORLD_CRASH_RECOVERY_FAIL chat")
+		get_tree().quit(1)
+		return
+
+	NetLog.print_line("WORLD_CRASH_RECOVERY_PASS world=%s" % active_world_key)
+	get_tree().quit(0)
 
 
 ## Two-phase persistence test driven over the real network stack.
@@ -759,7 +855,7 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var scene_path := str(endpoint.get("scene", NET_CONFIG.world_scene_path(world_key)))
 	var local_scene_available := ResourceLoader.exists(scene_path, "PackedScene")
 	var use_editor_export := _use_editor_pack_exports()
-	if local_scene_available and not _force_packrat_world_packs() and not use_editor_export:
+	if local_scene_available and (_use_bundled_world_scenes() or (not _force_packrat_world_packs() and not use_editor_export)):
 		NetLog.print_line("[CLIENT] WORLD_PACK_SKIPPED key=%s reason=local_scene_available arg=%s" % [world_key, FORCE_PACKRAT_WORLD_PACKS_ARG])
 		last_world_pack_status = "bundled"
 		last_world_pack_bytes = 0
@@ -886,6 +982,10 @@ func _force_packrat_world_packs() -> bool:
 	return FORCE_PACKRAT_WORLD_PACKS_ARG in launch_args
 
 
+func _use_bundled_world_scenes() -> bool:
+	return USE_BUNDLED_WORLD_SCENES_ARG in launch_args
+
+
 func _smoke_packrat_cache_dir() -> String:
 	if not smoke_test:
 		return ""
@@ -983,7 +1083,10 @@ func _request_world_join(world_key: String, route_endpoint: Dictionary) -> Dicti
 	if perf_monitor:
 		perf_monitor.increment("world_join_requested")
 	if travel_lease_id.is_empty():
-		master_endpoint.request_world_join.rpc_id(1, world_key)
+		if bool(world_rejoin_requests.get(world_key, false)):
+			master_endpoint.request_world_rejoin.rpc_id(1, world_key)
+		else:
+			master_endpoint.request_world_join.rpc_id(1, world_key)
 	else:
 		master_endpoint.redeem_travel_lease.rpc_id(1, travel_lease_id, world_key)
 
