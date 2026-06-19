@@ -308,7 +308,7 @@ func release_travel_lease(travel_lease_id: String) -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func confirm_world_join(master_peer_id: int, world_key: String, join_ticket: String, source_world := "", transfer_request_id := "", travel_lease_id := "") -> void:
+func confirm_world_join(master_peer_id: int, world_key: String, join_ticket: String, _source_world := "", _transfer_request_id := "", _travel_lease_id := "") -> void:
 	if not multiplayer.is_server():
 		return
 
@@ -317,19 +317,15 @@ func confirm_world_join(master_peer_id: int, world_key: String, join_ticket: Str
 		return
 	if join_ticket.is_empty() or master_peer_id <= 0:
 		return
+	if not pending_world_admissions.has(join_ticket):
+		ready_world_join_tickets.erase(join_ticket)
+		NetLog.print_line("[MASTER] ignored stale world join confirmation key=%s peer=%s" % [world_key, master_peer_id])
+		return
 
-	var admission := {
-		"peer_id": master_peer_id,
-		"world_key": world_key,
-		"source_world": source_world,
-		"transfer_request_id": transfer_request_id,
-		"travel_lease_id": travel_lease_id,
-	}
-	if pending_world_admissions.has(join_ticket):
-		admission = pending_world_admissions[join_ticket]
-		if int(admission.get("peer_id", 0)) != master_peer_id or str(admission.get("world_key", "")) != world_key:
-			return
-		pending_world_admissions.erase(join_ticket)
+	var admission: Dictionary = pending_world_admissions[join_ticket]
+	if int(admission.get("peer_id", 0)) != master_peer_id or str(admission.get("world_key", "")) != world_key:
+		return
+	pending_world_admissions.erase(join_ticket)
 	ready_world_join_tickets.erase(join_ticket)
 
 	if account_endpoint and account_endpoint.has_method("commit_active_world"):

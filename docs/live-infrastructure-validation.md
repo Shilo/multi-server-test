@@ -91,14 +91,14 @@ The web smoke confirms the exported browser client can:
 
 ## Local 10-Client Stress Notes
 
-Final local 10-client run:
+Latest local 10-client run after hosted-burst hardening:
 
 | Role | Avg Core % | Max Core % | Max Working Set |
 | --- | ---: | ---: | ---: |
-| master | 5.05 | 10.77 | 89.90 MB |
-| all worlds | 8.47 | 17.34 | 380.58 MB |
-| server total | 12.79 | 22.29 | 470.46 MB |
-| all Godot processes | 131.47 | 377.17 | 913.19 MB |
+| master | 5.72 | 12.09 | 94.01 MB |
+| all worlds | 10.50 | 45.02 | 381.74 MB |
+| server total | 15.58 | 49.76 | 471.38 MB |
+| all Godot processes | 134.18 | 503.74 | 741.22 MB |
 
 Final 10-client ticket ACK telemetry:
 
@@ -114,6 +114,7 @@ Interpretation:
 - Memory is the real constraint.
 - A 512 MB DigitalOcean droplet is useful as a harsh dogfood/stress boundary, but it is not a safe production target for many concurrent world processes.
 - The local transfer state machine no longer shows the observed ticket/approval race under 10 concurrent clients.
+- The smoke client load is heavier than real idle players because each client rapidly transfers through every world and sends chat probes.
 
 ## DigitalOcean 512 MB Observations
 
@@ -132,21 +133,73 @@ Interpretation:
 
 - These numbers are good for a tiny test.
 - CPU/load are comfortably low.
-- Memory is already high enough that heavier stress may crash or restart services on the 512 MB plan.
-- Crashes or failed stress runs on this plan should be treated as capacity findings unless logs show logic errors.
+- Memory is already high enough that heavier stress may expose slow startups, delayed replication, failed handshakes, or service restarts.
+- Failed stress runs on this plan are useful signals, but they should not be attributed to capacity alone without Caddy logs, systemd/journal data, and per-phase server telemetry.
 
 ## Hosted Validation
 
-Pending after the next deploy:
+Release `v1.9` deployed successfully on June 19, 2026:
 
-- GitHub Actions manual release deploy succeeds.
-- `https://virtucade.xyz/` serves the updated web client.
-- `https://virtucade.xyz/world_packs/*.pck` serves current world packs.
-- `wss://server.virtucade.xyz/` connects through Caddy to the master.
-- `wss://server.virtucade.xyz/{world_key}` connects through Caddy to each world.
-- Hosted browser smoke transfers through all worlds without the previous `WebSocket is closed before the connection is established` race.
-- Live stress documents the maximum stable client count on the 512 MB droplet.
+| Check | Result |
+| --- | --- |
+| GitHub Actions manual release deploy | Passed, `v1.9` |
+| Hosted Pages verification | Passed, `HOSTED_PAGES_VERIFY_OK version=1.9` |
+| VPS deploy | Passed, `VPS_DEPLOY_DONE` |
+| `https://virtucade.xyz/` | Served by GitHub Pages |
+| `https://virtucade.xyz/world_packs/hub.pck` | Served by GitHub Pages |
+| `wss://server.virtucade.xyz/` | Browser smoke connected through Caddy to master |
+| `wss://server.virtucade.xyz/{world_key}` | Browser smoke connected through Caddy to every world |
+| Hosted single-client browser smoke | Passed, `WEB_SMOKE_PASS` |
+| Hosted post-stress recovery smoke | Passed after failed burst tests |
+
+The hosted smoke transferred through:
+
+- `hub`
+- `left_world`
+- `top_world`
+- `right_world`
+- repeated cached revisits
+
+The previously observed `right_world` handoff failure did not reproduce after the
+ACK-before-approval and full handoff retry changes.
+
+## Hosted Stress Ladder
+
+All hosted stress runs used real GitHub Pages files, real PackRat downloads, real
+Caddy WSS routing, and the smallest DigitalOcean droplet.
+
+| Run | Result | Notes |
+| --- | --- | --- |
+| 1 hosted browser client | Passed | Full world traversal and cache hits worked. |
+| 5 simultaneous hosted browser clients | Passed | All clients completed `WEB_SMOKE_PASS`. |
+| 6 simultaneous hosted browser clients | Passed | All clients completed `WEB_SMOKE_PASS`. |
+| 8 simultaneous hosted browser clients | Failed 3/8 | One initial master WSS connect failure; two first-transfer failures. Fresh smoke passed afterward. |
+| 10 simultaneous hosted browser clients | Failed 6/10 | Several initial master WSS connect failures; one first-transfer failure. Fresh smoke passed afterward. |
+
+Interpretation:
+
+- The live architecture works end to end for the tested 1/5/6-client hosted browser smoke runs.
+- The smallest 512 MB / 1 vCPU droplet is a harsh boundary test, not a production target.
+- The 8/10-client failures are unresolved burst failure modes, not proven pure capacity failures:
+  - failed clients included initial master websocket connection failures;
+  - some first-transfer failures appear consistent with smoke-test portal-position replication timing;
+  - successful clients continued transferring through worlds;
+  - a fresh hosted smoke passed immediately after the failed bursts;
+  - no self-RPC telemetry errors appeared after the `v1.9` guard.
+- The observed hosted smoke threshold on this droplet is currently 6 simultaneous full browser smoke clients. This is one test result, not a guaranteed capacity claim.
+- For VirtuCade, the next serious capacity test should use a larger droplet before drawing conclusions about 100-200 CCU.
+- Before claiming production capacity, add hosted Caddy/access logs, systemd/OOM checks, and a concurrent hosted smoke runner that classifies each failed client by phase.
 
 ## Conclusion So Far
 
-The architecture is behaving correctly locally: PackRat loading, world transfers, chat continuity, export isolation, Caddy URL generation, ACK-before-approval, and telemetry all pass. The remaining question is live capacity on the smallest droplet and whether the new full-handoff retry removes the hosted race under real WSS/Caddy timing.
+The architecture is behaving correctly locally and live at the tested successful levels: PackRat loading, world transfers, chat continuity, export isolation, Caddy URL generation, ACK-before-approval, hosted WSS routing, and telemetry all pass for single-client and 5/6-client hosted smoke.
+
+The tiny DigitalOcean droplet exposes unresolved burst failures around 8-10 simultaneous hosted smoke clients. The important result is narrower but still useful: post-burst service recovery passed, and the original right-world transfer race did not reproduce after the ordering fix. Production capacity is not established by this run.
+
+Next release hardening adds:
+
+- retry around the initial hosted master route bootstrap;
+- retry for transient join-ticket acquisition failures;
+- stale join-confirmation rejection on the master;
+- a public hosted smoke gate before release tagging;
+- a slightly longer smoke-only portal replication settle time.

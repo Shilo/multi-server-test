@@ -424,6 +424,19 @@ jobs:
           REMOTE
           echo "VPS_DEPLOY_DONE host=${VIRTUCADE_HOST} service=virtucade"
 
+      - name: Run hosted smoke
+        shell: bash
+        env:
+          VIRTUCADE_PUBLIC_WEB_URL: ${{ vars.VIRTUCADE_PUBLIC_WEB_URL || secrets.VIRTUCADE_PUBLIC_WEB_URL || 'https://virtucade.xyz' }}
+          VIRTUCADE_GAME_HOST: ${{ vars.VIRTUCADE_GAME_HOST || secrets.VIRTUCADE_GAME_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "${VIRTUCADE_PUBLIC_WEB_URL}"
+          test -n "${VIRTUCADE_GAME_HOST}"
+          hosted_url="${VIRTUCADE_PUBLIC_WEB_URL%/}/?args=smoke_test,force_packrat_world_packs&master_url=wss://${VIRTUCADE_GAME_HOST}/&world_url_template=wss://${VIRTUCADE_GAME_HOST}/%7Bworld_key%7D&run=${GITHUB_RUN_ID}-hosted"
+          cp tools/web_smoke.mjs "$RUNNER_TEMP/multi-server-test-playwright/web_smoke.mjs"
+          node "$RUNNER_TEMP/multi-server-test-playwright/web_smoke.mjs" --url="${hosted_url}" --timeout_ms=240000
+
       - name: Tag verified release
         shell: bash
         run: |

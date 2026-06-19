@@ -14,9 +14,12 @@ const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
 const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
 const TRAVEL_LEASE_REDEEM_GRACE_SECONDS := 5.0
 const WORLD_JOIN_TICKET_TIMEOUT_SECONDS := 12.0
+const MASTER_BOOTSTRAP_ATTEMPTS := 3
+const MASTER_BOOTSTRAP_RETRY_DELAY_SECONDS := 0.75
 const WORLD_CONNECT_ATTEMPTS := 3
 const WORLD_CONNECT_RETRY_DELAY_SECONDS := 0.35
 const WORLD_STATE_TIMEOUT_SECONDS := 5.0
+const PORTAL_TEST_REPLICATION_SETTLE_SECONDS := 1.0
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -537,7 +540,7 @@ func _manual_travel(target_world: String) -> bool:
 		return false
 	if current_world_scene.has_method("move_local_player_to_portal"):
 		current_world_scene.move_local_player_to_portal(target_world)
-		await get_tree().create_timer(0.5).timeout
+		await get_tree().create_timer(PORTAL_TEST_REPLICATION_SETTLE_SECONDS).timeout
 	current_world_scene.activate_portal_to(target_world)
 	return await _wait_until(func() -> bool: return active_world_key == target_world, 8.0, "travel to %s" % target_world)
 
@@ -609,17 +612,11 @@ func _smoke_transfer_sequence() -> Array[String]:
 
 
 func _bootstrap_connections(require_all_worlds: bool) -> bool:
-	route_rejection_reason = ""
-	var ok := await _connect_api(master_api, NET_CONFIG.master_url(), "master")
+	var ok := await _connect_master_and_routes()
 	if not ok:
+		if not route_rejection_reason.is_empty():
+			return false
 		_show_server_unavailable_prompt("Server Offline", "The game server is offline or restarting. Try again soon.")
-		return false
-	master_endpoint.request_routes.rpc_id(1, _project_version())
-	var route_predicate := func() -> bool:
-		return _has_initial_world_route() or not route_rejection_reason.is_empty()
-	ok = await _wait_until(route_predicate, 5.0, "master routes")
-	if not ok:
-		_show_server_unavailable_prompt("Server Unavailable", "The game server connected but did not send route data. It may be restarting.")
 		return false
 	if not route_rejection_reason.is_empty():
 		return false
@@ -640,6 +637,29 @@ func _bootstrap_connections(require_all_worlds: bool) -> bool:
 		return false
 	NetLog.print_line("SMOKE_STEP client confirmed initial world %s" % active_world_key if require_all_worlds else "[CLIENT] manual initial world ready: %s" % active_world_key)
 	return true
+
+
+func _connect_master_and_routes() -> bool:
+	for attempt in range(MASTER_BOOTSTRAP_ATTEMPTS):
+		route_rejection_reason = ""
+		routes = {}
+		master_api.multiplayer_peer = OfflineMultiplayerPeer.new()
+		var report_error := attempt == MASTER_BOOTSTRAP_ATTEMPTS - 1
+		var ok := await _connect_api(master_api, NET_CONFIG.master_url(), "master", 5.0, report_error)
+		if ok:
+			master_endpoint.request_routes.rpc_id(1, _project_version())
+			var route_predicate := func() -> bool:
+				return _has_initial_world_route() or not route_rejection_reason.is_empty()
+			ok = await _wait_until(route_predicate, 5.0, "master routes", report_error)
+			if not route_rejection_reason.is_empty():
+				return false
+			if ok and route_rejection_reason.is_empty():
+				return true
+
+		if attempt < MASTER_BOOTSTRAP_ATTEMPTS - 1:
+			NetLog.print_line("[CLIENT] MASTER_BOOTSTRAP_RETRY attempt=%d" % [attempt + 2])
+			await get_tree().create_timer(MASTER_BOOTSTRAP_RETRY_DELAY_SECONDS).timeout
+	return false
 
 
 func _has_initial_world_route() -> bool:
@@ -703,6 +723,10 @@ func _connect_world_with_ticket_retries(world_key: String, route_endpoint: Dicti
 	for attempt in range(WORLD_CONNECT_ATTEMPTS):
 		var endpoint := await _request_world_join(world_key, route_endpoint)
 		if endpoint.is_empty():
+			if attempt < WORLD_CONNECT_ATTEMPTS - 1 and _is_transient_world_join_failure():
+				NetLog.print_line("[CLIENT] WORLD_JOIN_RETRY key=%s attempt=%d reason=%s" % [world_key, attempt + 2, denied_join_reason])
+				await get_tree().create_timer(WORLD_CONNECT_RETRY_DELAY_SECONDS).timeout
+				continue
 			return false
 
 		rejected_world_join = ""
@@ -725,6 +749,10 @@ func _connect_world_with_ticket_retries(world_key: String, route_endpoint: Dicti
 			NetLog.print_line("[CLIENT] WORLD_CONNECT_RETRY key=%s attempt=%d" % [world_key, attempt + 2])
 			await get_tree().create_timer(WORLD_CONNECT_RETRY_DELAY_SECONDS).timeout
 	return false
+
+
+func _is_transient_world_join_failure() -> bool:
+	return denied_join_reason.is_empty() or denied_join_reason in ["world_unavailable", "ticket_unavailable"]
 
 
 func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
@@ -1048,7 +1076,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 	if current_world_scene and current_world_scene.has_method("activate_portal_to"):
 		if current_world_scene.has_method("move_local_player_to_portal"):
 			current_world_scene.move_local_player_to_portal(target_world)
-			await get_tree().create_timer(0.5).timeout
+			await get_tree().create_timer(PORTAL_TEST_REPLICATION_SETTLE_SECONDS).timeout
 		current_world_scene.activate_portal_to(target_world)
 	else:
 		if perf_monitor:
@@ -1100,7 +1128,7 @@ func _run_manual_portal_test() -> void:
 
 	if current_world_scene.has_method("move_local_player_to_portal"):
 		current_world_scene.move_local_player_to_portal("left_world")
-		await get_tree().create_timer(0.5).timeout
+		await get_tree().create_timer(PORTAL_TEST_REPLICATION_SETTLE_SECONDS).timeout
 	current_world_scene.activate_portal_to("left_world")
 	var ok := await _wait_until(func() -> bool: return active_world_key == "left_world", 5.0, "manual portal transfer to left_world")
 	if ok:
