@@ -79,7 +79,123 @@ Get-Content "$HOME\.ssh\digitalocean-virtucade.pub" | Set-Clipboard
 
 Paste that public key into DigitalOcean when creating the Droplet.
 
-## 3. First SSH Login
+## 3. Automated VPS Bootstrap
+
+The recommended path is to let the repo script perform the Linux setup. It
+creates the users, app folders, restricted sudoers file, systemd service, and
+Caddy installation without committing private data to the repo.
+
+First create the GitHub Actions deploy key on your PC if it does not exist yet:
+
+```powershell
+ssh-keygen -t ed25519 -C "virtucade-deploy-github-actions" -f "$HOME\.ssh\virtucade-deploy-github-actions"
+```
+
+Use no passphrase for this CI key. The private key belongs only in GitHub
+Actions secrets.
+
+Upload the bootstrap script and public keys to the fresh VPS:
+
+```powershell
+scp -i "$HOME\.ssh\digitalocean-virtucade" `
+  deploy\vps\bootstrap_ubuntu.sh `
+  "$HOME\.ssh\digitalocean-virtucade.pub" `
+  "$HOME\.ssh\virtucade-deploy-github-actions.pub" `
+  root@<VPS_IP>:/tmp/
+```
+
+Run the bootstrap as root:
+
+```powershell
+ssh -i "$HOME\.ssh\digitalocean-virtucade" root@<VPS_IP>
+```
+
+```bash
+bash /tmp/bootstrap_ubuntu.sh \
+  --deploy-public-key-file /tmp/digitalocean-virtucade.pub \
+  --ci-public-key-file /tmp/virtucade-deploy-github-actions.pub \
+  --client-host <VPS_IP> \
+  --set-deploy-password
+```
+
+What the script does:
+
+- updates apt packages and installs `curl`, `git`, `gpg`, `unzip`, and Caddy;
+- creates the human `deploy` sudo user;
+- creates the restricted `github-deploy` CI user;
+- creates the non-login `virtucade-run` service user that runs Godot;
+- installs only the public SSH keys you pass in;
+- creates `/opt/virtucade/server`, `/opt/virtucade/data`,
+  `/opt/virtucade/logs`, `/opt/virtucade/world_packs`, and
+  `/opt/virtucade/deploy-staging`;
+- keeps `server/`, `world_packs/`, and `deploy-staging/` writable by the
+  restricted CI user, while keeping `data/` writable only by the Godot service
+  user and `logs/` readable by the deploy group;
+- writes and enables `virtucade.service`;
+- enables Caddy so it starts after reboot;
+- disables SSH password authentication so SSH remains key-only;
+- writes the limited `github-deploy` sudoers rule required by the deploy
+  workflow;
+- validates the resulting users, folders, services, and Caddy install.
+
+The script intentionally does not:
+
+- create DigitalOcean firewall rules;
+- create DNS records;
+- create GitHub repository secrets;
+- copy or print private keys;
+- start `virtucade.service` before GitHub Actions uploads the server binary.
+
+After the script succeeds, test both SSH users before running GitHub Actions:
+
+```powershell
+ssh -i "$HOME\.ssh\digitalocean-virtucade" deploy@<VPS_IP>
+```
+
+```bash
+sudo whoami
+exit
+```
+
+```powershell
+ssh -i "$HOME\.ssh\virtucade-deploy-github-actions" github-deploy@<VPS_IP>
+```
+
+```bash
+whoami
+sudo -n systemctl is-active virtucade
+touch /opt/virtucade/deploy-staging/permission-test.txt
+rm /opt/virtucade/deploy-staging/permission-test.txt
+touch /opt/virtucade/data/should-fail.txt
+sudo -n whoami
+exit
+```
+
+Expected:
+
+```text
+whoami                                -> github-deploy
+sudo -n systemctl is-active virtucade -> allowed; may print inactive before first deploy
+touch deploy-staging/...              -> allowed
+touch data/...                        -> denied
+sudo -n whoami                        -> denied
+```
+
+After rebuilding a destroyed VPS, update both SSH host-key records:
+
+- remove the old VPS host key from your local `known_hosts` if SSH warns that
+  the host identity changed;
+- recreate the `VIRTUCADE_KNOWN_HOSTS` GitHub secret from the new VPS host key.
+
+Then continue at [Add GitHub Actions Secrets](#13-add-github-actions-secrets).
+
+## 4. Manual Setup Fallback
+
+The remaining steps document the manual path we used originally. Prefer the
+bootstrap script above for new droplets, and use this section when debugging or
+when you want to inspect each command by hand.
+
+## 5. First SSH Login
 
 ```powershell
 ssh -i "$HOME\.ssh\digitalocean-virtucade" root@<VPS_IP>
@@ -106,13 +222,14 @@ ssh -i "$HOME\.ssh\digitalocean-virtucade" root@<VPS_IP>
 uname -r
 ```
 
-## 4. Create The Human Deploy User
+## 6. Create The Human Deploy User
 
 While logged in as `root`:
 
 ```bash
 adduser deploy
 usermod -aG sudo deploy
+useradd --system --home /opt/virtucade/data --shell /usr/sbin/nologin virtucade-run
 mkdir -p /home/deploy/.ssh
 cp /root/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
 chown -R deploy:deploy /home/deploy/.ssh
@@ -141,12 +258,26 @@ Expected:
 root
 ```
 
-## 5. Install Required Packages
+## 7. Install Required Packages
 
 As `deploy`:
 
 ```bash
 sudo apt install -y unzip curl git
+```
+
+Disable SSH password authentication after key login is confirmed:
+
+```bash
+sudo mkdir -p /etc/ssh/sshd_config.d
+sudo tee /etc/ssh/sshd_config.d/99-virtucade-key-only.conf >/dev/null <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+EOF
+sudo sshd -t
+sudo systemctl reload ssh
 ```
 
 Install Caddy from the official package repository:
@@ -178,23 +309,29 @@ and renews HTTPS certificates automatically after DNS points at the VPS, then
 proxies browser `wss://` traffic to Godot's private `ws://127.0.0.1:19080+`
 ports. The Godot master does not start, stop, or reload Caddy.
 
-## 6. Create App Folders
+## 8. Create App Folders
 
 ```bash
-sudo mkdir -p /opt/virtucade/server /opt/virtucade/data /opt/virtucade/logs /opt/virtucade/world_packs
-sudo chown -R deploy:deploy /opt/virtucade
+sudo groupadd --force virtucade
+sudo usermod -aG virtucade deploy
+sudo usermod -aG virtucade virtucade-run
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade/server /opt/virtucade/world_packs
+sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
+sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
 ```
 
 Layout:
 
 ```text
 /opt/virtucade/server/   exported Linux server binary
-/opt/virtucade/data/     SQLite DB and persistent app data
+/opt/virtucade/data/     Godot service user home; SQLite DB lives under this tree
 /opt/virtucade/logs/     service logs
 /opt/virtucade/world_packs/ optional local mirror for server-side pack metadata
+/opt/virtucade/deploy-staging/ private GitHub Actions upload staging, created with the CI user
 ```
 
-## 7. Create The Master Server Service
+## 9. Create The Master Server Service
 
 Create the systemd service:
 
@@ -208,10 +345,11 @@ Paste:
 [Unit]
 Description=VirtuCade Godot Server
 After=network.target
+ConditionPathIsExecutable=/opt/virtucade/server/multi-server-test.x86_64
 
 [Service]
 Type=simple
-User=deploy
+User=virtucade-run
 WorkingDirectory=/opt/virtucade/server
 Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
 Environment=MULTI_SERVER_CLIENT_SCHEME=ws
@@ -278,18 +416,20 @@ clients download the actual PCK bytes from `MULTI_SERVER_WORLD_PACK_BASE_URL`.
 Keep `/opt/virtucade/world_packs` mirrored with the PCK files published to
 GitHub Pages if you want server-provided PackRat metadata to stay precise.
 
-## 8. Create The Restricted GitHub Deploy User
+## 10. Create The Restricted GitHub Deploy User
 
 As `deploy`:
 
 ```bash
 sudo adduser --disabled-password --gecos "" github-deploy
-sudo groupadd virtucade
+sudo groupadd --force virtucade
 sudo usermod -aG virtucade deploy
 sudo usermod -aG virtucade github-deploy
-sudo chown -R deploy:virtucade /opt/virtucade
-sudo find /opt/virtucade -type d -exec chmod 2775 {} \;
-sudo find /opt/virtucade -type f -exec chmod 664 {} \;
+sudo usermod -aG virtucade virtucade-run
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade /opt/virtucade/server /opt/virtucade/world_packs
+sudo install -d -m 0700 -o github-deploy -g virtucade /opt/virtucade/deploy-staging
+sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
+sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
 ```
 
 Allow only service control for the CI user:
@@ -301,10 +441,10 @@ sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
 Paste:
 
 ```text
-github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl status virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl status caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /tmp/virtucade-Caddyfile, /usr/bin/install -m 644 /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile
+github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /opt/virtucade/deploy-staging/virtucade-Caddyfile, /usr/bin/install -m 644 /opt/virtucade/deploy-staging/virtucade-Caddyfile /etc/caddy/Caddyfile
 ```
 
-## 9. Create The GitHub Actions SSH Key
+## 11. Create The GitHub Actions SSH Key
 
 On Windows PowerShell:
 
@@ -336,7 +476,7 @@ sudo chmod 700 /home/github-deploy/.ssh
 sudo chmod 600 /home/github-deploy/.ssh/authorized_keys
 ```
 
-## 10. Test The Restricted CI User
+## 12. Test The Restricted CI User
 
 From Windows PowerShell:
 
@@ -348,25 +488,27 @@ On the VPS:
 
 ```bash
 whoami
-sudo -n systemctl status virtucade
-touch /opt/virtucade/server/permission-test.txt
+sudo -n systemctl is-active virtucade
+touch /opt/virtucade/deploy-staging/permission-test.txt
+touch /opt/virtucade/data/should-fail.txt
 touch /root/should-fail.txt
 sudo -n apt update
-rm /opt/virtucade/server/permission-test.txt
+rm /opt/virtucade/deploy-staging/permission-test.txt
 exit
 ```
 
 Expected:
 
 ```text
-whoami                                  -> github-deploy
-sudo -n systemctl status virtucade      -> allowed
-touch /opt/virtucade/server/...         -> allowed
-touch /root/...                         -> denied
-sudo -n apt update                      -> denied
+whoami                                -> github-deploy
+sudo -n systemctl is-active virtucade -> allowed; may print inactive before first deploy
+touch deploy-staging/...              -> allowed
+touch data/...                        -> denied
+touch /root/...                       -> denied
+sudo -n apt update                    -> denied
 ```
 
-## 11. Add GitHub Actions Secrets
+## 13. Add GitHub Actions Secrets
 
 In the GitHub repository:
 
@@ -419,7 +561,7 @@ fresh `ssh-keyscan` result during every deploy. If `ssh-keyscan` works on your
 machine, it is also acceptable to use it once manually, but do not run
 `ssh-keyscan` inside the deploy workflow.
 
-## 12. Deploy From GitHub Actions
+## 14. Deploy From GitHub Actions
 
 Run:
 
@@ -450,7 +592,7 @@ The workflow:
 10. Installs/reloads the Caddyfile only after the Godot backend is healthy.
 11. Tags the verified release.
 
-## 13. Check The Running Server
+## 15. Check The Running Server
 
 SSH as `deploy`:
 
@@ -461,8 +603,8 @@ ssh -i "$HOME\.ssh\digitalocean-virtucade" deploy@<VPS_IP>
 Check services:
 
 ```bash
-systemctl status virtucade
-systemctl status caddy
+systemctl status virtucade --no-pager
+systemctl status caddy --no-pager
 systemctl is-enabled virtucade
 systemctl is-enabled caddy
 systemctl is-active virtucade
