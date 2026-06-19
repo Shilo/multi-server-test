@@ -3,6 +3,20 @@
 This is the repeatable setup for a fresh Ubuntu VPS that can run the exported
 `multi-server-test` Linux server through GitHub Actions.
 
+## Quick Start
+
+After the Droplet exists, the DigitalOcean firewall is assigned, and both local
+public keys exist, upload and run the bootstrap:
+
+```powershell
+scp -i "$HOME\.ssh\digitalocean-virtucade" deploy\vps\bootstrap_ubuntu.sh "$HOME\.ssh\digitalocean-virtucade.pub" "$HOME\.ssh\virtucade-deploy-github-actions.pub" root@<VPS_IP>:/tmp/
+ssh -i "$HOME\.ssh\digitalocean-virtucade" root@<VPS_IP> "bash /tmp/bootstrap_ubuntu.sh --deploy-public-key-file /tmp/digitalocean-virtucade.pub --ci-public-key-file /tmp/virtucade-deploy-github-actions.pub --client-host <VPS_IP> --set-deploy-password"
+```
+
+Then add/update the GitHub Actions secrets in
+[Add GitHub Actions Secrets](#13-add-github-actions-secrets) and run the manual
+release deploy workflow.
+
 Use placeholders for private values:
 
 ```text
