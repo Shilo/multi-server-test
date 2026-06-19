@@ -70,11 +70,13 @@ Accepted review fixes:
 The latest validation pass accepted these reviewer findings and fixed them:
 
 - route-less initial `request_world_join(hub)` now creates an active join request before waiting for world availability;
-- stale pending admissions, ready-ticket flags, active join requests, and target leases are cleared immediately when a world deregisters or crashes;
+- stale pending admissions, ready-ticket flags, and active join requests are cleared immediately when a world deregisters or crashes, but their travel leases survive so clients can retry after the master restarts the target world;
 - clients attempt one master-mediated reconnect to the same committed active world after an unexpected world-socket disconnect;
 - rejoin requests are validated by the master against session active-world state, so reconnect is not a free teleport path;
-- target-world deregistration now notifies source worlds for bare travel leases, preventing long portal locks when a target dies during asset preparation;
+- bare travel leases survive target-world deregistration so a client preparing assets can still redeem the lease after the master restarts the target world;
 - client transfer state is cleared if a world socket disconnects during an in-progress transfer;
+- transfer connects use the exact endpoint returned by the fresh travel lease instead of re-reading potentially stale route-table state;
+- smoke-only portal replication settle waits longer on Web builds, avoiding false `not_at_portal` denials during loaded browser/VPS runs;
 - world scene load failure now logs the exact scene path and exits with a distinct code instead of null-instantiating;
 - world expected-ticket capacity is aligned with the master admission cap;
 - VPS deploys now place SQLite under `/opt/virtucade/data/virtucade.db` through `MULTI_SERVER_DB_PATH`;
@@ -117,14 +119,14 @@ The web smoke confirms the exported browser client can:
 
 ## Local 12-Client Stress Notes
 
-Latest local 12-client run after world-crash recovery hardening:
+Latest local 12-client run after travel-lease/world-deregistration hardening:
 
 | Role | Avg Core % | Max Core % | Max Working Set |
 | --- | ---: | ---: | ---: |
-| master | 2.77 | 13.30 | 93.58 MB |
-| all worlds | 5.70 | 31.61 | 286.56 MB |
-| server total | 8.15 | 38.90 | 376.62 MB |
-| all Godot processes | 128.76 | 575.29 | 606.97 MB |
+| master | 3.11 | 19.08 | 112.44 MB |
+| all worlds | 5.26 | 23.23 | 341.89 MB |
+| server total | 7.77 | 34.85 | 453.18 MB |
+| all Godot processes | 127.92 | 556.19 | 877.06 MB |
 
 Final 10-client ticket ACK telemetry:
 
@@ -203,6 +205,23 @@ Caddy WSS routing, and the smallest DigitalOcean droplet.
 | 8 simultaneous hosted browser clients on `v2.1` | Passed | All clients completed `WEB_SMOKE_PASS`. |
 | 10 simultaneous hosted browser clients on `v2.1`, first run | Failed 1/10 | Nine clients completed `WEB_SMOKE_PASS`; one Playwright client timed out waiting for the GitHub Pages document `load` event before any Godot/VPS logs appeared. |
 | 10 simultaneous hosted browser clients on `v2.1`, rerun with longer navigation timeout | Passed | All clients completed `WEB_SMOKE_PASS`; several retries occurred and recovered. |
+| 10 simultaneous hosted browser clients on `v2.2` before lease fix | Failed 6/10 | Exposed a real race: target world idle deregistration cleared bare travel leases while clients were preparing packs; also exposed smoke-only `not_at_portal` timing under browser load. |
+
+The `v2.2` failure was useful and production-relevant:
+
+- clients received travel leases for worlds such as `top_world` and `right_world`;
+- the target world idled/stopped before the client redeemed the lease;
+- master cleanup erased bare leases for that target world;
+- the client then redeemed a lease the master had already removed and received `invalid_travel_lease`;
+- some browser clients also requested portal use before replicated test-position movement reached the server, causing smoke-only `not_at_portal`.
+
+Fixes accepted after this run:
+
+- do not erase travel leases when a target world deregisters, even if the client already redeemed the lease and was waiting for a join ticket;
+- keep clearing active join requests and pending admissions tied to dead world tickets, while letting the surviving travel lease drive a clean retry;
+- pass the exact fresh transfer endpoint through `_connect_transfer_world()` instead of re-reading `routes["worlds"]`;
+- erase used travel-lease fields from cached route entries after successful joins;
+- use a longer Web-only portal replication settle for smoke/manual transfer tests.
 
 Interpretation:
 
@@ -210,6 +229,7 @@ Interpretation:
 - The smallest 512 MB / 1 vCPU droplet is a harsh boundary test, not a production target.
 - The first 10-client failure did not reach the VPS game path; it timed out during static web page navigation from GitHub Pages. Rerunning with a longer navigation timeout passed all 10 clients.
 - Earlier `v1.9` 8/10-client failures included initial master websocket failures and first-transfer failures, but those did not reproduce at 8 clients after the `v2.1` retry/settle hardening.
+- The `v2.2` 10-client hosted burst found and fixed a real target-world idle/lease cleanup race. This must be revalidated by a fresh hosted release before claiming the hosted 10-client level is clean again.
 - Successful clients continued transferring through worlds during the burst tests.
 - The observed hosted smoke threshold on this droplet is currently 10 simultaneous full browser smoke clients when navigation timeout is generous enough for GitHub Pages/browser startup. This is one test result, not a guaranteed capacity claim.
 - For VirtuCade, the next serious capacity test should use a larger droplet before drawing conclusions about 100-200 CCU.
@@ -219,7 +239,7 @@ Interpretation:
 
 The architecture is behaving correctly locally and live at the tested successful levels: PackRat loading, world transfers, chat continuity, export isolation, Caddy URL generation, ACK-before-approval, hosted WSS routing, and telemetry all pass for single-client and 5/6/8-client hosted smoke.
 
-The tiny DigitalOcean droplet still has little memory headroom, but the latest 10-client hosted smoke rerun passed. The previous remaining 10-client failure was narrower than the original race: one browser client timed out loading the GitHub Pages web app before reaching Godot, while nine clients completed all world transfers. Production capacity is not established by this run.
+The tiny DigitalOcean droplet still has little memory headroom. A `v2.2` 10-client burst found a real lease cleanup race that local tests did not expose. The local suite now passes after the fix; the next release must rerun hosted 10-client stress before treating this as cleared on the live VPS.
 
 The current release hardening includes:
 
@@ -227,7 +247,7 @@ The current release hardening includes:
 - retry for transient join-ticket acquisition failures;
 - stale join-confirmation rejection on the master;
 - a public hosted smoke gate before release tagging;
-- a slightly longer smoke-only portal replication settle time.
+- a slightly longer smoke-only portal replication settle time;
 - an explicit hosted stress runner at `tools/run_hosted_stress.ps1`;
 - a world-crash recovery smoke at `tools/run_world_crash_recovery_smoke.ps1`.
 

@@ -22,6 +22,7 @@ const WORLD_CONNECT_ATTEMPTS := 3
 const WORLD_CONNECT_RETRY_DELAY_SECONDS := 0.35
 const WORLD_STATE_TIMEOUT_SECONDS := 5.0
 const PORTAL_TEST_REPLICATION_SETTLE_SECONDS := 2.5
+const WEB_PORTAL_TEST_REPLICATION_SETTLE_SECONDS := 4.0
 const WORLD_DISCONNECT_RECOVERY_DELAY_SECONDS := 0.75
 
 var master_api: MultiplayerAPI
@@ -636,7 +637,7 @@ func _manual_travel(target_world: String) -> bool:
 		return false
 	if current_world_scene.has_method("move_local_player_to_portal"):
 		current_world_scene.move_local_player_to_portal(target_world)
-		await get_tree().create_timer(PORTAL_TEST_REPLICATION_SETTLE_SECONDS).timeout
+		await get_tree().create_timer(_portal_test_replication_settle_seconds()).timeout
 	current_world_scene.activate_portal_to(target_world)
 	return await _wait_until(func() -> bool: return active_world_key == target_world, 8.0, "travel to %s" % target_world)
 
@@ -766,9 +767,9 @@ func _has_initial_world_route() -> bool:
 	return worlds.has(routes["initial_world"])
 
 
-func _connect_world(world_key: String) -> bool:
+func _connect_world(world_key: String, route_override := {}) -> bool:
 	var start_msec := Time.get_ticks_msec()
-	var route_endpoint: Dictionary = _world_route_or_catalog(world_key)
+	var route_endpoint: Dictionary = route_override.duplicate(true) if not route_override.is_empty() else _world_route_or_catalog(world_key)
 	if route_endpoint.is_empty():
 		push_error("[CLIENT] no registered route for world %s" % world_key)
 		if perf_monitor:
@@ -810,6 +811,7 @@ func _connect_world(world_key: String) -> bool:
 		else:
 			perf_monitor.increment("world_connect_failed")
 	if joined:
+		_remove_route_travel_lease(world_key, str(route_endpoint.get("travel_lease_id", "")))
 		last_transfer_msec = elapsed_msec
 		_update_network_stats_label()
 	return joined
@@ -1149,6 +1151,22 @@ func _world_route_or_catalog(world_key: String) -> Dictionary:
 	return {}
 
 
+func _remove_route_travel_lease(world_key: String, travel_lease_id: String) -> void:
+	if travel_lease_id.is_empty() or not routes.has("worlds"):
+		return
+	var worlds: Dictionary = routes["worlds"]
+	if not worlds.has(world_key):
+		return
+	var endpoint: Dictionary = worlds[world_key]
+	if str(endpoint.get("travel_lease_id", "")) != travel_lease_id:
+		return
+	endpoint.erase("travel_lease_id")
+	endpoint.erase("travel_lease_expires_at")
+	endpoint.erase("travel_lease_hard_expires_at")
+	worlds[world_key] = endpoint
+	routes["worlds"] = worlds
+
+
 func _known_world_keys() -> Array[String]:
 	var keys: Array[String] = []
 	if routes.has("world_catalog"):
@@ -1179,7 +1197,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 	if current_world_scene and current_world_scene.has_method("activate_portal_to"):
 		if current_world_scene.has_method("move_local_player_to_portal"):
 			current_world_scene.move_local_player_to_portal(target_world)
-			await get_tree().create_timer(PORTAL_TEST_REPLICATION_SETTLE_SECONDS).timeout
+			await get_tree().create_timer(_portal_test_replication_settle_seconds()).timeout
 		current_world_scene.activate_portal_to(target_world)
 	else:
 		if perf_monitor:
@@ -1210,7 +1228,7 @@ func _transfer_via_portal(target_world: String) -> bool:
 		return false
 
 	var approved_world := str(pending_transfer["target_world"])
-	var connected := await _connect_transfer_world(approved_world)
+	var connected := await _connect_transfer_world(approved_world, pending_transfer.get("endpoint", {}))
 	requested_transfer_target = ""
 	requested_transfer_portal = ""
 	if perf_monitor:
@@ -1231,7 +1249,7 @@ func _run_manual_portal_test() -> void:
 
 	if current_world_scene.has_method("move_local_player_to_portal"):
 		current_world_scene.move_local_player_to_portal("left_world")
-		await get_tree().create_timer(PORTAL_TEST_REPLICATION_SETTLE_SECONDS).timeout
+		await get_tree().create_timer(_portal_test_replication_settle_seconds()).timeout
 	current_world_scene.activate_portal_to("left_world")
 	var ok := await _wait_until(func() -> bool: return active_world_key == "left_world", 5.0, "manual portal transfer to left_world")
 	if ok:
@@ -1599,7 +1617,7 @@ func _complete_manual_transfer(target_world: String) -> void:
 		return
 
 	_set_status("Transferring to %s" % target_world)
-	var ok := await _connect_transfer_world(target_world)
+	var ok := await _connect_transfer_world(target_world, pending_transfer.get("endpoint", {}))
 	if ok:
 		NetLog.print_line("[CLIENT] manual transfer complete: %s" % active_world_key)
 	else:
@@ -1625,15 +1643,19 @@ func _clear_stale_transfer_request(portal_name: String, target_world: String, re
 	requested_transfer_target = ""
 
 
-func _connect_transfer_world(target_world: String) -> bool:
+func _connect_transfer_world(target_world: String, endpoint := {}) -> bool:
 	if transfer_in_progress:
 		NetLog.print_line("[CLIENT] transfer connection already in progress; ignoring %s" % target_world)
 		return false
 
 	transfer_in_progress = true
-	var ok := await _connect_world(target_world)
+	var ok := await _connect_world(target_world, endpoint)
 	transfer_in_progress = false
 	return ok
+
+
+func _portal_test_replication_settle_seconds() -> float:
+	return WEB_PORTAL_TEST_REPLICATION_SETTLE_SECONDS if OS.has_feature("web") else PORTAL_TEST_REPLICATION_SETTLE_SECONDS
 
 
 func _set_status(text: String) -> void:

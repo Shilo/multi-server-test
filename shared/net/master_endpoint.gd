@@ -994,16 +994,7 @@ func _cancel_world_join_state_for_world(world_key: String, reason: String) -> vo
 		if str(request.get("world_key", "")) != world_key:
 			continue
 		active_world_join_requests.erase(active_id)
-		travel_leases.erase(str(active_id))
 		cancelled += 1
-		_notify_source_world_transfer_completed(
-			str(request.get("source_world", "")),
-			int(request.get("peer_id", 0)),
-			world_key,
-			false,
-			str(request.get("transfer_request_id", "")),
-			str(active_id)
-		)
 
 	for join_ticket in pending_world_admissions.keys():
 		var admission: Dictionary = pending_world_admissions[join_ticket]
@@ -1012,34 +1003,9 @@ func _cancel_world_join_state_for_world(world_key: String, reason: String) -> vo
 		pending_world_admissions.erase(join_ticket)
 		ready_world_join_tickets.erase(join_ticket)
 		var peer_id := int(admission.get("peer_id", 0))
-		var travel_lease_id := str(admission.get("travel_lease_id", ""))
-		travel_leases.erase(travel_lease_id)
 		cancelled += 1
 		if world_process_manager and world_process_manager.has_method("release_world_join"):
 			world_process_manager.release_world_join(world_key, peer_id)
-		_notify_source_world_transfer_completed(
-			str(admission.get("source_world", "")),
-			peer_id,
-			world_key,
-			false,
-			str(admission.get("transfer_request_id", "")),
-			travel_lease_id
-		)
-
-	for travel_lease_id in travel_leases.keys():
-		var lease: Dictionary = travel_leases[travel_lease_id]
-		if str(lease.get("target_world", "")) != world_key:
-			continue
-		travel_leases.erase(travel_lease_id)
-		cancelled += 1
-		_notify_source_world_transfer_completed(
-			str(lease.get("source_world", "")),
-			int(lease.get("peer_id", 0)),
-			world_key,
-			false,
-			str(lease.get("transfer_request_id", "")),
-			str(travel_lease_id)
-		)
 
 	if cancelled > 0:
 		NetLog.print_line("[MASTER] WORLD_JOIN_STATE_CLEARED key=%s count=%d reason=%s" % [world_key, cancelled, reason])
