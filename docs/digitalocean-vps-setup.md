@@ -123,14 +123,12 @@ What the script does:
 - updates apt packages and installs `curl`, `git`, `gpg`, `unzip`, and Caddy;
 - creates the human `deploy` sudo user;
 - creates the restricted `github-deploy` CI user;
-- creates the non-login `virtucade-run` service user that runs Godot;
 - installs only the public SSH keys you pass in;
 - creates `/opt/virtucade/server`, `/opt/virtucade/data`,
-  `/opt/virtucade/logs`, `/opt/virtucade/world_packs`, and
-  `/opt/virtucade/deploy-staging`;
-- keeps `server/`, `world_packs/`, and `deploy-staging/` writable by the
-  restricted CI user, while keeping `data/` writable only by the Godot service
-  user and `logs/` readable by the deploy group;
+  `/opt/virtucade/logs`, and `/opt/virtucade/world_packs`;
+- keeps `/opt/virtucade` group-writable by `deploy` and `github-deploy` so the
+  existing GitHub deploy workflow can stage `server.next` and `world_packs.next`
+  before swapping them into place;
 - writes and enables `virtucade.service`;
 - enables Caddy so it starts after reboot;
 - disables SSH password authentication so SSH remains key-only;
@@ -164,9 +162,8 @@ ssh -i "$HOME\.ssh\virtucade-deploy-github-actions" github-deploy@<VPS_IP>
 ```bash
 whoami
 sudo -n systemctl is-active virtucade
-touch /opt/virtucade/deploy-staging/permission-test.txt
-rm /opt/virtucade/deploy-staging/permission-test.txt
-touch /opt/virtucade/data/should-fail.txt
+touch /opt/virtucade/server/permission-test.txt
+rm /opt/virtucade/server/permission-test.txt
 sudo -n whoami
 exit
 ```
@@ -176,8 +173,7 @@ Expected:
 ```text
 whoami                                -> github-deploy
 sudo -n systemctl is-active virtucade -> allowed; may print inactive before first deploy
-touch deploy-staging/...              -> allowed
-touch data/...                        -> denied
+touch server/...                      -> allowed
 sudo -n whoami                        -> denied
 ```
 
@@ -229,7 +225,6 @@ While logged in as `root`:
 ```bash
 adduser deploy
 usermod -aG sudo deploy
-useradd --system --home /opt/virtucade/data --shell /usr/sbin/nologin virtucade-run
 mkdir -p /home/deploy/.ssh
 cp /root/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
 chown -R deploy:deploy /home/deploy/.ssh
@@ -314,21 +309,17 @@ ports. The Godot master does not start, stop, or reload Caddy.
 ```bash
 sudo groupadd --force virtucade
 sudo usermod -aG virtucade deploy
-sudo usermod -aG virtucade virtucade-run
 sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade
-sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade/server /opt/virtucade/world_packs
-sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
-sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade/server /opt/virtucade/data /opt/virtucade/logs /opt/virtucade/world_packs
 ```
 
 Layout:
 
 ```text
 /opt/virtucade/server/   exported Linux server binary
-/opt/virtucade/data/     Godot service user home; SQLite DB lives under this tree
+/opt/virtucade/data/     reserved app data folder for future explicit persistence wiring
 /opt/virtucade/logs/     service logs
 /opt/virtucade/world_packs/ optional local mirror for server-side pack metadata
-/opt/virtucade/deploy-staging/ private GitHub Actions upload staging, created with the CI user
 ```
 
 ## 9. Create The Master Server Service
@@ -349,7 +340,7 @@ ConditionPathIsExecutable=/opt/virtucade/server/multi-server-test.x86_64
 
 [Service]
 Type=simple
-User=virtucade-run
+User=deploy
 WorkingDirectory=/opt/virtucade/server
 Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
 Environment=MULTI_SERVER_CLIENT_SCHEME=ws
@@ -425,11 +416,8 @@ sudo adduser --disabled-password --gecos "" github-deploy
 sudo groupadd --force virtucade
 sudo usermod -aG virtucade deploy
 sudo usermod -aG virtucade github-deploy
-sudo usermod -aG virtucade virtucade-run
-sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade /opt/virtucade/server /opt/virtucade/world_packs
-sudo install -d -m 0700 -o github-deploy -g virtucade /opt/virtucade/deploy-staging
-sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
-sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
+sudo chown -R deploy:virtucade /opt/virtucade
+sudo find /opt/virtucade -type d -exec chmod 2775 {} \;
 ```
 
 Allow only service control for the CI user:
@@ -441,7 +429,7 @@ sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
 Paste:
 
 ```text
-github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /opt/virtucade/deploy-staging/virtucade-Caddyfile, /usr/bin/install -m 644 /opt/virtucade/deploy-staging/virtucade-Caddyfile /etc/caddy/Caddyfile
+github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /tmp/virtucade-Caddyfile, /usr/bin/install -m 644 /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile
 ```
 
 ## 11. Create The GitHub Actions SSH Key
@@ -489,11 +477,10 @@ On the VPS:
 ```bash
 whoami
 sudo -n systemctl is-active virtucade
-touch /opt/virtucade/deploy-staging/permission-test.txt
-touch /opt/virtucade/data/should-fail.txt
+touch /opt/virtucade/server/permission-test.txt
 touch /root/should-fail.txt
 sudo -n apt update
-rm /opt/virtucade/deploy-staging/permission-test.txt
+rm /opt/virtucade/server/permission-test.txt
 exit
 ```
 
@@ -502,8 +489,7 @@ Expected:
 ```text
 whoami                                -> github-deploy
 sudo -n systemctl is-active virtucade -> allowed; may print inactive before first deploy
-touch deploy-staging/...              -> allowed
-touch data/...                        -> denied
+touch server/...                      -> allowed
 touch /root/...                       -> denied
 sudo -n apt update                    -> denied
 ```
