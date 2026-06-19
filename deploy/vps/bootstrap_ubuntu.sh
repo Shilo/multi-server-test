@@ -280,6 +280,8 @@ EOF
 }
 
 validate_setup() {
+	local sudoers_file="/etc/sudoers.d/${APP_NAME}-github-deploy"
+
 	id "$DEPLOY_USER" >/dev/null
 	id "$CI_USER" >/dev/null
 	test -s "$(getent passwd "$DEPLOY_USER" | cut -d: -f6)/.ssh/authorized_keys"
@@ -289,6 +291,11 @@ validate_setup() {
 	test "$(systemctl is-enabled "$SERVICE_NAME")" = "enabled"
 	command -v caddy >/dev/null
 	test "$(systemctl is-enabled caddy)" = "enabled"
+	test "$(systemctl is-active caddy)" = "active"
+	test -f "$sudoers_file"
+	visudo -cf "$sudoers_file" >/dev/null
+	grep -Fq "/usr/bin/caddy validate --adapter caddyfile --config ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile" "$sudoers_file"
+	grep -Fq "/usr/bin/install -m 644 ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile /etc/caddy/Caddyfile" "$sudoers_file"
 	if [ -f /var/run/reboot-required ]; then
 		log "Reboot is recommended before first deploy."
 	fi

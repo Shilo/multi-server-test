@@ -156,7 +156,8 @@ What the script does:
 - disables SSH password authentication so SSH remains key-only;
 - writes the limited `github-deploy` sudoers rule required by the deploy
   workflow;
-- validates the resulting users, folders, services, and Caddy install.
+- validates the resulting users, folders, services, Caddy install, and exact
+  Caddy sudoers commands required by GitHub Actions.
 
 The script intentionally does not:
 
