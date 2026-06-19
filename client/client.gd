@@ -232,9 +232,9 @@ func _start_network_stats_timer() -> void:
 
 func _send_perf_pings() -> void:
 	var sent_msec := Time.get_ticks_msec()
-	if _is_master_connected():
+	if _is_master_connected() and master_api.get_unique_id() != MultiplayerPeer.TARGET_PEER_SERVER:
 		master_endpoint.perf_ping.rpc_id(1, "client_master", sent_msec)
-	if _is_world_connected():
+	if _is_world_connected() and world_api.get_unique_id() != MultiplayerPeer.TARGET_PEER_SERVER:
 		world_endpoint.perf_ping.rpc_id(1, "client_world", sent_msec)
 
 

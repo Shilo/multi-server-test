@@ -327,6 +327,8 @@ func _send_master_perf_ping() -> void:
 		return
 	if master_api.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
+	if master_api.get_unique_id() == MultiplayerPeer.TARGET_PEER_SERVER:
+		return
 	$MasterNet/MasterEndpoint.perf_ping.rpc_id(1, "world_master", Time.get_ticks_msec())
 
 
