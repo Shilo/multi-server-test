@@ -87,6 +87,10 @@ func _master_perf_stats() -> Dictionary:
 		"travel_leases": master_endpoint.travel_leases.size() if master_endpoint else 0,
 		"pending_world_admissions": master_endpoint.pending_world_admissions.size() if master_endpoint else 0,
 		"active_world_join_requests": master_endpoint.active_world_join_requests.size() if master_endpoint else 0,
+		"join_ticket_ack_success_total": master_endpoint.join_ticket_ack_success_count if master_endpoint else 0,
+		"join_ticket_ack_timeout_total": master_endpoint.join_ticket_ack_timeout_count if master_endpoint else 0,
+		"join_ticket_ack_last_msec": master_endpoint.join_ticket_ack_last_msec if master_endpoint else -1,
+		"join_ticket_ack_timeout_last_msec": master_endpoint.join_ticket_ack_timeout_last_msec if master_endpoint else -1,
 	}
 	if world_process_manager and world_process_manager.has_method("perf_stats"):
 		stats.merge(world_process_manager.perf_stats(), true)

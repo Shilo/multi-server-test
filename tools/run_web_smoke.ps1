@@ -32,7 +32,11 @@ function Wait-LogMarker($path, $marker, $timeoutSeconds) {
 try {
     if (-not $SkipExport) {
         powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "export_all.ps1") -Godot $Godot
-        python (Join-Path $PSScriptRoot "verify_export_artifacts.py")
+        python (Join-Path $PSScriptRoot "verify_export_artifacts.py") --server-binary server/server.exe
+        $verifyExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        if ($verifyExitCode -ne 0) {
+            throw "Export artifact verification failed with exit code $verifyExitCode"
+        }
     }
 
     New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null

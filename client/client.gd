@@ -14,6 +14,9 @@ const EDITOR_SIMULATED_LOCAL_LOAD_SECONDS := 1.0
 const TRAVEL_LEASE_REFRESH_INTERVAL_SECONDS := 10.0
 const TRAVEL_LEASE_REDEEM_GRACE_SECONDS := 5.0
 const WORLD_JOIN_TICKET_TIMEOUT_SECONDS := 12.0
+const WORLD_CONNECT_ATTEMPTS := 3
+const WORLD_CONNECT_RETRY_DELAY_SECONDS := 0.35
+const WORLD_STATE_TIMEOUT_SECONDS := 5.0
 
 var master_api: MultiplayerAPI
 var world_api: MultiplayerAPI
@@ -55,6 +58,13 @@ var launch_args := PackedStringArray()
 var connection_dialog: AcceptDialog
 var perf_monitor: PerfMonitor
 var perf_ping_timer: Timer
+var network_stats_timer: Timer
+var master_ping_msec := -1
+var world_ping_msec := -1
+var last_world_pack_status := "none"
+var last_world_pack_bytes := 0
+var last_world_pack_msec := -1
+var last_transfer_msec := -1
 
 @onready var master_endpoint: Node = $MasterNet/MasterEndpoint
 @onready var chat_endpoint: Node = $MasterNet/ChatEndpoint
@@ -64,6 +74,7 @@ var perf_ping_timer: Timer
 @onready var canvas_layer: CanvasLayer = $CanvasLayer
 @onready var status_label: Label = $CanvasLayer/StatusLabel
 @onready var world_pack_progress: ProgressBar = $CanvasLayer/WorldPackProgress
+@onready var network_stats_label: Label = $CanvasLayer/NetworkStatsLabel
 
 
 func _ready() -> void:
@@ -133,6 +144,8 @@ func _setup_multiplayer_branches() -> void:
 		if perf_monitor:
 			perf_monitor.increment("master_disconnected")
 			perf_monitor.set_gauge("master_connected", 0)
+		master_ping_msec = -1
+		world_ping_msec = -1
 		NetLog.print_line("[CLIENT] master server disconnected")
 		chat_connected = false
 		join_keepalive_active = false
@@ -146,6 +159,7 @@ func _setup_multiplayer_branches() -> void:
 		if perf_monitor:
 			perf_monitor.increment("world_disconnected")
 			perf_monitor.set_gauge("world_connected", 0)
+		world_ping_msec = -1
 		NetLog.print_line("[CLIENT] world server disconnected")
 	)
 
@@ -156,6 +170,7 @@ func _setup_perf_monitor() -> void:
 	perf_monitor.configure("client", "client-%d" % OS.get_process_id(), _client_perf_stats)
 	add_child(perf_monitor)
 	_start_perf_ping_timer()
+	_start_network_stats_timer()
 
 
 func _client_perf_stats() -> Dictionary:
@@ -175,6 +190,12 @@ func _client_perf_stats() -> Dictionary:
 		"world_pack_progress_visible": int(world_pack_progress.visible),
 		"world_pack_progress_value": int(world_pack_progress.value),
 		"world_pack_progress_max": int(world_pack_progress.max_value),
+		"network_stats_ui_visible": int(is_instance_valid(network_stats_label) and network_stats_label.visible),
+		"client_master_ping_msec": master_ping_msec,
+		"client_world_ping_msec": world_ping_msec,
+		"last_world_pack_bytes": last_world_pack_bytes,
+		"last_world_pack_msec": last_world_pack_msec,
+		"last_transfer_msec": last_transfer_msec,
 	}
 
 
@@ -197,6 +218,18 @@ func _stop_perf_ping_timer() -> void:
 	perf_ping_timer = null
 
 
+func _start_network_stats_timer() -> void:
+	if network_stats_timer:
+		return
+	network_stats_timer = Timer.new()
+	network_stats_timer.name = "NetworkStatsTimer"
+	network_stats_timer.wait_time = 0.5
+	network_stats_timer.autostart = true
+	network_stats_timer.timeout.connect(_update_network_stats_label)
+	add_child(network_stats_timer)
+	_update_network_stats_label()
+
+
 func _send_perf_pings() -> void:
 	var sent_msec := Time.get_ticks_msec()
 	if _is_master_connected():
@@ -206,13 +239,97 @@ func _send_perf_pings() -> void:
 
 
 func _on_master_perf_pong_received(label: String, sent_msec: int, _server_msec: int) -> void:
+	var latency_msec := Time.get_ticks_msec() - sent_msec
+	master_ping_msec = latency_msec
 	if perf_monitor:
-		perf_monitor.observe_latency(label, Time.get_ticks_msec() - sent_msec)
+		perf_monitor.observe_latency(label, latency_msec)
+	_update_network_stats_label()
 
 
 func _on_world_perf_pong_received(label: String, sent_msec: int, _server_msec: int) -> void:
+	var latency_msec := Time.get_ticks_msec() - sent_msec
+	world_ping_msec = latency_msec
 	if perf_monitor:
-		perf_monitor.observe_latency(label, Time.get_ticks_msec() - sent_msec)
+		perf_monitor.observe_latency(label, latency_msec)
+	_update_network_stats_label()
+
+
+func _update_network_stats_label() -> void:
+	if not is_instance_valid(network_stats_label):
+		return
+
+	var lines := [
+		"net master=%s world=%s" % [_format_ping(master_ping_msec), _format_ping(world_ping_msec)],
+		"ws buffered master=%s world=%s" % [
+			_format_bytes(_websocket_buffered_bytes(master_api)),
+			_format_bytes(_websocket_buffered_bytes(world_api)),
+		],
+		"world %s routes=%d chat=%s" % [
+			active_world_key if not active_world_key.is_empty() else "-",
+			routes.size(),
+			"on" if chat_connected else "off",
+		],
+		"pack %s %s in %s" % [
+			last_world_pack_status,
+			_format_bytes(last_world_pack_bytes),
+			_format_duration(last_world_pack_msec),
+		],
+		"transfer %s fps=%d" % [
+			_format_duration(last_transfer_msec),
+			int(Performance.get_monitor(Performance.TIME_FPS)),
+		],
+	]
+	network_stats_label.text = "\n".join(lines)
+
+
+func _format_ping(value_msec: int) -> String:
+	if value_msec < 0:
+		return "--ms"
+	return "%dms" % value_msec
+
+
+func _format_duration(value_msec: int) -> String:
+	if value_msec < 0:
+		return "--ms"
+	return "%dms" % value_msec
+
+
+func _format_bytes(value: int) -> String:
+	if value <= 0:
+		return "0B"
+	if value < 1024:
+		return "%dB" % value
+	if value < 1024 * 1024:
+		return "%.1fKB" % (float(value) / 1024.0)
+	return "%.1fMB" % (float(value) / (1024.0 * 1024.0))
+
+
+func _websocket_buffered_bytes(api: MultiplayerAPI) -> int:
+	if api == null:
+		return 0
+	var peer: Object = api.multiplayer_peer
+	if peer == null or peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return 0
+	if not peer.has_method("get_peer"):
+		return 0
+
+	var total := 0
+	for peer_id in _transport_peer_ids(api):
+		var socket_peer: Variant = peer.get_peer(peer_id)
+		if socket_peer != null and socket_peer.has_method("get_current_outbound_buffered_amount"):
+			total += int(socket_peer.get_current_outbound_buffered_amount())
+	return total
+
+
+func _transport_peer_ids(api: MultiplayerAPI) -> Array[int]:
+	if api == null:
+		return []
+	if api.is_server():
+		var result: Array[int] = []
+		for peer_id in api.get_peers():
+			result.append(int(peer_id))
+		return result
+	return [MultiplayerPeer.TARGET_PEER_SERVER]
 
 
 func _setup_chat() -> void:
@@ -551,14 +668,6 @@ func _connect_world(world_key: String) -> bool:
 			perf_monitor.increment("world_connect_failed")
 		return false
 
-	var endpoint := await _request_world_join(world_key, route_endpoint)
-	_stop_travel_lease_keepalive(str(route_endpoint.get("travel_lease_id", "")))
-	if endpoint.is_empty():
-		connecting_world_key = ""
-		if perf_monitor:
-			perf_monitor.increment("world_connect_failed")
-		return false
-
 	world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
 	active_world_key = ""
 	connecting_world_key = world_key
@@ -571,30 +680,51 @@ func _connect_world(world_key: String) -> bool:
 		return false
 
 	_start_join_keepalive(world_key)
-	var ok := await _connect_api(world_api, endpoint["url"], "world-%s" % world_key)
-	if not ok:
-		connecting_world_key = ""
-		_stop_join_keepalive(world_key, false, str(route_endpoint.get("travel_lease_id", "")))
-		if perf_monitor:
-			perf_monitor.increment("world_connect_failed")
-		return false
-	world_endpoint.request_world_state.rpc_id(1, str(endpoint.get("join_ticket", "")))
-	ok = await _wait_until(
-		func() -> bool:
-			return active_world_key == world_key or rejected_world_join == world_key,
-		5.0,
-		"world %s state" % world_key
-	)
+	var joined := await _connect_world_with_ticket_retries(world_key, route_endpoint)
 	connecting_world_key = ""
-	var joined := ok and rejected_world_join != world_key
 	_stop_join_keepalive(world_key, joined, str(route_endpoint.get("travel_lease_id", "")))
+	_stop_travel_lease_keepalive(str(route_endpoint.get("travel_lease_id", "")))
+	if not joined:
+		_release_travel_lease(route_endpoint)
+	var elapsed_msec := Time.get_ticks_msec() - start_msec
 	if perf_monitor:
 		if joined:
 			perf_monitor.increment("world_connect_succeeded")
-			perf_monitor.observe_latency("world_ready", Time.get_ticks_msec() - start_msec)
+			perf_monitor.observe_latency("world_ready", elapsed_msec)
 		else:
 			perf_monitor.increment("world_connect_failed")
+	if joined:
+		last_transfer_msec = elapsed_msec
+		_update_network_stats_label()
 	return joined
+
+
+func _connect_world_with_ticket_retries(world_key: String, route_endpoint: Dictionary) -> bool:
+	for attempt in range(WORLD_CONNECT_ATTEMPTS):
+		var endpoint := await _request_world_join(world_key, route_endpoint)
+		if endpoint.is_empty():
+			return false
+
+		rejected_world_join = ""
+		world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
+		var ok := await _connect_api(world_api, str(endpoint["url"]), "world-%s" % world_key, 5.0, attempt == WORLD_CONNECT_ATTEMPTS - 1)
+		if ok:
+			world_endpoint.request_world_state.rpc_id(1, str(endpoint.get("join_ticket", "")))
+			ok = await _wait_until(
+				func() -> bool:
+					return active_world_key == world_key or rejected_world_join == world_key or not _is_world_connected(),
+				WORLD_STATE_TIMEOUT_SECONDS,
+				"world %s state" % world_key
+			)
+			if ok and active_world_key == world_key and rejected_world_join != world_key:
+				return true
+
+		_cancel_world_join(world_key, route_endpoint)
+		world_api.multiplayer_peer = OfflineMultiplayerPeer.new()
+		if attempt < WORLD_CONNECT_ATTEMPTS - 1:
+			NetLog.print_line("[CLIENT] WORLD_CONNECT_RETRY key=%s attempt=%d" % [world_key, attempt + 2])
+			await get_tree().create_timer(WORLD_CONNECT_RETRY_DELAY_SECONDS).timeout
+	return false
 
 
 func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
@@ -603,6 +733,10 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	var use_editor_export := _use_editor_pack_exports()
 	if local_scene_available and not _force_packrat_world_packs() and not use_editor_export:
 		NetLog.print_line("[CLIENT] WORLD_PACK_SKIPPED key=%s reason=local_scene_available arg=%s" % [world_key, FORCE_PACKRAT_WORLD_PACKS_ARG])
+		last_world_pack_status = "bundled"
+		last_world_pack_bytes = 0
+		last_world_pack_msec = 0
+		_update_network_stats_label()
 		if perf_monitor:
 			perf_monitor.increment("world_pack_skipped")
 		return true
@@ -612,6 +746,10 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 		pack_url = NET_CONFIG.world_pack_url(world_key)
 	if pack_url.is_empty():
 		push_error("[CLIENT] missing pack metadata for world %s; scene is not bundled: %s" % [world_key, scene_path])
+		last_world_pack_status = "missing"
+		last_world_pack_bytes = 0
+		last_world_pack_msec = -1
+		_update_network_stats_label()
 		if perf_monitor:
 			perf_monitor.increment("world_pack_failed")
 		return false
@@ -648,6 +786,10 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	if perf_monitor:
 		perf_monitor.increment("world_pack_started")
 		perf_monitor.set_gauge("world_pack_expected_bytes", expected_size)
+	last_world_pack_status = "loading"
+	last_world_pack_bytes = 0
+	last_world_pack_msec = -1
+	_update_network_stats_label()
 	_show_world_pack_progress(world_key, expected_size)
 	var pack_start_msec := Time.get_ticks_msec()
 	var request: PackRatRequest = PackRat.load_resource_pack_async(pack_url, options)
@@ -660,14 +802,23 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 	_hide_world_pack_progress()
 	for warning in result.warnings:
 		NetLog.print_line("[CLIENT] PackRat warning for %s: %s" % [world_key, warning])
+	var pack_elapsed_msec := Time.get_ticks_msec() - pack_start_msec
 	if not result.ok:
 		NetLog.print_line("[CLIENT] WORLD_PACK_FAILED key=%s url=%s error=%s" % [world_key, pack_url, result.error])
 		push_error("[CLIENT] failed to load pack for %s from %s: %s" % [world_key, pack_url, result.error])
+		last_world_pack_status = "failed"
+		last_world_pack_bytes = result.content_length
+		last_world_pack_msec = pack_elapsed_msec
+		_update_network_stats_label()
 		if perf_monitor:
 			perf_monitor.increment("world_pack_failed")
 		return false
 	if not result.entry_scene_exists():
 		push_error("[CLIENT] pack for %s mounted, but scene is missing: %s" % [world_key, scene_path])
+		last_world_pack_status = "missing_scene"
+		last_world_pack_bytes = result.content_length
+		last_world_pack_msec = pack_elapsed_msec
+		_update_network_stats_label()
 		if perf_monitor:
 			perf_monitor.increment("world_pack_failed")
 		return false
@@ -676,9 +827,13 @@ func _prepare_world_assets(world_key: String, endpoint: Dictionary) -> bool:
 		"[CLIENT] WORLD_PACK_READY key=%s status=%s cache=%s bytes=%d path=%s" %
 		[world_key, result.status, str(result.from_cache), result.content_length, result.local_path]
 	)
+	last_world_pack_status = result.status
+	last_world_pack_bytes = result.content_length
+	last_world_pack_msec = pack_elapsed_msec
+	_update_network_stats_label()
 	if perf_monitor:
 		perf_monitor.increment("world_pack_ready")
-		perf_monitor.observe_latency("world_pack_prepare", Time.get_ticks_msec() - pack_start_msec)
+		perf_monitor.observe_latency("world_pack_prepare", pack_elapsed_msec)
 		if result.from_cache:
 			perf_monitor.increment("world_pack_cache_hit")
 		else:
@@ -762,6 +917,9 @@ func _update_world_pack_progress(world_key: String, downloaded_bytes: int, total
 	if perf_monitor:
 		perf_monitor.set_gauge("world_pack_downloaded_bytes", downloaded_bytes)
 		perf_monitor.set_gauge("world_pack_total_bytes", total_bytes)
+	last_world_pack_status = "downloading"
+	last_world_pack_bytes = downloaded_bytes
+	_update_network_stats_label()
 	var total := total_bytes
 	if total <= 0:
 		total = int(world_pack_progress.max_value)

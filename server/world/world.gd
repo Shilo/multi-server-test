@@ -273,6 +273,7 @@ func _on_world_registered(registered_world_key: String) -> void:
 	_stop_master_loss_timer()
 	_start_heartbeat()
 	_send_heartbeat()
+	_ack_expected_join_tickets()
 	NetLog.print_line("WORLD_REGISTERED key=%s" % world_key)
 
 
@@ -350,6 +351,20 @@ func _on_world_join_expected(expected_world_key: String, join_ticket: String, ex
 	}
 	_expire_join_tickets()
 	_trim_join_tickets()
+	_ack_expected_join_ticket(join_ticket)
+
+
+func _ack_expected_join_tickets() -> void:
+	if not registered_with_master:
+		return
+	for join_ticket in expected_join_tickets.keys():
+		_ack_expected_join_ticket(str(join_ticket))
+
+
+func _ack_expected_join_ticket(join_ticket: String) -> void:
+	if not registered_with_master or join_ticket.is_empty():
+		return
+	$MasterNet/MasterEndpoint.ack_expected_world_join.rpc_id(1, world_key, join_ticket)
 
 
 func _authorize_join(peer_id: int, join_ticket: String) -> bool:

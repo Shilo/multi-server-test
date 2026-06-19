@@ -195,6 +195,12 @@ jobs:
           set -euo pipefail
           "$GODOT_BIN" --headless --path "$PWD" --script res://tools/net_config_smoke.gd
 
+      - name: Run client UI smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path "$PWD" --script res://tools/client_ui_smoke.gd
+
       - name: Run Web smoke
         shell: bash
         run: |

@@ -235,8 +235,11 @@ function Assert-Telemetry($clientEntries) {
         Assert-LogContains $clientLogPath "role=client" "$clientName telemetry role"
         Assert-LogContains $clientLogPath "client_master_last_msec" "$clientName master latency telemetry"
         Assert-LogContains $clientLogPath "world_ws_outbound_buffered_bytes" "$clientName world websocket telemetry"
+        Assert-LogContains $clientLogPath "network_stats_ui_visible=1" "$clientName network stats UI telemetry"
+        Assert-LogContains $clientLogPath "last_transfer_msec=" "$clientName transfer timing telemetry"
         if ($UsePackRatWorldPacks -or $UsePackRatEditorExports) {
             Assert-LogContains $clientLogPath "world_pack_prepare_last_msec" "$clientName PackRat timing telemetry"
+            Assert-LogContains $clientLogPath "last_world_pack_bytes=" "$clientName PackRat UI byte telemetry"
         }
     }
 }

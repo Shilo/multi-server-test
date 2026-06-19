@@ -43,3 +43,10 @@ offset_top = 46.0
 offset_right = 300.0
 offset_bottom = 62.0
 show_percentage = false
+
+[node name="NetworkStatsLabel" type="Label" parent="CanvasLayer"]
+offset_left = 18.0
+offset_top = 68.0
+offset_right = 440.0
+offset_bottom = 172.0
+text = "net: connecting"
