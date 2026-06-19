@@ -261,13 +261,14 @@ jobs:
           VIRTUCADE_HOST: ${{ secrets.VIRTUCADE_HOST }}
           VIRTUCADE_GAME_HOST: ${{ vars.VIRTUCADE_GAME_HOST || secrets.VIRTUCADE_GAME_HOST }}
           VIRTUCADE_ACME_EMAIL: ${{ vars.VIRTUCADE_ACME_EMAIL || secrets.VIRTUCADE_ACME_EMAIL }}
+          VIRTUCADE_WORLD_PACK_BASE_URL: ${{ vars.VIRTUCADE_WORLD_PACK_BASE_URL || secrets.VIRTUCADE_WORLD_PACK_BASE_URL || 'https://virtucade.xyz/world_packs' }}
         run: |
           set -euo pipefail
           python3 tools/render_caddyfile.py --self-test
 
           printf '%s\n' \
             'MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs' \
-            'MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs' \
+            "MULTI_SERVER_WORLD_PACK_BASE_URL=${VIRTUCADE_WORLD_PACK_BASE_URL%/}" \
             > "$RUNNER_TEMP/virtucade.env"
 
           if [ -z "${VIRTUCADE_GAME_HOST}" ]; then

@@ -3,7 +3,7 @@ const DEFAULT_CLIENT_HOST := "127.0.0.1"
 const DEFAULT_CLIENT_SCHEME := "ws"
 const DEFAULT_BIND_HOST := "*"
 const MASTER_PORT := 19080
-const GITHUB_PAGES_WORLD_PACK_BASE_URL := "https://shilo.github.io/multi-server-test/world_packs"
+const DEFAULT_WORLD_PACK_BASE_URL := "https://virtucade.xyz/world_packs"
 const BIND_HOST_ENV := "MULTI_SERVER_BIND_HOST"
 const CLIENT_HOST_ENV := "MULTI_SERVER_CLIENT_HOST"
 const CLIENT_SCHEME_ENV := "MULTI_SERVER_CLIENT_SCHEME"
@@ -132,7 +132,7 @@ static func world_pack_base_url() -> String:
 	if value.is_empty() and OS.has_feature("web"):
 		value = _web_same_origin_world_pack_base_url()
 	if value.is_empty():
-		return GITHUB_PAGES_WORLD_PACK_BASE_URL
+		return DEFAULT_WORLD_PACK_BASE_URL
 	return value.trim_suffix("/")
 
 

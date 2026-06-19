@@ -410,7 +410,7 @@ WorkingDirectory=/opt/virtucade/server
 Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
 Environment=MULTI_SERVER_CLIENT_SCHEME=ws
 Environment=MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
-Environment=MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
+Environment=MULTI_SERVER_WORLD_PACK_BASE_URL=https://virtucade.xyz/world_packs
 EnvironmentFile=-/opt/virtucade/virtucade.env
 ExecStart=/opt/virtucade/server/multi-server-test.x86_64 --headless
 Restart=on-failure
@@ -450,7 +450,7 @@ MULTI_SERVER_BIND_HOST=127.0.0.1
 MULTI_SERVER_PUBLIC_MASTER_URL=wss://<GAME_HOST>/
 MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://<GAME_HOST>/{world_key}
 MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
-MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
+MULTI_SERVER_WORLD_PACK_BASE_URL=https://virtucade.xyz/world_packs
 ```
 
 That makes the exported Godot server listen privately while advertising public
@@ -469,6 +469,11 @@ The master reads local PCK metadata from `MULTI_SERVER_WORLD_PACK_DIR`, while
 clients download the actual PCK bytes from `MULTI_SERVER_WORLD_PACK_BASE_URL`.
 Keep `/opt/virtucade/world_packs` mirrored with the PCK files published to
 GitHub Pages if you want server-provided PackRat metadata to stay precise.
+Use the final public Pages domain, such as `https://virtucade.xyz/world_packs`,
+for `MULTI_SERVER_WORLD_PACK_BASE_URL`. Do not use the old
+`https://shilo.github.io/multi-server-test/world_packs` URL after configuring a
+custom domain, because GitHub redirects it to the custom domain and browser PCK
+fetches can fail CORS.
 
 ## 10. Create The Restricted GitHub Deploy User
 
