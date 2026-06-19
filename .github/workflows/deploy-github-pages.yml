@@ -387,7 +387,7 @@ jobs:
           set -euo pipefail
           caddyfile="/opt/virtucade/caddy/virtucade-Caddyfile"
           if [ -f "${caddyfile}" ]; then
-            sudo -n /usr/bin/caddy validate --config "${caddyfile}"
+            sudo -n /usr/bin/caddy validate --adapter caddyfile --config "${caddyfile}"
           fi
           mv /tmp/virtucade.env /opt/virtucade/virtucade.env
           chmod 664 /opt/virtucade/virtucade.env

@@ -272,7 +272,7 @@ write_sudoers() {
 	local temp_sudoers=""
 	temp_sudoers="$(mktemp)"
 	cat > "$temp_sudoers" <<EOF
-${CI_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl start ${SERVICE_NAME}, /usr/bin/systemctl stop ${SERVICE_NAME}, /usr/bin/systemctl restart ${SERVICE_NAME}, /usr/bin/systemctl is-active ${SERVICE_NAME}, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile, /usr/bin/install -m 644 ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile /etc/caddy/Caddyfile
+${CI_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl start ${SERVICE_NAME}, /usr/bin/systemctl stop ${SERVICE_NAME}, /usr/bin/systemctl restart ${SERVICE_NAME}, /usr/bin/systemctl is-active ${SERVICE_NAME}, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --adapter caddyfile --config ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile, /usr/bin/install -m 644 ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile /etc/caddy/Caddyfile
 EOF
 	visudo -cf "$temp_sudoers" >/dev/null
 	install -m 440 -o root -g root "$temp_sudoers" "/etc/sudoers.d/${APP_NAME}-github-deploy"

@@ -494,7 +494,7 @@ sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
 Paste:
 
 ```text
-github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /opt/virtucade/caddy/virtucade-Caddyfile, /usr/bin/install -m 644 /opt/virtucade/caddy/virtucade-Caddyfile /etc/caddy/Caddyfile
+github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --adapter caddyfile --config /opt/virtucade/caddy/virtucade-Caddyfile, /usr/bin/install -m 644 /opt/virtucade/caddy/virtucade-Caddyfile /etc/caddy/Caddyfile
 ```
 
 ## 11. Create The GitHub Actions SSH Key
