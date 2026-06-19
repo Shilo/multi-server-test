@@ -138,13 +138,14 @@ Interpretation:
 
 ## Hosted Validation
 
-Release `v1.9` deployed successfully on June 19, 2026:
+Release `v2.1` deployed successfully on June 19, 2026:
 
 | Check | Result |
 | --- | --- |
-| GitHub Actions manual release deploy | Passed, `v1.9` |
-| Hosted Pages verification | Passed, `HOSTED_PAGES_VERIFY_OK version=1.9` |
+| GitHub Actions manual release deploy | Passed, `v2.1` |
+| Hosted Pages verification | Passed, `HOSTED_PAGES_VERIFY_OK version=2.1` |
 | VPS deploy | Passed, `VPS_DEPLOY_DONE` |
+| Post-deploy hosted smoke gate | Passed, `WEB_SMOKE_PASS` before release tag publish |
 | `https://virtucade.xyz/` | Served by GitHub Pages |
 | `https://virtucade.xyz/world_packs/hub.pck` | Served by GitHub Pages |
 | `wss://server.virtucade.xyz/` | Browser smoke connected through Caddy to master |
@@ -160,8 +161,8 @@ The hosted smoke transferred through:
 - `right_world`
 - repeated cached revisits
 
-The previously observed `right_world` handoff failure did not reproduce after the
-ACK-before-approval and full handoff retry changes.
+The previously observed `right_world` handoff failure did not reproduce after
+the ACK-before-approval and full handoff retry changes.
 
 ## Hosted Stress Ladder
 
@@ -172,34 +173,38 @@ Caddy WSS routing, and the smallest DigitalOcean droplet.
 | --- | --- | --- |
 | 1 hosted browser client | Passed | Full world traversal and cache hits worked. |
 | 5 simultaneous hosted browser clients | Passed | All clients completed `WEB_SMOKE_PASS`. |
-| 6 simultaneous hosted browser clients | Passed | All clients completed `WEB_SMOKE_PASS`. |
-| 8 simultaneous hosted browser clients | Failed 3/8 | One initial master WSS connect failure; two first-transfer failures. Fresh smoke passed afterward. |
-| 10 simultaneous hosted browser clients | Failed 6/10 | Several initial master WSS connect failures; one first-transfer failure. Fresh smoke passed afterward. |
+| 6 simultaneous hosted browser clients on `v2.1` | Passed | All clients completed `WEB_SMOKE_PASS`. |
+| 8 simultaneous hosted browser clients on `v2.1` | Passed | All clients completed `WEB_SMOKE_PASS`. |
+| 10 simultaneous hosted browser clients on `v2.1` | Failed 1/10 | Nine clients completed `WEB_SMOKE_PASS`; one Playwright client timed out waiting for the GitHub Pages document `load` event before any Godot/VPS logs appeared. |
 
 Interpretation:
 
-- The live architecture works end to end for the tested 1/5/6-client hosted browser smoke runs.
+- The live architecture works end to end for the tested 1/5/6/8-client hosted browser smoke runs.
 - The smallest 512 MB / 1 vCPU droplet is a harsh boundary test, not a production target.
-- The 8/10-client failures are unresolved burst failure modes, not proven pure capacity failures:
-  - failed clients included initial master websocket connection failures;
-  - some first-transfer failures appear consistent with smoke-test portal-position replication timing;
-  - successful clients continued transferring through worlds;
-  - a fresh hosted smoke passed immediately after the failed bursts;
-  - no self-RPC telemetry errors appeared after the `v1.9` guard.
-- The observed hosted smoke threshold on this droplet is currently 6 simultaneous full browser smoke clients. This is one test result, not a guaranteed capacity claim.
+- The latest 10-client failure did not reach the VPS game path; it timed out during static web page navigation from GitHub Pages.
+- Earlier `v1.9` 8/10-client failures included initial master websocket failures and first-transfer failures, but those did not reproduce at 8 clients after the `v2.1` retry/settle hardening.
+- Successful clients continued transferring through worlds during the burst tests.
+- The observed hosted smoke threshold on this droplet is currently 8 simultaneous full browser smoke clients, with 9/10 clients succeeding in the 10-client run. This is one test result, not a guaranteed capacity claim.
 - For VirtuCade, the next serious capacity test should use a larger droplet before drawing conclusions about 100-200 CCU.
-- Before claiming production capacity, add hosted Caddy/access logs, systemd/OOM checks, and a concurrent hosted smoke runner that classifies each failed client by phase.
+- Before claiming production capacity, add hosted Caddy/access logs, systemd/OOM checks, a native/headless load harness, and a concurrent hosted smoke runner that classifies each failed client by phase.
 
 ## Conclusion So Far
 
-The architecture is behaving correctly locally and live at the tested successful levels: PackRat loading, world transfers, chat continuity, export isolation, Caddy URL generation, ACK-before-approval, hosted WSS routing, and telemetry all pass for single-client and 5/6-client hosted smoke.
+The architecture is behaving correctly locally and live at the tested successful levels: PackRat loading, world transfers, chat continuity, export isolation, Caddy URL generation, ACK-before-approval, hosted WSS routing, and telemetry all pass for single-client and 5/6/8-client hosted smoke.
 
-The tiny DigitalOcean droplet exposes unresolved burst failures around 8-10 simultaneous hosted smoke clients. The important result is narrower but still useful: post-burst service recovery passed, and the original right-world transfer race did not reproduce after the ordering fix. Production capacity is not established by this run.
+The tiny DigitalOcean droplet still exposes stress limits around 10 simultaneous hosted smoke clients. The latest remaining failure is narrower than the original race: one browser client timed out loading the GitHub Pages web app before reaching Godot, while nine clients completed all world transfers. Production capacity is not established by this run.
 
-Next release hardening adds:
+The current release hardening includes:
 
 - retry around the initial hosted master route bootstrap;
 - retry for transient join-ticket acquisition failures;
 - stale join-confirmation rejection on the master;
 - a public hosted smoke gate before release tagging;
 - a slightly longer smoke-only portal replication settle time.
+
+Recommended next validation before claiming 100-200 CCU:
+
+- test on a larger droplet closer to the intended VirtuCade floor;
+- add server-side Caddy access/error log capture to stress reports;
+- add systemd journal/OOM checks after each stress run;
+- build a cheaper native/headless load harness so browser startup and GitHub Pages page-load behavior do not dominate gameplay capacity results.
