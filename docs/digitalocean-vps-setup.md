@@ -465,6 +465,19 @@ MULTI_SERVER_CLIENT_SCHEME=ws
 That keeps direct-IP `ws://` native-client testing usable before a real domain
 is pointed at the VPS.
 
+The Web client on `https://virtucade.xyz` and `https://www.virtucade.xyz`
+also has a built-in project default for the gameplay edge:
+
+```text
+master: wss://server.virtucade.xyz/
+worlds: wss://server.virtucade.xyz/{world_key}
+packs:  https://virtucade.xyz/world_packs
+```
+
+So normal hosted testing should use `https://virtucade.xyz/` directly. Query
+parameters like `master_url` and `world_url_template` are still useful for
+diagnostics, but they are not required for the current custom domain.
+
 The master reads local PCK metadata from `MULTI_SERVER_WORLD_PACK_DIR`, while
 clients download the actual PCK bytes from `MULTI_SERVER_WORLD_PACK_BASE_URL`.
 Keep `/opt/virtucade/world_packs` mirrored with the PCK files published to

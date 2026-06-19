@@ -4,6 +4,8 @@ const DEFAULT_CLIENT_SCHEME := "ws"
 const DEFAULT_BIND_HOST := "*"
 const MASTER_PORT := 19080
 const DEFAULT_WORLD_PACK_BASE_URL := "https://virtucade.xyz/world_packs"
+const PUBLIC_WEB_HOSTS := ["virtucade.xyz", "www.virtucade.xyz"]
+const PUBLIC_GAME_HOST := "server.virtucade.xyz"
 const BIND_HOST_ENV := "MULTI_SERVER_BIND_HOST"
 const CLIENT_HOST_ENV := "MULTI_SERVER_CLIENT_HOST"
 const CLIENT_SCHEME_ENV := "MULTI_SERVER_CLIENT_SCHEME"
@@ -42,6 +44,8 @@ static func public_master_url() -> String:
 	var value := OS.get_environment(PUBLIC_MASTER_URL_ENV).strip_edges()
 	if value.is_empty():
 		value = _web_query_value("master_url")
+	if value.is_empty() and OS.has_feature("web"):
+		value = _web_default_public_master_url()
 	if value.is_empty():
 		return ""
 	return _validated_socket_url(value, PUBLIC_MASTER_URL_ENV)
@@ -51,6 +55,8 @@ static func public_world_url_template() -> String:
 	var value := OS.get_environment(PUBLIC_WORLD_URL_TEMPLATE_ENV).strip_edges()
 	if value.is_empty():
 		value = _web_query_value("world_url_template")
+	if value.is_empty() and OS.has_feature("web"):
+		value = _web_default_public_world_url_template()
 	if value.is_empty():
 		return ""
 	if value.find("{world_key}") == -1:
@@ -225,6 +231,54 @@ static func _web_same_origin_socket_scheme() -> String:
 	if typeof(value) != TYPE_STRING:
 		return ""
 	return String(value).strip_edges().to_lower()
+
+
+static func _web_default_public_master_url() -> String:
+	return _default_public_master_url_for_web_host(_web_location_hostname(), _web_location_protocol())
+
+
+static func _web_default_public_world_url_template() -> String:
+	return _default_public_world_url_template_for_web_host(_web_location_hostname(), _web_location_protocol())
+
+
+static func _default_public_master_url_for_web_host(hostname: String, protocol: String) -> String:
+	if not _is_public_web_host(hostname, protocol):
+		return ""
+	return "wss://%s/" % PUBLIC_GAME_HOST
+
+
+static func _default_public_world_url_template_for_web_host(hostname: String, protocol: String) -> String:
+	if not _is_public_web_host(hostname, protocol):
+		return ""
+	return "wss://%s/{world_key}" % PUBLIC_GAME_HOST
+
+
+static func _is_public_web_host(hostname: String, protocol: String) -> bool:
+	return protocol.strip_edges().to_lower() == "https:" and PUBLIC_WEB_HOSTS.has(hostname.strip_edges().to_lower())
+
+
+static func _web_location_hostname() -> String:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return ""
+
+	var value: Variant = javascript.call("eval", "window.location.hostname || ''", true)
+	return String(value).strip_edges().to_lower() if typeof(value) == TYPE_STRING else ""
+
+
+static func _web_location_protocol() -> String:
+	if not OS.has_feature("web") or not Engine.has_singleton("JavaScriptBridge"):
+		return ""
+
+	var javascript: Object = Engine.get_singleton("JavaScriptBridge")
+	if javascript == null:
+		return ""
+
+	var value: Variant = javascript.call("eval", "window.location.protocol || ''", true)
+	return String(value).strip_edges().to_lower() if typeof(value) == TYPE_STRING else ""
 
 
 static func _validated_socket_url(url: String, source: String, returned_url := "") -> String:

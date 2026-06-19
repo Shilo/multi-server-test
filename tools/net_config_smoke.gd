@@ -19,6 +19,21 @@ func _init() -> void:
 	_expect("override_master_url", NET_CONFIG.master_url(), "wss://game.example.test/")
 	_expect("override_hub_url", NET_CONFIG.world_url("hub"), "wss://game.example.test/hub")
 	_expect("override_left_world_url", NET_CONFIG.world_url("left_world"), "wss://game.example.test/left_world")
+	_expect(
+		"virtucade_web_master_url",
+		NET_CONFIG._default_public_master_url_for_web_host("virtucade.xyz", "https:"),
+		"wss://server.virtucade.xyz/"
+	)
+	_expect(
+		"virtucade_web_world_template",
+		NET_CONFIG._default_public_world_url_template_for_web_host("www.virtucade.xyz", "https:"),
+		"wss://server.virtucade.xyz/{world_key}"
+	)
+	_expect(
+		"localhost_web_master_url_empty",
+		NET_CONFIG._default_public_master_url_for_web_host("127.0.0.1", "http:"),
+		""
+	)
 
 	OS.set_environment(NET_CONFIG.PUBLIC_MASTER_URL_ENV, "https://game.example.test/")
 	OS.set_environment(NET_CONFIG.PUBLIC_WORLD_URL_TEMPLATE_ENV, "wss://game.example.test/world")
