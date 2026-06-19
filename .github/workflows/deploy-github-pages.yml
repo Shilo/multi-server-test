@@ -372,21 +372,22 @@ jobs:
           tar -C builds/server -czf "$RUNNER_TEMP/virtucade-server.tar.gz" .
           tar -C builds/world_packs -czf "$RUNNER_TEMP/virtucade-world-packs.tar.gz" .
           ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" \
-            "rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz /tmp/virtucade-Caddyfile /tmp/virtucade.env"
+            "mkdir -p /opt/virtucade/caddy && rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz /tmp/virtucade.env /opt/virtucade/caddy/virtucade-Caddyfile"
           scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-server.tar.gz" \
             "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-server.tar.gz"
           scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-world-packs.tar.gz" \
             "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-world-packs.tar.gz"
           if [ -f "$RUNNER_TEMP/virtucade-Caddyfile" ]; then
             scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade-Caddyfile" \
-              "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade-Caddyfile"
+              "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/opt/virtucade/caddy/virtucade-Caddyfile"
           fi
           scp -i ~/.ssh/virtucade_deploy_key "$RUNNER_TEMP/virtucade.env" \
             "${VIRTUCADE_USER}@${VIRTUCADE_HOST}:/tmp/virtucade.env"
           ssh -i ~/.ssh/virtucade_deploy_key "${VIRTUCADE_USER}@${VIRTUCADE_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          if [ -f /tmp/virtucade-Caddyfile ]; then
-            sudo -n /usr/bin/caddy validate --config /tmp/virtucade-Caddyfile
+          caddyfile="/opt/virtucade/caddy/virtucade-Caddyfile"
+          if [ -f "${caddyfile}" ]; then
+            sudo -n /usr/bin/caddy validate --config "${caddyfile}"
           fi
           mv /tmp/virtucade.env /opt/virtucade/virtucade.env
           chmod 664 /opt/virtucade/virtucade.env
@@ -400,17 +401,19 @@ jobs:
           rm -rf /opt/virtucade/server /opt/virtucade/world_packs
           mv /opt/virtucade/server.next /opt/virtucade/server
           mv /opt/virtucade/world_packs.next /opt/virtucade/world_packs
+          chgrp -R virtucade /opt/virtucade/server /opt/virtucade/world_packs
+          chmod -R g+rwX /opt/virtucade/server /opt/virtucade/world_packs
           rm -f /tmp/virtucade-server.tar.gz /tmp/virtucade-world-packs.tar.gz
           sudo -n /usr/bin/systemctl start virtucade
           test "$(sudo -n /usr/bin/systemctl is-active virtucade)" = active
-          if [ -f /tmp/virtucade-Caddyfile ]; then
-            if ! cmp -s /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile; then
-              sudo -n /usr/bin/install -m 644 /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile
+          if [ -f "${caddyfile}" ]; then
+            if ! cmp -s "${caddyfile}" /etc/caddy/Caddyfile; then
+              sudo -n /usr/bin/install -m 644 "${caddyfile}" /etc/caddy/Caddyfile
               sudo -n /usr/bin/systemctl reload caddy || sudo -n /usr/bin/systemctl restart caddy
             fi
             test "$(sudo -n /usr/bin/systemctl is-active caddy)" = active
           fi
-          rm -f /tmp/virtucade-Caddyfile
+          rm -f "${caddyfile}"
           REMOTE
           echo "VPS_DEPLOY_DONE host=${VIRTUCADE_HOST} service=virtucade"
 

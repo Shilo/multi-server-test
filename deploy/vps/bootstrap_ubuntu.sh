@@ -9,6 +9,7 @@ APP_ROOT="/opt/virtucade"
 SERVICE_NAME="virtucade"
 DEPLOY_USER="deploy"
 CI_USER="github-deploy"
+RUN_USER="virtucade-run"
 APP_GROUP="virtucade"
 SERVER_BINARY="multi-server-test.x86_64"
 WORLD_PACK_BASE_URL="https://shilo.github.io/multi-server-test/world_packs"
@@ -17,7 +18,6 @@ CLIENT_SCHEME="ws"
 DEPLOY_PUBLIC_KEY_FILE=""
 CI_PUBLIC_KEY_FILE=""
 RUN_UPGRADE="true"
-INSTALL_CADDY="true"
 SET_DEPLOY_PASSWORD="auto"
 
 usage() {
@@ -35,7 +35,6 @@ Options:
   --client-scheme SCHEME          Direct-test scheme, default: ws.
   --world-pack-base-url URL       Public world pack URL, default: GitHub Pages path.
   --no-upgrade                    Skip apt upgrade; still installs required packages.
-  --no-caddy                      Skip Caddy installation.
   --set-deploy-password           Prompt for the deploy user's sudo password.
   --no-deploy-password            Do not prompt for a deploy password.
   -h, --help                      Show this help.
@@ -81,10 +80,6 @@ while [ "$#" -gt 0 ]; do
 			;;
 		--no-upgrade)
 			RUN_UPGRADE="false"
-			shift
-			;;
-		--no-caddy)
-			INSTALL_CADDY="false"
 			shift
 			;;
 		--set-deploy-password)
@@ -174,10 +169,6 @@ configure_packages() {
 }
 
 install_caddy() {
-	if [ "$INSTALL_CADDY" != "true" ]; then
-		log "Skipping Caddy"
-		return
-	fi
 	if command -v caddy >/dev/null 2>&1; then
 		log "Caddy already installed"
 	else
@@ -198,12 +189,18 @@ configure_users() {
 	log "Creating deploy users"
 	ensure_user "$DEPLOY_USER"
 	ensure_user "$CI_USER"
+	if id "$RUN_USER" >/dev/null 2>&1; then
+		log "User exists: $RUN_USER"
+	else
+		useradd --system --home "$APP_ROOT/data" --shell /usr/sbin/nologin "$RUN_USER"
+	fi
 	usermod -aG sudo "$DEPLOY_USER"
 	if ! getent group "$APP_GROUP" >/dev/null 2>&1; then
 		groupadd "$APP_GROUP"
 	fi
 	usermod -aG "$APP_GROUP" "$DEPLOY_USER"
 	usermod -aG "$APP_GROUP" "$CI_USER"
+	usermod -aG "$APP_GROUP" "$RUN_USER"
 	install_authorized_keys "$DEPLOY_USER" "$DEPLOY_PUBLIC_KEY_FILE"
 	install_authorized_keys "$CI_USER" "$CI_PUBLIC_KEY_FILE"
 
@@ -230,9 +227,10 @@ EOF
 
 configure_app_folders() {
 	log "Creating app folders"
-	mkdir -p "$APP_ROOT/server" "$APP_ROOT/data" "$APP_ROOT/logs" "$APP_ROOT/world_packs"
-	chown -R "$DEPLOY_USER:$APP_GROUP" "$APP_ROOT"
-	find "$APP_ROOT" -type d -exec chmod 2775 {} \;
+	install -d -m 2775 -o "$DEPLOY_USER" -g "$APP_GROUP" "$APP_ROOT"
+	install -d -m 2775 -o "$DEPLOY_USER" -g "$APP_GROUP" "$APP_ROOT/server" "$APP_ROOT/world_packs" "$APP_ROOT/caddy"
+	install -d -m 0750 -o "$RUN_USER" -g "$RUN_USER" "$APP_ROOT/data"
+	install -d -m 2750 -o "$RUN_USER" -g "$APP_GROUP" "$APP_ROOT/logs"
 }
 
 write_service() {
@@ -251,7 +249,7 @@ ConditionPathIsExecutable=${APP_ROOT}/server/${SERVER_BINARY}
 
 [Service]
 Type=simple
-User=${DEPLOY_USER}
+User=${RUN_USER}
 WorkingDirectory=${APP_ROOT}/server
 ${client_lines}
 Environment=MULTI_SERVER_WORLD_PACK_DIR=${APP_ROOT}/world_packs
@@ -274,7 +272,7 @@ write_sudoers() {
 	local temp_sudoers=""
 	temp_sudoers="$(mktemp)"
 	cat > "$temp_sudoers" <<EOF
-${CI_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl start ${SERVICE_NAME}, /usr/bin/systemctl stop ${SERVICE_NAME}, /usr/bin/systemctl restart ${SERVICE_NAME}, /usr/bin/systemctl is-active ${SERVICE_NAME}, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /tmp/${APP_NAME}-Caddyfile, /usr/bin/install -m 644 /tmp/${APP_NAME}-Caddyfile /etc/caddy/Caddyfile
+${CI_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl start ${SERVICE_NAME}, /usr/bin/systemctl stop ${SERVICE_NAME}, /usr/bin/systemctl restart ${SERVICE_NAME}, /usr/bin/systemctl is-active ${SERVICE_NAME}, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile, /usr/bin/install -m 644 ${APP_ROOT}/caddy/${APP_NAME}-Caddyfile /etc/caddy/Caddyfile
 EOF
 	visudo -cf "$temp_sudoers" >/dev/null
 	install -m 440 -o root -g root "$temp_sudoers" "/etc/sudoers.d/${APP_NAME}-github-deploy"
@@ -289,10 +287,8 @@ validate_setup() {
 	test -d "$APP_ROOT/server"
 	test -d "$APP_ROOT/world_packs"
 	test "$(systemctl is-enabled "$SERVICE_NAME")" = "enabled"
-	if [ "$INSTALL_CADDY" = "true" ]; then
-		command -v caddy >/dev/null
-		test "$(systemctl is-enabled caddy)" = "enabled"
-	fi
+	command -v caddy >/dev/null
+	test "$(systemctl is-enabled caddy)" = "enabled"
 	if [ -f /var/run/reboot-required ]; then
 		log "Reboot is recommended before first deploy."
 	fi

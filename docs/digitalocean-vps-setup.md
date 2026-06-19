@@ -33,6 +33,7 @@ Inbound:
   TCP 22          from all IPv4/IPv6 if GitHub Actions deploys over SSH
   TCP 80          from all IPv4/IPv6 for Caddy HTTP->HTTPS and ACME
   TCP 443         from all IPv4/IPv6 for public WSS gameplay
+  TCP 19080-19180 from all IPv4/IPv6 only for temporary direct ws:// testing before DNS/WSS
 
 Outbound:
   allow all
@@ -41,6 +42,11 @@ Outbound:
 `19080` is the master server port. `19081+` is the world-server range. In the
 production reverse-proxy setup, those ports should be bound to `127.0.0.1` and
 should not be open publicly. Caddy is the public WSS edge on `443`.
+
+Before a real domain is configured, the deploy workflow advertises direct
+`ws://<VIRTUCADE_HOST>:19080+` URLs. For that temporary direct-IP test, open the
+Godot port range. After `VIRTUCADE_GAME_HOST` is configured and Caddy WSS works,
+close `19080-19180` publicly and keep only `80/443` plus SSH.
 
 GitHub-hosted Actions runners do not have one stable source IP. For the simple
 SSH deploy workflow in this repo, port `22` must be reachable from GitHub
@@ -123,9 +129,11 @@ What the script does:
 - updates apt packages and installs `curl`, `git`, `gpg`, `unzip`, and Caddy;
 - creates the human `deploy` sudo user;
 - creates the restricted `github-deploy` CI user;
+- creates the non-sudo `virtucade-run` runtime user that owns the Godot process;
 - installs only the public SSH keys you pass in;
 - creates `/opt/virtucade/server`, `/opt/virtucade/data`,
-  `/opt/virtucade/logs`, and `/opt/virtucade/world_packs`;
+  `/opt/virtucade/logs`, `/opt/virtucade/world_packs`, and
+  `/opt/virtucade/caddy`;
 - keeps `/opt/virtucade` group-writable by `deploy` and `github-deploy` so the
   existing GitHub deploy workflow can stage `server.next` and `world_packs.next`
   before swapping them into place;
@@ -185,6 +193,43 @@ After rebuilding a destroyed VPS, update both SSH host-key records:
 
 Then continue at [Add GitHub Actions Secrets](#13-add-github-actions-secrets).
 
+## Existing VPS Migration
+
+If the VPS was created manually before this bootstrap script existed, it can keep
+running as-is for direct `ws://` testing. Before testing the domain/Caddy WSS
+path, update it to match the current script:
+
+```bash
+id virtucade-run >/dev/null 2>&1 || sudo useradd --system --home /opt/virtucade/data --shell /usr/sbin/nologin virtucade-run
+sudo groupadd --force virtucade
+sudo usermod -aG virtucade deploy
+sudo usermod -aG virtucade github-deploy
+sudo usermod -aG virtucade virtucade-run
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade/server /opt/virtucade/world_packs /opt/virtucade/caddy
+sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
+sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
+sudo chgrp -R virtucade /opt/virtucade/server /opt/virtucade/world_packs
+sudo chmod -R g+rwX /opt/virtucade/server /opt/virtucade/world_packs
+```
+
+Then edit `/etc/systemd/system/virtucade.service` so the service runs as:
+
+```ini
+User=virtucade-run
+```
+
+Update `/etc/sudoers.d/virtucade-github-deploy` so the Caddy commands use:
+
+```text
+/opt/virtucade/caddy/virtucade-Caddyfile
+```
+
+Reload systemd after editing:
+
+```bash
+sudo systemctl daemon-reload
+```
+
 ## 4. Manual Setup Fallback
 
 The remaining steps document the manual path we used originally. Prefer the
@@ -225,6 +270,7 @@ While logged in as `root`:
 ```bash
 adduser deploy
 usermod -aG sudo deploy
+useradd --system --home /opt/virtucade/data --shell /usr/sbin/nologin virtucade-run
 mkdir -p /home/deploy/.ssh
 cp /root/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
 chown -R deploy:deploy /home/deploy/.ssh
@@ -309,8 +355,11 @@ ports. The Godot master does not start, stop, or reload Caddy.
 ```bash
 sudo groupadd --force virtucade
 sudo usermod -aG virtucade deploy
+sudo usermod -aG virtucade virtucade-run
 sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade
-sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade/server /opt/virtucade/data /opt/virtucade/logs /opt/virtucade/world_packs
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade/server /opt/virtucade/world_packs /opt/virtucade/caddy
+sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
+sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
 ```
 
 Layout:
@@ -320,6 +369,7 @@ Layout:
 /opt/virtucade/data/     reserved app data folder for future explicit persistence wiring
 /opt/virtucade/logs/     service logs
 /opt/virtucade/world_packs/ optional local mirror for server-side pack metadata
+/opt/virtucade/caddy/    GitHub-uploaded Caddyfile before root validates/installs it
 ```
 
 ## 9. Create The Master Server Service
@@ -340,7 +390,7 @@ ConditionPathIsExecutable=/opt/virtucade/server/multi-server-test.x86_64
 
 [Service]
 Type=simple
-User=deploy
+User=virtucade-run
 WorkingDirectory=/opt/virtucade/server
 Environment=MULTI_SERVER_CLIENT_HOST=<VPS_IP_OR_DOMAIN>
 Environment=MULTI_SERVER_CLIENT_SCHEME=ws
@@ -384,8 +434,6 @@ file includes:
 MULTI_SERVER_BIND_HOST=127.0.0.1
 MULTI_SERVER_PUBLIC_MASTER_URL=wss://<GAME_HOST>/
 MULTI_SERVER_PUBLIC_WORLD_URL_TEMPLATE=wss://<GAME_HOST>/{world_key}
-MULTI_SERVER_CLIENT_HOST=<GAME_HOST>
-MULTI_SERVER_CLIENT_SCHEME=wss
 MULTI_SERVER_WORLD_PACK_DIR=/opt/virtucade/world_packs
 MULTI_SERVER_WORLD_PACK_BASE_URL=https://shilo.github.io/multi-server-test/world_packs
 ```
@@ -416,11 +464,14 @@ sudo adduser --disabled-password --gecos "" github-deploy
 sudo groupadd --force virtucade
 sudo usermod -aG virtucade deploy
 sudo usermod -aG virtucade github-deploy
-sudo chown -R deploy:virtucade /opt/virtucade
-sudo find /opt/virtucade -type d -exec chmod 2775 {} \;
+sudo usermod -aG virtucade virtucade-run
+sudo install -d -m 2775 -o deploy -g virtucade /opt/virtucade /opt/virtucade/server /opt/virtucade/world_packs /opt/virtucade/caddy
+sudo install -d -m 0750 -o virtucade-run -g virtucade-run /opt/virtucade/data
+sudo install -d -m 2750 -o virtucade-run -g virtucade /opt/virtucade/logs
 ```
 
-Allow only service control for the CI user:
+Allow only the commands needed by the CI user: service control plus validating
+and installing the generated Caddyfile:
 
 ```bash
 sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
@@ -429,7 +480,7 @@ sudo visudo -f /etc/sudoers.d/virtucade-github-deploy
 Paste:
 
 ```text
-github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /tmp/virtucade-Caddyfile, /usr/bin/install -m 644 /tmp/virtucade-Caddyfile /etc/caddy/Caddyfile
+github-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start virtucade, /usr/bin/systemctl stop virtucade, /usr/bin/systemctl restart virtucade, /usr/bin/systemctl is-active virtucade, /usr/bin/systemctl reload caddy, /usr/bin/systemctl restart caddy, /usr/bin/systemctl is-active caddy, /usr/bin/caddy validate --config /opt/virtucade/caddy/virtucade-Caddyfile, /usr/bin/install -m 644 /opt/virtucade/caddy/virtucade-Caddyfile /etc/caddy/Caddyfile
 ```
 
 ## 11. Create The GitHub Actions SSH Key
@@ -526,11 +577,13 @@ Only the private key without `.pub` goes into `VIRTUCADE_SSH_KEY`. Never paste
 your personal DigitalOcean private key into GitHub.
 
 Create `VIRTUCADE_KNOWN_HOSTS` from your PC after you have successfully SSH'd
-into the VPS at least once:
+into the VPS at least once. Use the exact same host value you put in
+`VIRTUCADE_HOST`; if Actions connects to a DNS name, collect the DNS host key,
+not only the raw IP:
 
 ```powershell
-ssh-keygen -F <VPS_IP>
-ssh-keygen -F <VPS_IP> | Select-String -NotMatch "^#" | ForEach-Object { $_.Line } | Set-Clipboard
+ssh-keygen -F <VIRTUCADE_HOST>
+ssh-keygen -F <VIRTUCADE_HOST> | Select-String -NotMatch "^#" | ForEach-Object { $_.Line } | Set-Clipboard
 ```
 
 Paste the copied non-comment host-key lines into the secret. They usually look
