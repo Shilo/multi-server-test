@@ -60,11 +60,14 @@ def render(host: str, acme_email: str = "") -> str:
     text = text.replace("{$GLOBAL_OPTIONS_BLOCK}", global_options_block)
     text = text.replace("{$GAME_HOST}", clean_host)
     text = text.replace("{$WORLD_ROUTE_BLOCK}", "\n\n".join(route_blocks))
-    return text
+    return text.lstrip("\n")
 
 
 def self_test() -> None:
     output = render("game.example.test", "admin@example.test")
+    output_without_global_options = render("game.example.test")
+    if output_without_global_options.startswith("\n"):
+        raise SystemExit("Rendered Caddyfile must not start with a blank line")
     expected = [
         "game.example.test {",
         "email admin@example.test",
